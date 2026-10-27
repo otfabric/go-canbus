@@ -432,7 +432,9 @@ func (c *Conn) doWrite(fd uintptr) bool {
 // messages without allocating (syscall.ParseSocketControlMessage would).
 func (c *Conn) parseControl(oob []byte, f *canbus.Frame) {
 	const hdr = int(unsafe.Sizeof(syscall.Cmsghdr{}))
-	align := func(n int) int { return (n + int(unsafe.Sizeof(uintptr(0))) - 1) &^ (int(unsafe.Sizeof(uintptr(0))) - 1) }
+	align := func(n int) int {
+		return (n + int(unsafe.Sizeof(uintptr(0))) - 1) &^ (int(unsafe.Sizeof(uintptr(0))) - 1)
+	}
 	for len(oob) >= hdr {
 		h := (*syscall.Cmsghdr)(unsafe.Pointer(&oob[0]))
 		l := int(h.Len)

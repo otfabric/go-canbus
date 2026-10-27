@@ -34,13 +34,13 @@ type State uint8
 
 // Bus states.
 const (
-	StateUnknown      State = iota
-	StateActive             // running; controller error active (or no report)
-	StateWarning            // error warning (an error counter reached 96)
-	StatePassive            // error passive (an error counter reached 128)
-	StateBusOff             // bus off
-	StateDown               // the interface is down
-	StateClosed             // closed by the application
+	StateUnknown State = iota
+	StateActive        // running; controller error active (or no report)
+	StateWarning       // error warning (an error counter reached 96)
+	StatePassive       // error passive (an error counter reached 128)
+	StateBusOff        // bus off
+	StateDown          // the interface is down
+	StateClosed        // closed by the application
 )
 
 // String names the state.
