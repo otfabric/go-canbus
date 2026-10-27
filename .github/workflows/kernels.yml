@@ -1,0 +1,52 @@
+name: Kernels
+run-name: "Kernels (${{ github.event_name }}) on ${{ github.ref_name }} by @${{ github.actor }}"
+
+# Runs the SocketCAN, netlink and kernel ISO-TP tests in virtme-ng microVMs
+# (QEMU/KVM) booted with kernels other than the runner's: the stock Ubuntu
+# generic kernel (all CAN modules, unlike the runner's Azure kernel) and
+# mainline LTS and current releases from kernel.ubuntu.com. A guest boots
+# in seconds and shares the host file system read-only. amd64 only:
+# GitHub's arm64 runners have no /dev/kvm.
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  microvm:
+    name: microVM (${{ matrix.kernel }})
+    runs-on: ubuntu-24.04   # arm64 runners have no /dev/kvm
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        kernel: [ubuntu-generic, v6.1, v6.6, v6.12, v6.18]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: KVM and tools
+        run: |
+          sudo chmod 666 /dev/kvm
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq qemu-system-x86 qemu-utils busybox-static udev >/dev/null
+          pipx install virtme-ng
+      - name: Kernel ${{ matrix.kernel }}
+        run: |
+          mkdir -p /tmp/k && cd /tmp/k
+          if [ "${{ matrix.kernel }}" = ubuntu-generic ]; then
+            ver=$(apt-cache depends linux-image-generic | sed -n 's/.*linux-image-\([0-9].*-generic\)$/\1/p' | head -1)
+            apt-get download "linux-image-unsigned-$ver" "linux-modules-$ver" "linux-modules-extra-$ver"
+            for d in *.deb; do dpkg-deb -x "$d" root; done
+          else
+            "$GITHUB_WORKSPACE/scripts/mainline-kernel.sh" "${{ matrix.kernel }}" /tmp/k
+            ver=$(ls root/lib/modules)
+          fi
+          sudo depmod -b /tmp/k/root "$ver"
+          echo "KVER=$ver" >> "$GITHUB_ENV"
+      - name: Tests in the microVM
+        run: scripts/microvm-test.sh "/tmp/k/root/boot/vmlinuz-$KVER" /tmp/k/root

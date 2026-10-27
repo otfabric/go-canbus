@@ -1,0 +1,68 @@
+name: Interop
+run-name: "Interop (${{ github.event_name }}) on ${{ github.ref_name }} by @${{ github.actor }}"
+
+# Runs go-canbus against the independent implementations of
+# otfabric/canbus-interop on a vcan interface: can-utils and the kernel's
+# ISO-TP, python-can, socketcan-rs, Scapy, python-can-isotp, cantools and
+# canmatrix. The images of canbus-interop v0.1.0 are pulled by digest
+# (interop/harness_test.go); nothing of canbus-interop is built here.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  interop:
+    name: Interop (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: amd64, runner: ubuntu-24.04 }
+          - { arch: arm64, runner: ubuntu-24.04-arm }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Load the CAN modules and create vcan0
+        id: modules
+        run: |
+          scripts/ci-can-modules.sh
+          if lsmod | grep -q can_isotp; then echo "isotp=1" >> "$GITHUB_OUTPUT"; fi
+          sudo ip link add vcan0 type vcan
+          sudo ip link set vcan0 mtu 72 up
+      - name: Interop suite
+        env:
+          CANBUS_REQUIRE_ISOTP: ${{ steps.modules.outputs.isotp }}
+        run: make interop
+      - name: Summary
+        if: always()
+        run: |
+          [ -f bin/interop-report.json ] || exit 0
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json, collections
+          d = json.load(open("bin/interop-report.json"))
+          c = collections.Counter(r["result"] for r in d["results"])
+          print("## Interop results\n")
+          print(", ".join(f"{k}: {v}" for k, v in sorted(c.items())) + "\n")
+          print("| Adapter | Scenario | Result |\n|---|---|---|")
+          for r in d["results"]:
+              if r["result"] != "known-difference":
+                  print(f"| {r['adapter']} | {r['scenario']} | {r['result']} |")
+          PY
+      - name: Upload the report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: interop-report-${{ matrix.arch }}
+          path: bin/interop-report.json
+          if-no-files-found: warn
