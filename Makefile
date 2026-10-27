@@ -71,8 +71,10 @@ vuln: ## Run govulncheck
 test: ## Run the tests with the race detector (SocketCAN tests skip without vcan0)
 	@go test -count=1 -race $(TEST_PKGS)
 
+# Packages share vcan0/vcan1: on Linux they run one at a time (-p 1), or
+# one package's traffic disturbs another's (a chaos bridge forwards it all).
 test-vcan: ## Run the tests on Linux, failing instead of skipping when vcan0 is missing
-	@CANBUS_REQUIRE_VCAN=1 go test -count=1 -race $(TEST_PKGS)
+	@CANBUS_REQUIRE_VCAN=1 go test -p 1 -count=1 -race $(TEST_PKGS)
 
 test-admin: ## Run the netlink administration tests (Linux, needs sudo)
 	@go test -c -o $(BIN_DIR)/link.test ./socketcan/link
@@ -96,7 +98,7 @@ e2e: ## Run the end-to-end suite (on Linux with vcan0 also over SocketCAN and th
 	@go test -count=1 -race ./e2e
 
 coverage: ## Run the tests with coverage across the library packages (writes coverage.out)
-	@go test -count=1 -race -covermode=atomic -coverpkg=$(COVER_PKGS) -coverprofile=coverage.out $(TEST_PKGS)
+	@go test -p 1 -count=1 -race -covermode=atomic -coverpkg=$(COVER_PKGS) -coverprofile=coverage.out $(TEST_PKGS)
 	@go tool cover -func=coverage.out | tail -1
 
 coverage-check: coverage ## Fail when total coverage is below COVER_MIN (meaningful on Linux with vcan0)

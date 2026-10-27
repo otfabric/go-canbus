@@ -11,9 +11,11 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"github.com/otfabric/go-canbus"
@@ -32,6 +34,7 @@ const (
 	isotpTxPadding  = 0x004
 	isotpRxExtAddr  = 0x200
 	isotpForceTxSTm = 0x080
+	isotpWaitTxDone = 0x400
 )
 
 // ISOTPConn is a kernel ISO-TP socket (CAN_ISOTP, Linux ≥ 5.10 or the
@@ -75,12 +78,10 @@ func DialISOTP(ifname string, cfg isotp.Config) (*ISOTPConn, error) {
 	}()
 	// struct can_isotp_options
 	opts := make([]byte, 12)
-	// Not CAN_ISOTP_WAIT_TX_DONE: the kernel would wait for the transfer
-	// inside sendmsg, interruptibly. Go's runtime signals threads (SIGURG
-	// preemption); the wait then aborts the transfer, and the restarted
-	// syscall (SA_RESTART) sends the whole message again. Send waits for
-	// completion through poll instead.
-	flags := uint32(0)
+	// CAN_ISOTP_WAIT_TX_DONE: sendmsg returns when the transfer is done
+	// and reports its error. The kernel waits interruptibly, so Send
+	// blocks signals on its thread for the duration (see Send).
+	flags := uint32(isotpWaitTxDone)
 	if cfg.ListenOnly {
 		flags |= isotpListenMode
 	}
@@ -190,6 +191,14 @@ func (c *ISOTPConn) finish(ctx context.Context, op string, err error) error {
 
 // Send transmits one message and returns when the kernel has finished
 // the transfer (or failed it: no flow control, overflow).
+//
+// The kernel waits for the transfer inside sendmsg, interruptibly. Go's
+// runtime signals its threads (SIGURG, for preemption); a signal would
+// abort the transfer, and the syscall, restarted (SA_RESTART), would send
+// the whole message again. Send therefore runs the write on a locked OS
+// thread with all signals blocked; they are delivered when it returns.
+// The write cannot be cancelled once started: ctx is checked before, and
+// the kernel's own timeouts (N_Bs, 1 s per flow control) bound it.
 func (c *ISOTPConn) Send(ctx context.Context, payload []byte) error {
 	if c.closed.Load() {
 		return canbus.ErrClosed
@@ -199,58 +208,48 @@ func (c *ISOTPConn) Send(ctx context.Context, payload []byte) error {
 	}
 	c.wmu.Lock()
 	defer c.wmu.Unlock()
-	stop := watch(ctx, c.file, false)
-	defer stop()
-	// The write starts the transfer and returns; EAGAIN means an earlier
-	// transfer is still running (the poller waits for it).
-	var werr error
-	err := c.rc.Write(func(fd uintptr) bool {
-		_, werr = syscall.Write(int(fd), payload)
-		return werr != syscall.EAGAIN
-	})
-	if err == nil {
-		err = werr
-	}
-	if err != nil {
-		return c.finish(ctx, "send", err)
-	}
-	// The socket polls writable again once the transmitter is idle.
-	err = c.rc.Write(func(fd uintptr) bool { return writable(fd) })
-	if err != nil {
-		return c.finish(ctx, "send", err)
-	}
-	// A failed transfer leaves its error on the socket.
-	var serr error
-	if cerr := c.rc.Control(func(fd uintptr) {
-		v, gerr := syscall.GetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_ERROR)
-		switch {
-		case gerr != nil:
-			serr = gerr
-		case v != 0:
-			serr = syscall.Errno(v)
+	backoff := 100 * time.Microsecond
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
 		}
-	}); cerr != nil {
-		return c.finish(ctx, "send", cerr)
+		var werr error
+		if err := c.rc.Control(func(fd uintptr) { werr = writeSignalsBlocked(int(fd), payload) }); err != nil {
+			return c.finish(ctx, "send", err)
+		}
+		if werr == syscall.EAGAIN { // the transmitter is busy (another writer)
+			t := time.NewTimer(backoff)
+			select {
+			case <-ctx.Done():
+				t.Stop()
+				return ctx.Err()
+			case <-t.C:
+			}
+			backoff = min(2*backoff, 10*time.Millisecond)
+			continue
+		}
+		if werr != nil {
+			return c.finish(ctx, "send", werr)
+		}
+		return nil
 	}
-	if serr != nil {
-		return c.finish(ctx, "send", serr)
-	}
-	return nil
 }
 
-// writable polls the descriptor for POLLOUT without blocking (ppoll with
-// a zero timeout; ppoll exists on every architecture, poll does not).
-func writable(fd uintptr) bool {
-	type pollfd struct {
-		fd      int32
-		events  int16
-		revents int16
+// writeSignalsBlocked writes on the current, locked OS thread with every
+// signal blocked (rt_sigprocmask), so the kernel's interruptible wait for
+// the transfer is not interrupted.
+func writeSignalsBlocked(fd int, p []byte) error {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	all := ^uint64(0)
+	var old uint64
+	const sigBlock, sigSetMask = 0, 2
+	if _, _, e := syscall.RawSyscall6(syscall.SYS_RT_SIGPROCMASK, sigBlock, uintptr(unsafe.Pointer(&all)), uintptr(unsafe.Pointer(&old)), 8, 0, 0); e != 0 {
+		return e
 	}
-	const pollOut = 0x4
-	p := pollfd{fd: int32(fd), events: pollOut}
-	var ts syscall.Timespec
-	n, _, e := syscall.Syscall6(syscall.SYS_PPOLL, uintptr(unsafe.Pointer(&p)), 1, uintptr(unsafe.Pointer(&ts)), 0, 0, 0)
-	return e == 0 && n == 1 && p.revents&pollOut != 0
+	_, err := syscall.Write(fd, p)
+	_, _, _ = syscall.RawSyscall6(syscall.SYS_RT_SIGPROCMASK, sigSetMask, uintptr(unsafe.Pointer(&old)), 0, 8, 0, 0)
+	return err
 }
 
 // Receive returns the next message or a reception error reported by the
