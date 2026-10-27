@@ -99,6 +99,9 @@ func toCaptureJSONL(t *testing.T, docs []byte) []byte {
 // TestLogFixturesRead reads the ASC and BLF files python-can wrote
 // (fixtures/logs) with go-canbus: every frame must come back.
 func TestLogFixturesRead(t *testing.T) {
+	if !caps(t, "pythoncan").has("log-convert") {
+		t.Skip("the pinned canbus-interop images predate contract 1.1 (no log fixtures)")
+	}
 	want := fixtureFrames(t)
 	for _, c := range []struct {
 		file   string
@@ -118,6 +121,9 @@ func TestLogFixturesRead(t *testing.T) {
 // TestLogConvert: go-canbus writes ASC, BLF and candump logs that
 // python-can reads back unchanged, and reads what python-can writes.
 func TestLogConvert(t *testing.T) {
+	if !caps(t, "pythoncan").has("log-convert") {
+		t.Skip("the pinned canbus-interop images predate contract 1.1")
+	}
 	want := fixtureFrames(t)
 	for _, c := range []struct {
 		ext     string
