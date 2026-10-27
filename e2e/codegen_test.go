@@ -42,9 +42,18 @@ func TestGeneratedModules(t *testing.T) {
 		pkg   string
 		parse func() (*candb.Database, error)
 	}{
-		{"fromdbc", func() (*candb.Database, error) { db, _, err := dbc.ParseFile("../dbc/testdata/full.dbc"); return db, err }},
-		{"fromkcd", func() (*candb.Database, error) { db, _, err := kcd.ParseFile("../kcd/testdata/sample.kcd"); return db, err }},
-		{"fromarxml", func() (*candb.Database, error) { db, _, err := arxml.ParseFile("../arxml/testdata/system.arxml"); return db, err }},
+		{"fromdbc", func() (*candb.Database, error) {
+			db, _, err := dbc.ParseFile("../dbc/testdata/full.dbc")
+			return db, err
+		}},
+		{"fromkcd", func() (*candb.Database, error) {
+			db, _, err := kcd.ParseFile("../kcd/testdata/sample.kcd")
+			return db, err
+		}},
+		{"fromarxml", func() (*candb.Database, error) {
+			db, _, err := arxml.ParseFile("../arxml/testdata/system.arxml")
+			return db, err
+		}},
 	}
 	var main strings.Builder
 	main.WriteString("package main\n\nimport (\n\t\"fmt\"\n\t\"os\"\n")
