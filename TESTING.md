@@ -10,6 +10,7 @@
 | Fuzzing | any OS | `make fuzz FUZZTIME=30s` |
 | Golden code generation | any OS | `make generate-check` |
 | Interoperability with independent stacks | Linux, Docker, vcan0 | `make interop` (see [INTEROPERABILITY.md](INTEROPERABILITY.md)) |
+| SocketCAN tests under another kernel (microVM) | Linux with KVM, virtme-ng | `make microvm KERNEL=v6.12`; CI: the Kernels workflow (Ubuntu generic, mainline 6.1, 6.6, 6.12, 6.18). See docs/MICROVM.md |
 | Everything above except vcan/interop | any OS | `make check` |
 
 Tests that need vcan **skip** without it, so a plain `go test ./...` passes

@@ -5,6 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI Status](https://github.com/otfabric/go-canbus/actions/workflows/ci.yml/badge.svg)](https://github.com/otfabric/go-canbus/actions/workflows/ci.yml)
 [![Interop](https://github.com/otfabric/go-canbus/actions/workflows/interop.yml/badge.svg)](https://github.com/otfabric/go-canbus/actions/workflows/interop.yml)
+[![Kernels](https://github.com/otfabric/go-canbus/actions/workflows/kernels.yml/badge.svg)](https://github.com/otfabric/go-canbus/actions/workflows/kernels.yml)
 [![Code Coverage](https://codecov.io/gh/otfabric/go-canbus/graph/badge.svg)](https://codecov.io/gh/otfabric/go-canbus)
 
 A pure Go library for Controller Area Network: classical CAN and CAN FD

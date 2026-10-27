@@ -46,6 +46,11 @@
 - vcan is a perfect medium: tests on it prove interoperability of frame
   encoding and protocol logic, not electrical or timing behaviour.
 - Kernel drop counts arrive with the next queued frame (SO_RXQ_OVFL).
+- A userspace ISO-TP receiver that advertises STmin 0 must absorb a whole
+  block at bus speed. On a slow host its socket's receive queue can
+  overflow (seen with Ubuntu's 6.8 kernel in a 2-vCPU microVM): open the
+  socket with `socketcan.WithReceiveBuffer(1 << 20)` or advertise a non-zero
+  STmin. The receiver reports the loss as `ErrSequence`, never as data.
 - A CAN identifier names a message, not a device; nothing identifies
   physical nodes.
 
