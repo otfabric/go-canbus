@@ -4,8 +4,8 @@ run-name: "Interop (${{ github.event_name }}) on ${{ github.ref_name }} by @${{ 
 # Runs go-canbus against the independent implementations of
 # otfabric/canbus-interop on a vcan interface: can-utils and the kernel's
 # ISO-TP, python-can, socketcan-rs, Scapy, python-can-isotp, cantools and
-# canmatrix. The images are built from canbus-interop's source at
-# INTEROP_REF until they are published; then they are pulled by digest.
+# canmatrix. The images of canbus-interop v0.1.0 are pulled by digest
+# (interop/harness_test.go); nothing of canbus-interop is built here.
 
 on:
   push:
@@ -40,11 +40,6 @@ jobs:
           if lsmod | grep -q can_isotp; then echo "isotp=1" >> "$GITHUB_OUTPUT"; fi
           sudo ip link add vcan0 type vcan
           sudo ip link set vcan0 mtu 72 up
-      - name: Build the canbus-interop images
-        env:
-          BASE_REGISTRY: mirror.gcr.io/library
-          TOOLS_REGISTRY: mirror.gcr.io
-        run: make interop-images
       - name: Interop suite
         env:
           CANBUS_REQUIRE_ISOTP: ${{ steps.modules.outputs.isotp }}

@@ -5,7 +5,7 @@ go-canbus is tested against independent implementations published by
 its container contract only (no code of those stacks is linked or vendored).
 The suite is `interop/` (build tag `interop`), run with `make interop` on
 Linux with Docker and `vcan0`, and in CI by the Interop workflow on amd64 and
-arm64. It writes a result matrix (`bin/interop-report.json`): every scenario
+arm64, against the published images of canbus-interop v0.1.0 pinned by digest in `interop/harness_test.go`. It writes a result matrix (`bin/interop-report.json`): every scenario
 is `pass`, `fail`, `skip` (with the reason) or, for individual frames,
 `known-difference` (with the reason below). A skipped scenario is never
 counted as passed.
@@ -33,7 +33,7 @@ implementations of the protocol.
 ## Results
 
 Run 2026-10-27 on Ubuntu (kernel 7.0, vcan0 MTU 72, can-isotp loaded) with
-the canbus-interop images of branch feat/adapters (`make interop`):
+the canbus-interop images (`make interop`; since v0.1.0 they are the published images, pinned by digest, in CI on amd64 and arm64 with the same result):
 **120 scenarios passed, 0 failed, 4 skipped**, 66 frames with a known
 difference.
 

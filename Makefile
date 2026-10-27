@@ -129,11 +129,12 @@ cross: ## Build every package for the release platforms
 	@for t in linux/amd64 linux/arm64 linux/arm darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do \
 		echo "build $$t"; GOOS=$${t%/*} GOARCH=$${t#*/} go build ./... || exit 1; done
 
-# Reference implementations of otfabric/canbus-interop (interop/harness_test.go;
-# see INTEROPERABILITY.md). Until canbus-interop publishes its images,
-# interop-images builds them from its source at INTEROP_REF.
-INTEROP_REF ?= feat/adapters
-interop-images: ## Build the canbus-interop images from source (needs Docker)
+# Reference implementations: otfabric/canbus-interop v0.1.0, pinned by digest
+# in interop/harness_test.go (see INTEROPERABILITY.md). interop-images
+# builds canbus-interop's source at INTEROP_REF as :dev images, to test
+# unreleased adapters (CANBUS_INTEROP_<ADAPTER>_IMAGE=...:dev).
+INTEROP_REF ?= main
+interop-images: ## Build the canbus-interop images from source as :dev (needs Docker)
 	@rm -rf $(BIN_DIR)/canbus-interop && mkdir -p $(BIN_DIR)
 	@git clone -q --depth 1 --branch $(INTEROP_REF) https://github.com/otfabric/canbus-interop.git $(BIN_DIR)/canbus-interop
 	@$(MAKE) -C $(BIN_DIR)/canbus-interop images REGISTRY=ghcr.io/otfabric VERSION=dev
