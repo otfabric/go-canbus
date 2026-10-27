@@ -3,18 +3,13 @@
 Durable state of the CAN bus ecosystem work (go-canbus, canbus-interop,
 canbusctl). Newest first within each section.
 
-## Status (2026-10-27)
+## Status (2026-10-27): released
 
-| Repo | Branch / PR | State |
-|------|-------------|-------|
-| go-canbus | feat/core | M1–M8 and M10 done: core, virtual, SocketCAN, netlink, capture, candb/dbc/kcd, codegen, ISO-TP (userspace + kernel + listen-only), examples, docs, CI (vcan jobs), interop suite and workflow, website proposal (docs/WEBSITE-INTEGRATION.md). |
-| canbus-interop | feat/adapters, PR #1 | Adapters, schemas, fixtures, self-test, CI and release workflows built by a sub-agent; pending: Scapy `send --fd` sends classical documents as FD frames (reported). |
-| canbusctl | feat/cli, PR #1 | All command groups, CI green, 94.5 % coverage; follow-ups requested: float formatting, ListenOnly monitor, PhysText. |
-
-Measured in the Lima VM (Ubuntu, kernel 7.0, vcan0 MTU 72, can-isotp):
-library coverage 91.6 %; interop 120 pass / 0 fail / 4 skip (capability
-gaps), 66 frames with documented known differences (INTEROPERABILITY.md);
-SocketCAN send+receive 0 allocs/op.
+| Repo | Release | Notes |
+|------|---------|-------|
+| go-canbus | v0.1.0 | CI, Interop (canbus-interop v0.1.0 by digest, amd64+arm64: 120 pass / 0 fail / 4 capability skips) and Kernels (microVMs: Ubuntu 6.8, mainline 6.1–6.18) green |
+| canbus-interop | v0.1.0 | 7 public multi-arch GHCR images; self-test 326 pass / 4 known / 9 skip |
+| canbusctl | v0.1.0 | 7 binaries; on go-canbus v0.1.0; 94.5 % coverage |
 
 ## Decisions
 
@@ -33,6 +28,10 @@ SocketCAN send+receive 0 allocs/op.
   EILSEQ = sequence, EBADMSG = bad FC.
 - Coverage is measured in the CI vcan job; can-isotp is built out of tree
   on runner kernels without it (scripts/ci-can-modules.sh).
+- MicroVMs (docs/MICROVM.md): virtme-ng on GitHub amd64 runners (KVM);
+  arm64 runners have no /dev/kvm. Found that a userspace ISO-TP receiver at
+  STmin 0 can overflow its socket (Ubuntu 6.8 guest): tests use a 1 MiB
+  receive buffer; LIMITATIONS.md says so.
 - Known differences (not defects): cantools rejects multiplexer values that
   select no signal; canmatrix rejects payloads longer than the message and
   cannot encode extended multiplexing.
@@ -47,11 +46,8 @@ SocketCAN send+receive 0 allocs/op.
 
 ## Next actions
 
-1. Get all three PRs green, then merge in order: canbus-interop → go-canbus
-   → canbusctl.
-2. Release canbus-interop v0.1.0 (tag → GHCR images), pin the image digests
-   in go-canbus interop/harness_test.go (InteropRelease) and drop the
-   source build from the Interop workflow; release go-canbus v0.1.0; bump
-   canbusctl to it and release v0.1.0.
-3. Later: ARXML via pinned canmatrix conversion, vendor transports,
-   CANopen/J1939/UDS modules.
+1. Apply the microVM pattern to canbusctl and canbus-interop (replace the
+   out-of-tree can-isotp build), and to PROFINET/EtherNet/IP L2 tests.
+2. otfabric.io pages from docs/WEBSITE-INTEGRATION.md (not applied).
+3. ARXML via pinned canmatrix conversion; vendor transports; CANopen,
+   J1939 and UDS modules on canbus.Bus and isotp.
