@@ -264,3 +264,30 @@ func FuzzCodec(f *testing.F) {
 		}
 	})
 }
+
+func TestPhysText(t *testing.T) {
+	u := &Signal{Name: "U", Length: 64, Factor: 1}
+	if r, err := u.rawOf(PhysText("18446744073709551615"), EncodeOptions{}); err != nil || r != math.MaxUint64 {
+		t.Fatal(r, err)
+	}
+	if r, err := u.rawOf(PhysText("9007199254740993"), EncodeOptions{}); err != nil || r != 9007199254740993 {
+		t.Fatal("exactness above 2^53:", r, err)
+	}
+	s := &Signal{Name: "S", Length: 64, Signed: true, Factor: 1, Minimum: -10, Maximum: 10}
+	if r, err := s.rawOf(PhysText("-9"), EncodeOptions{}); err != nil || int64(r) != -9 {
+		t.Fatal(r, err)
+	}
+	if _, err := s.rawOf(PhysText("-11"), EncodeOptions{}); !errors.Is(err, ErrRange) {
+		t.Fatal(err)
+	}
+	if _, err := u.rawOf(PhysText("x"), EncodeOptions{}); !errors.Is(err, ErrRange) {
+		t.Fatal(err)
+	}
+	if _, err := (&Signal{Name: "R", Length: 8, Factor: 1, Maximum: 5}).rawOf(PhysText("6"), EncodeOptions{}); !errors.Is(err, ErrRange) {
+		t.Fatal(err)
+	}
+	scaled := &Signal{Name: "F", Length: 16, Factor: 0.5}
+	if r, err := scaled.rawOf(PhysText("2.5"), EncodeOptions{}); err != nil || r != 5 {
+		t.Fatal(r, err)
+	}
+}

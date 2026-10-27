@@ -295,7 +295,7 @@ func (m *Message) Decode(data []byte) ([]DecodedSignal, error) {
 
 // Input is a value to encode: physical, raw or a value description.
 type Input struct {
-	kind  uint8 // 0 physical, 1 raw unsigned, 2 raw signed, 3 label
+	kind  uint8 // 0 physical, 1 raw unsigned, 2 raw signed, 3 label, 4 physical text
 	phys  float64
 	raw   uint64
 	sraw  int64
@@ -313,6 +313,14 @@ func RawInt(v int64) Input { return Input{kind: 2, sraw: v} }
 
 // Label is a value description, encoded as its raw value.
 func Label(s string) Input { return Input{kind: 3, label: s} }
+
+// PhysText is a physical value given as decimal text (a JSON number, a
+// command-line argument). For an integer signal with factor 1 and offset
+// 0, an integer text is the raw value exactly, without passing through
+// float64, so 64-bit values keep every bit (as cantools' identity
+// conversion and canmatrix's decimal arithmetic do). Otherwise it is the
+// same as [Phys] of the parsed number.
+func PhysText(s string) Input { return Input{kind: 4, label: s} }
 
 // EncodeOptions control [Message.EncodeWith].
 type EncodeOptions struct {
@@ -341,6 +349,27 @@ func (s *Signal) rawOf(in Input, opts EncodeOptions) (uint64, error) {
 			return s.RawFromUint(uint64(in.sraw))
 		}
 		return s.RawFromInt(in.sraw)
+	case 4:
+		if s.ValueType == Integer && s.Factor == 1 && s.Offset == 0 {
+			if s.Signed {
+				if v, err := strconv.ParseInt(in.label, 10, 64); err == nil {
+					if !opts.Lax && !s.InRange(float64(v)) {
+						return 0, fmt.Errorf("%w: %s: %s outside [%v, %v]", ErrRange, s.Name, in.label, s.Minimum, s.Maximum)
+					}
+					return s.RawFromInt(v)
+				}
+			} else if v, err := strconv.ParseUint(in.label, 10, 64); err == nil {
+				if !opts.Lax && !s.InRange(float64(v)) {
+					return 0, fmt.Errorf("%w: %s: %s outside [%v, %v]", ErrRange, s.Name, in.label, s.Minimum, s.Maximum)
+				}
+				return s.RawFromUint(v)
+			}
+		}
+		f, err := strconv.ParseFloat(in.label, 64)
+		if err != nil {
+			return 0, fmt.Errorf("%w: %s: %q is not a number", ErrRange, s.Name, in.label)
+		}
+		return s.rawOf(Phys(f), opts)
 	case 3:
 		v, ok := s.LabelValue(in.label)
 		if !ok {

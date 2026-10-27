@@ -123,7 +123,7 @@ func hexNibble(c byte) (byte, bool) {
 //	<id>#<data>            classical, data as hex pairs, '.' separators allowed
 //	<id>#<data>_<dlc>      classical with 8 bytes and a raw DLC of 9..F
 //	<id>#R[<len>]          remote frame, optional DLC 0..8
-//	<id>##<flags><data>    CAN FD, flags nibble: 1 = BRS, 2 = ESI
+//	<id>##<flags><data>    CAN FD, flags nibble: 1 = BRS, 2 = ESI, 4 = FDF (ignored)
 //
 // <id> has 3 hex digits for a standard and 8 for an extended identifier;
 // an 8-digit identifier with bit 29 (0x20000000) set is an error frame.
@@ -170,8 +170,10 @@ func ParseFrame(s string, f *canbus.Frame) error {
 		if len(rest) < 2 {
 			return fmt.Errorf("frame %q: CAN FD flags nibble missing", s)
 		}
+		// The nibble is canfd_frame.flags: BRS 1, ESI 2 and, as can-utils
+		// since 2023 writes it, FDF 4 (implied by "##").
 		nib, ok := hexNibble(rest[1])
-		if !ok || nib > 3 {
+		if !ok {
 			return fmt.Errorf("frame %q: bad CAN FD flags %q", s, rest[1])
 		}
 		f.Flags |= canbus.FlagFD
