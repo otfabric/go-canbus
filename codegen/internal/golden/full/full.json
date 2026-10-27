@@ -1,0 +1,606 @@
+{
+  "generator": "go-canbus codegen 1",
+  "source": "full.dbc",
+  "sourceSha256": "af177bea745e821822a3ba523e1b048ef99059f640c0e8babb956a0d87051a9e",
+  "database": {
+    "version": "1.0 test",
+    "comment": "Network comment",
+    "nodes": [
+      {
+        "name": "ECU1",
+        "comment": "Engine control unit",
+        "attributes": [
+          {
+            "name": "NodeLayer",
+            "int": 16
+          }
+        ]
+      },
+      {
+        "name": "ECU2"
+      },
+      {
+        "name": "Gateway"
+      }
+    ],
+    "messages": [
+      {
+        "id": 100,
+        "name": "Engine",
+        "length": 8,
+        "senders": [
+          "ECU1",
+          "Gateway"
+        ],
+        "signals": [
+          {
+            "name": "Speed",
+            "startBit": 0,
+            "length": 16,
+            "byteOrder": "little_endian",
+            "valueType": "integer",
+            "factor": 0.125,
+            "offset": 0,
+            "minimum": 0,
+            "maximum": 8191.875,
+            "unit": "rpm",
+            "receivers": [
+              "ECU2",
+              "Gateway"
+            ],
+            "comment": "Engine speed\non two lines with a \"quote\"",
+            "initial": 0,
+            "attributes": [
+              {
+                "name": "Precision",
+                "float": 0.5
+              }
+            ]
+          },
+          {
+            "name": "Temp",
+            "startBit": 16,
+            "length": 8,
+            "byteOrder": "little_endian",
+            "signed": true,
+            "valueType": "integer",
+            "factor": 1,
+            "offset": -40,
+            "minimum": -40,
+            "maximum": 87,
+            "unit": "degC",
+            "receivers": [
+              "ECU2"
+            ],
+            "initial": 40,
+            "attributes": [
+              {
+                "name": "GenSigStartValue",
+                "int": 40
+              }
+            ]
+          },
+          {
+            "name": "Throttle",
+            "startBit": 31,
+            "length": 12,
+            "byteOrder": "big_endian",
+            "valueType": "integer",
+            "factor": 0.1,
+            "offset": 0,
+            "minimum": 0,
+            "maximum": 409.5,
+            "unit": "%",
+            "initial": 0
+          },
+          {
+            "name": "Mode",
+            "startBit": 32,
+            "length": 3,
+            "byteOrder": "little_endian",
+            "valueType": "integer",
+            "factor": 1,
+            "offset": 0,
+            "minimum": 0,
+            "maximum": 7,
+            "receivers": [
+              "ECU2"
+            ],
+            "values": [
+              {
+                "value": 0,
+                "description": "Off"
+              },
+              {
+                "value": 1,
+                "description": "Idle"
+              },
+              {
+                "value": 2,
+                "description": "Run"
+              },
+              {
+                "value": 7,
+                "description": "Fault"
+              }
+            ],
+            "initial": 0
+          },
+          {
+            "name": "Flag",
+            "startBit": 63,
+            "length": 1,
+            "byteOrder": "big_endian",
+            "valueType": "integer",
+            "factor": 1,
+            "offset": 0,
+            "minimum": 0,
+            "maximum": 1,
+            "receivers": [
+              "ECU2"
+            ],
+            "initial": 0
+          }
+        ],
+        "comment": "Engine data",
+        "cycleTime": 10,
+        "signalGroups": [
+          {
+            "name": "Group1",
+            "repetitions": 1,
+            "signals": [
+              "Speed",
+              "Temp"
+            ]
+          }
+        ],
+        "attributes": [
+          {
+            "name": "GenMsgCycleTime",
+            "int": 10
+          }
+        ]
+      },
+      {
+        "id": 419361278,
+        "extended": true,
+        "name": "Wide",
+        "length": 8,
+        "senders": [
+          "ECU2"
+        ],
+        "signals": [
+          {
+            "name": "U64",
+            "startBit": 0,
+            "length": 64,
+            "byteOrder": "little_endian",
+            "valueType": "integer",
+            "factor": 1,
+            "offset": 0,
+            "minimum": 0,
+            "maximum": 0,
+            "receivers": [
+              "ECU1"
+            ],
+            "initial": 0
+          }
+        ]
+      },
+      {
+        "id": 200,
+        "name": "SignedBE",
+        "length": 8,
+        "senders": [
+          "ECU2"
+        ],
+        "signals": [
+          {
+            "name": "S64",
+            "startBit": 7,
+            "length": 64,
+            "byteOrder": "big_endian",
+            "signed": true,
+            "valueType": "integer",
+            "factor": 1,
+            "offset": 0,
+            "minimum": 0,
+            "maximum": 0,
+            "receivers": [
+              "ECU1"
+            ],
+            "initial": 0
+          }
+        ]
+      },
+      {
+        "id": 300,
+        "name": "Floats",
+        "length": 12,
+        "fd": true,
+        "brs": true,
+        "senders": [
+          "Gateway"
+        ],
+        "signals": [
+          {
+            "name": "F32",
+            "startBit": 0,
+            "length": 32,
+            "byteOrder": "little_endian",
+            "signed": true,
+            "valueType": "float32",
+            "factor": 1,
+            "offset": 0,
+            "minimum": 0,
+            "maximum": 0,
+            "receivers": [
+              "ECU1"
+            ],
+            "initial": 0
+          },
+          {
+            "name": "F64",
+            "startBit": 39,
+            "length": 64,
+            "byteOrder": "big_endian",
+            "signed": true,
+            "valueType": "float64",
+            "factor": 2,
+            "offset": 1,
+            "minimum": 0,
+            "maximum": 0,
+            "receivers": [
+              "ECU1"
+            ],
+            "initial": 0
+          }
+        ]
+      },
+      {
+        "id": 400,
+        "name": "Muxed",
+        "length": 8,
+        "senders": [
+          "ECU1"
+        ],
+        "signals": [
+          {
+            "name": "Sel",
+            "startBit": 0,
+            "length": 8,
+            "byteOrder": "little_endian",
+            "valueType": "integer",
+            "factor": 1,
+            "offset": 0,
+            "minimum": 0,
+            "maximum": 255,
+            "receivers": [
+              "ECU2"
+            ],
+            "values": [
+              {
+                "value": 0,
+                "description": "PageA"
+              },
+              {
+                "value": 1,
+                "description": "PageB"
+              }
+            ],
+            "initial": 0,
+            "isMultiplexer": true
+          },
+          {
+            "name": "A",
+            "startBit": 8,
+            "length": 16,
+            "byteOrder": "little_endian",
+            "valueType": "integer",
+            "factor": 1,
+            "offset": 0,
+            "minimum": 0,
+            "maximum": 65535,
+            "receivers": [
+              "ECU2"
+            ],
+            "initial": 0,
+            "multiplexer": "Sel",
+            "muxValues": [
+              {
+                "low": 0,
+                "high": 0
+              }
+            ]
+          },
+          {
+            "name": "B",
+            "startBit": 8,
+            "length": 8,
+            "byteOrder": "little_endian",
+            "signed": true,
+            "valueType": "integer",
+            "factor": 1,
+            "offset": 0,
+            "minimum": -128,
+            "maximum": 127,
+            "receivers": [
+              "ECU2"
+            ],
+            "initial": 0,
+            "multiplexer": "Sel",
+            "muxValues": [
+              {
+                "low": 1,
+                "high": 1
+              }
+            ]
+          },
+          {
+            "name": "C",
+            "startBit": 56,
+            "length": 8,
+            "byteOrder": "little_endian",
+            "valueType": "integer",
+            "factor": 1,
+            "offset": 0,
+            "minimum": 0,
+            "maximum": 255,
+            "receivers": [
+              "ECU2"
+            ],
+            "initial": 0
+          }
+        ]
+      },
+      {
+        "id": 500,
+        "name": "ExtMux",
+        "length": 8,
+        "senders": [
+          "ECU1"
+        ],
+        "signals": [
+          {
+            "name": "Outer",
+            "startBit": 0,
+            "length": 4,
+            "byteOrder": "little_endian",
+            "valueType": "integer",
+            "factor": 1,
+            "offset": 0,
+            "minimum": 0,
+            "maximum": 15,
+            "receivers": [
+              "ECU2"
+            ],
+            "initial": 0,
+            "isMultiplexer": true
+          },
+          {
+            "name": "Inner",
+            "startBit": 4,
+            "length": 4,
+            "byteOrder": "little_endian",
+            "valueType": "integer",
+            "factor": 1,
+            "offset": 0,
+            "minimum": 0,
+            "maximum": 15,
+            "receivers": [
+              "ECU2"
+            ],
+            "initial": 0,
+            "isMultiplexer": true,
+            "multiplexer": "Outer",
+            "muxValues": [
+              {
+                "low": 1,
+                "high": 1
+              }
+            ]
+          },
+          {
+            "name": "Deep",
+            "startBit": 8,
+            "length": 8,
+            "byteOrder": "little_endian",
+            "valueType": "integer",
+            "factor": 1,
+            "offset": 0,
+            "minimum": 0,
+            "maximum": 255,
+            "receivers": [
+              "ECU2"
+            ],
+            "initial": 0,
+            "multiplexer": "Inner",
+            "muxValues": [
+              {
+                "low": 2,
+                "high": 2
+              },
+              {
+                "low": 5,
+                "high": 6
+              }
+            ]
+          },
+          {
+            "name": "Other",
+            "startBit": 8,
+            "length": 16,
+            "byteOrder": "little_endian",
+            "valueType": "integer",
+            "factor": 1,
+            "offset": 0,
+            "minimum": 0,
+            "maximum": 65535,
+            "receivers": [
+              "ECU2"
+            ],
+            "initial": 0,
+            "multiplexer": "Inner",
+            "muxValues": [
+              {
+                "low": 3,
+                "high": 4
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": 512,
+        "extended": true,
+        "name": "FdMsg",
+        "length": 64,
+        "fd": true,
+        "brs": true,
+        "senders": [
+          "ECU1"
+        ],
+        "signals": [
+          {
+            "name": "First",
+            "startBit": 0,
+            "length": 8,
+            "byteOrder": "little_endian",
+            "valueType": "integer",
+            "factor": 1,
+            "offset": 0,
+            "minimum": 0,
+            "maximum": 255,
+            "receivers": [
+              "ECU2"
+            ],
+            "initial": 0
+          },
+          {
+            "name": "Last",
+            "startBit": 511,
+            "length": 8,
+            "byteOrder": "big_endian",
+            "valueType": "integer",
+            "factor": 1,
+            "offset": 0,
+            "minimum": 0,
+            "maximum": 255,
+            "receivers": [
+              "ECU2"
+            ],
+            "initial": 0
+          }
+        ],
+        "attributes": [
+          {
+            "name": "VFrameFormat",
+            "int": 15
+          }
+        ]
+      }
+    ],
+    "valueTables": [
+      {
+        "name": "OnOff",
+        "values": [
+          {
+            "value": 0,
+            "description": "Off"
+          },
+          {
+            "value": 1,
+            "description": "On"
+          }
+        ]
+      }
+    ],
+    "attributeDefinitions": [
+      {
+        "name": "GenMsgCycleTime",
+        "object": "message",
+        "type": "int",
+        "max": 65535,
+        "default": {
+          "name": "GenMsgCycleTime"
+        }
+      },
+      {
+        "name": "GenSigStartValue",
+        "object": "signal",
+        "type": "int",
+        "min": -2147483648,
+        "max": 2147483647,
+        "default": {
+          "name": "GenSigStartValue"
+        }
+      },
+      {
+        "name": "VFrameFormat",
+        "object": "message",
+        "type": "enum",
+        "enum": [
+          "StandardCAN",
+          "ExtendedCAN",
+          "reserved",
+          "reserved",
+          "reserved",
+          "reserved",
+          "reserved",
+          "reserved",
+          "reserved",
+          "reserved",
+          "reserved",
+          "reserved",
+          "reserved",
+          "reserved",
+          "StandardCAN_FD",
+          "ExtendedCAN_FD"
+        ],
+        "default": {
+          "name": "VFrameFormat"
+        }
+      },
+      {
+        "name": "CANFD_BRS",
+        "object": "message",
+        "type": "enum",
+        "enum": [
+          "0",
+          "1"
+        ],
+        "default": {
+          "name": "CANFD_BRS",
+          "int": 1
+        }
+      },
+      {
+        "name": "BusType",
+        "object": "network",
+        "type": "string",
+        "default": {
+          "name": "BusType",
+          "string": "CAN FD"
+        }
+      },
+      {
+        "name": "NodeLayer",
+        "object": "node",
+        "type": "hex",
+        "max": 255
+      },
+      {
+        "name": "Precision",
+        "object": "signal",
+        "type": "float",
+        "max": 1
+      }
+    ],
+    "attributes": [
+      {
+        "name": "BusType",
+        "string": "CAN FD"
+      }
+    ]
+  }
+}
