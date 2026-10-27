@@ -1,0 +1,31 @@
+# go-canbus Releases
+
+Releases are made with the Release workflow (Actions → Release → bump):
+it computes the version, tags it and publishes this file's section of
+that version as the release notes. Add the section, headed exactly
+`## vX.Y.Z` and closed by a line `---`, before running it.
+
+## v0.1.0
+
+**Date:** unreleased
+**Previous release:** none
+
+## Summary
+
+First release of go-canbus: a pure Go CAN library for classical CAN and
+CAN FD frames, Linux SocketCAN, a deterministic virtual bus, ISO-TP, capture
+and replay, and DBC/KCD databases with a signal codec and a Go code
+generator. Tested against independent implementations from
+canbus-interop.
+
+## Changes
+
+- `canbus`: frames, DLC, filters with Linux `CAN_RAW_FILTER` semantics, error frames, `Transport`, `Bus` with subscriptions, slog and metrics.
+- `socketcan`: raw sockets (FD, kernel filters, loopback, receive-own, timestamps, drop accounting, cancellation; zero allocations) and kernel ISO-TP sockets.
+- `socketcan/link`: rtnetlink administration.
+- `virtual`: deterministic in-memory bus with fault injection.
+- `isotp`: ISO 15765-2 in userspace.
+- `capture`: candump, JSON Lines, pcap, pcapng; replay.
+- `candb`, `dbc`, `kcd`, `codegen`: message databases, codec, generator.
+
+---

@@ -1,0 +1,56 @@
+# Limitations
+
+## Standards and conformance
+
+- ISO 11898-1 and ISO 15765-2 are not public. The implementation follows
+  public material and independent implementations; there is **no ISO or
+  CiA conformance claim** and no certification.
+- DBC has no public specification. Constructs are supported as Vector
+  tools, cantools and canmatrix treat them; differences are listed in
+  INTEROPERABILITY.md.
+
+## Not implemented
+
+- CAN XL frames (a CAN XL MTU on the interface is accepted for CAN FD
+  sockets; XL frames themselves are not received or sent).
+- Hardware adapters other than SocketCAN (PEAK PCAN-Basic, Kvaser CANlib,
+  Vector XL, serial slcan without the kernel's slcan driver, gs_usb is
+  covered by SocketCAN on Linux). Implement `canbus.Transport` to add one.
+- SocketCAN on macOS and Windows (there is none). Interface commands
+  return `ErrUnsupported`.
+- AUTOSAR ARXML. Planned as a build-time conversion through a pinned
+  canmatrix with the AUTOSAR versions and features it covers documented;
+  no ARXML compatibility is claimed. Use `canconvert in.arxml out.dbc`
+  meanwhile.
+- DBC: environment variables, signal types, relation attributes,
+  categories and filters are skipped with a warning diagnostic. Value
+  descriptions of environment variables likewise.
+- KCD: remote frame definitions are noted, not modelled; LabelGroups
+  wider than 256 values are not expanded.
+- ISO-TP: functional addressing helpers, N_As/N_Ar confirmation timing
+  (frames are handed to the transport immediately), and half-duplex mode
+  of the kernel. Kernel sockets use the kernel's fixed 1 s timeouts and
+  cannot send WAIT flow controls.
+- Higher layers: CANopen, J1939, UDS, NMEA 2000, ISOBUS, DroneCAN/Cyphal.
+
+## Behaviour to know
+
+- Physical values are float64: raw values beyond 2^53 lose precision in
+  `Physical`; the raw API (`Value.Raw`, `Signed`, `RawString`,
+  generated fields) is exact.
+- `Bus` subscriptions drop the newest frame on overflow by default;
+  `Block` applies backpressure to every subscriber.
+- The virtual bus models delivery only: no arbitration, timing,
+  acknowledgement, error confinement or retransmission. A corrupted frame
+  arrives corrupted; a real bus would reject it by CRC.
+- vcan is a perfect medium: tests on it prove interoperability of frame
+  encoding and protocol logic, not electrical or timing behaviour.
+- Kernel drop counts arrive with the next queued frame (SO_RXQ_OVFL).
+- A CAN identifier names a message, not a device; nothing identifies
+  physical nodes.
+
+## Needs real hardware to validate
+
+Bit rates and sample points, CAN FD data phase and transceiver delay
+compensation, error counters and bus-off recovery (`restart-ms`), ESI set
+by an error-passive transmitter, arbitration and timing under load.
