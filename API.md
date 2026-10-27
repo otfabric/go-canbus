@@ -64,7 +64,8 @@ DelayBy, Corrupt, DropNext})`, `FaultStats`, `SetUp`, `Inject`,
 `Reader`, `Writer`, `NewReader` (format detection), `NewWriter`;
 `NewCandumpReader`/`Writer`, `ParseCandumpLine`, `ParseFrame`,
 `FormatFrame`; `NewJSONLReader`/`Writer`, `Record`, `ToRecord`;
-`NewPCAPReader`/`Writer`, `NewPCAPNGReader`; `Replay(ctx, Reader,
+`NewPCAPReader`/`Writer`, `NewPCAPNGReader`; `NewASCReader`/`Writer`,
+`NewBLFReader`/`Writer`; `FormatFromPath`; `Replay(ctx, Reader,
 Sender, ReplayOptions) (ReplayStats, error)`; `RecordFrames`.
 
 ## candb, dbc, kcd, codegen
@@ -78,11 +79,19 @@ Sender, ReplayOptions) (ReplayStats, error)`; `RecordFrames`.
 `candb/bits`: the bit-field runtime of generated code.
 
 `dbc.Parse`, `ParseBytes`, `ParseFile`, `Write`; `kcd.Parse`,
-`ParseFile`. Both return `(db, diagnostics, err)`, `err` a `*ParseError`
-when any diagnostic is an error.
+`ParseFile`, `Write` (returns diagnostics for what KCD cannot carry);
+`arxml.Parse`, `ParseFile`. Parsers return `(db, diagnostics, err)`, `err`
+a `*ParseError` when any diagnostic is an error. `candb.PhysText` encodes a
+physical value given as decimal text (exact for 64-bit identity signals).
 
 `codegen.Generate(db, Options{Package, Source, SourceSHA256})`,
 `GenerateJSON`. Generated packages expose per message `<Msg>ID`,
 `<Msg>Length`, `type <Msg> struct`, `Encode`, `Decode`, `Frame`,
 `<Sig>Phys`, `Set<Sig>Phys`, enums `<Msg><Sig>` with `String`, and
 `New`, `Decode`, `Message`, `ErrRange`, `ErrLength`, `ErrUnknownMessage`.
+
+## chaos
+
+`New(Config{Seed, Drop, Duplicate, Delay, DelayBy, Reorder, Corrupt,
+Filter})` → `*Bridge`; `Run(ctx, src, dst)` forwards one direction,
+`Both(ctx, x, y)` both; `Stats()`.

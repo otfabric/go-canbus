@@ -11,6 +11,8 @@
 | Golden code generation | any OS | `make generate-check` |
 | Interoperability with independent stacks | Linux, Docker, vcan0 | `make interop` (see [INTEROPERABILITY.md](INTEROPERABILITY.md)) |
 | SocketCAN tests under another kernel (microVM) | Linux with KVM, virtme-ng | `make microvm KERNEL=v6.12`; CI: the Kernels workflow (Ubuntu generic, mainline 6.1, 6.6, 6.12, 6.18). See docs/MICROVM.md |
+| End-to-end scenarios | any OS; on Linux with vcan0 also SocketCAN, kernel ISO-TP, processes | `make e2e` |
+| Chaos monkey (random fault schedules, invariants) | any OS; Linux with vcan0 + vcan1 adds kernel ISO-TP through the chaos bridge | `make chaos CHAOS_ITERATIONS=200`; CI: 12/6/10/8 seeds on every push, Nightly chaos workflow 500 seeds on amd64 and arm64 |
 | Everything above except vcan/interop | any OS | `make check` |
 
 Tests that need vcan **skip** without it, so a plain `go test ./...` passes
@@ -78,6 +80,37 @@ Codecov.
 - **codegen**: generated code against the dynamic codec on 2000 random
   payloads per message (fields, physical values and encoded bytes),
   generated API errors, identifier collisions, determinism.
+
+## End-to-end
+
+`e2e/` combines the packages as an application does: three ECUs built from
+generated code send classical, multiplexed and CAN FD messages; a gateway
+decodes them with the DBC and records into candump, JSON Lines, pcap, ASC
+and BLF at once; ISO-TP diagnostics (1000-byte responses) run alongside;
+every recording is replayed onto a new bus and decoded to the same signals.
+It runs on the virtual bus everywhere and on vcan with the kernel's ISO-TP
+as the server on Linux. Further: two processes (examples/vcan-pingpong) on
+vcan; Go generated from DBC, KCD and ARXML compiled in a separate module and
+round-tripped.
+
+## Chaos monkey
+
+`chaos/` runs random, seeded fault schedules (`CANBUS_CHAOS_ITERATIONS`
+seeds) with invariants:
+
+| Suite | Faults | Invariant |
+|-------|--------|-----------|
+| `TestMonkeyISOTP` | drop, duplicate, delay (what a bus can do to a sender's frames) | a received message is byte-identical to one that was sent; every call returns by its deadline; transfers succeed again once the faults stop |
+| `TestMonkeyKernelISOTP` (Linux) | same, through `chaos.Bridge` between vcan0 (kernel ISO-TP) and vcan1 (go-canbus) | same, both directions |
+| `TestMonkeyCorruption` | all, with corruption and reordering | no panic, no hang: every call returns by its deadline |
+| `TestMonkeyBus` | bus faults plus subscription churn, interface down/up, error and invalid frames, close under traffic | no deadlock or leak; each sender's frames arrive in order |
+| `TestMonkeyReplay` | all, cancelled at random | Replay returns promptly, never sends more than it read |
+
+Finding: a consecutive frame of a failed transfer, reordered behind the next
+transfer's first frame, is accepted by any ISO-TP receiver when its sequence
+number fits (ISO-TP frames carry no message identity). A single CAN bus does
+not reorder a sender's frames, so that fault is checked only for "no panic,
+no hang".
 
 ## Chaos and fault injection
 
