@@ -80,6 +80,7 @@ func Parse(r io.Reader) (*candb.Database, []candb.Diagnostic, error) {
 func ParseBytes(src []byte) (*candb.Database, []candb.Diagnostic, error) {
 	s := string(src)
 	s = strings.TrimPrefix(s, "\ufeff")
+	s = strings.ReplaceAll(s, "\r\n", "\n") // files written on Windows
 	toks, err := lex(s)
 	if err != nil {
 		d := []candb.Diagnostic{{Severity: candb.Error, Message: err.Error()}}

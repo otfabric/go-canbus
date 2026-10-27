@@ -51,7 +51,9 @@ jobs:
           sudo apt-get install -y -qq "linux-modules-extra-$(uname -r)"
           sudo modprobe vcan
           sudo modprobe vxcan
-          sudo modprobe can-isotp
+          # GitHub's Azure kernels lack can-isotp: the kernel ISO-TP tests
+          # then skip (they run where the module exists, see TESTING.md).
+          sudo modprobe can-isotp || echo "::warning::can-isotp is not available on $(uname -r): kernel ISO-TP tests skip"
           sudo ip link add vcan0 type vcan
           sudo ip link set vcan0 mtu 72 up
           ip -d link show vcan0

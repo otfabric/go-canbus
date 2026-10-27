@@ -433,3 +433,13 @@ func FuzzParse(f *testing.F) {
 		}
 	})
 }
+
+// TestCRLF: files written on Windows parse to the same model.
+func TestCRLF(t *testing.T) {
+	src, _ := readFile("testdata/full.dbc")
+	want, _, _ := ParseBytes(src)
+	got, _, err := ParseBytes(bytes.ReplaceAll(src, []byte("\n"), []byte("\r\n")))
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Fatal("CRLF input parses differently", err)
+	}
+}

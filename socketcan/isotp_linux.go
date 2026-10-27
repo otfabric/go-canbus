@@ -70,7 +70,7 @@ func DialISOTP(ifname string, cfg isotp.Config) (*ISOTPConn, error) {
 	ok := false
 	defer func() {
 		if !ok {
-			syscall.Close(fd)
+			_ = syscall.Close(fd)
 		}
 	}()
 	// struct can_isotp_options
@@ -140,7 +140,7 @@ func DialISOTP(ifname string, cfg isotp.Config) (*ISOTPConn, error) {
 	}
 	c.file = os.NewFile(uintptr(fd), "isotp:"+ifname)
 	if c.rc, err = c.file.SyscallConn(); err != nil {
-		c.file.Close()
+		_ = c.file.Close()
 		ok = true
 		return nil, opErr(err)
 	}
@@ -171,6 +171,7 @@ func (c *ISOTPConn) finish(ctx context.Context, op string, err error) error {
 			kind = isotp.ErrSequence
 		case syscall.EBADMSG:
 			kind = isotp.ErrProtocol
+		default:
 		}
 		if kind != nil {
 			return &canbus.OpError{Op: op, Interface: c.name, Err: fmt.Errorf("%w: %v", kind, errno)}

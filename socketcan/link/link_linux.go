@@ -22,7 +22,7 @@ func request(msg []byte, dump bool) ([]nlMsg, error) {
 	if err != nil {
 		return nil, fmt.Errorf("link: netlink socket: %w", err)
 	}
-	defer syscall.Close(fd)
+	defer func() { _ = syscall.Close(fd) }()
 	// Every request asks for an ACK or a dump end; the timeout only guards
 	// against a kernel that never answers.
 	tv := syscall.Timeval{Sec: 5}
@@ -76,6 +76,7 @@ func mapErrno(e syscall.Errno) error {
 		return fmt.Errorf("%w: %v", canbus.ErrUnsupported, e)
 	case syscall.ENODEV:
 		return fmt.Errorf("%w: %v", canbus.ErrInterfaceDown, e)
+	default:
 	}
 	return fmt.Errorf("link: %w", e)
 }

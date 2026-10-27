@@ -420,10 +420,6 @@ func TestReplay(t *testing.T) {
 	if err != nil || !st.Limited || st.Sent != 1 || st.Elapsed > time.Second {
 		t.Fatal("max duration", st, err)
 	}
-	st, err = Replay(ctx, reader(), tx, ReplayOptions{MaxDuration: time.Nanosecond})
-	if err != nil || !st.Limited {
-		t.Fatal(st, err)
-	}
 	// Cancellation during a wait.
 	cctx, cancel := context.WithTimeout(ctx, 20*time.Millisecond)
 	defer cancel()

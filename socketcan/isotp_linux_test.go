@@ -9,6 +9,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"syscall"
 	"testing"
 	"time"
 
@@ -19,6 +21,10 @@ import (
 func kernelISOTP(t *testing.T, ifc string, cfg isotp.Config) *ISOTPConn {
 	t.Helper()
 	c, err := DialISOTP(ifc, cfg)
+	if errors.Is(err, syscall.EPROTONOSUPPORT) && os.Getenv("CANBUS_REQUIRE_ISOTP") != "1" {
+		// Some kernels (GitHub's Azure runner kernel) do not ship can-isotp.
+		t.Skip("kernel ISO-TP (can-isotp) is not available; CANBUS_REQUIRE_ISOTP=1 makes this a failure")
+	}
 	if err != nil {
 		t.Fatal(err)
 	}

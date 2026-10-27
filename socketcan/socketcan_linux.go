@@ -128,7 +128,7 @@ func Open(ifname string, opts ...Option) (*Conn, error) {
 	ok := false
 	defer func() {
 		if !ok {
-			syscall.Close(fd)
+			_ = syscall.Close(fd)
 		}
 	}()
 	set := func(level, opt, v int) error {
@@ -187,7 +187,7 @@ func Open(ifname string, opts ...Option) (*Conn, error) {
 	c.file = os.NewFile(uintptr(fd), "can:"+c.name)
 	c.rc, err = c.file.SyscallConn()
 	if err != nil {
-		c.file.Close()
+		_ = c.file.Close()
 		ok = true // the file owns fd now
 		return nil, opErr(err)
 	}
