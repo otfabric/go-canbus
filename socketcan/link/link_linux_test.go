@@ -131,15 +131,25 @@ func TestAdmin(t *testing.T) {
 	defer a.Close()
 	b, _ := socketcan.Open("gotestvx1")
 	defer b.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
+	// The kernel activates the transmit queue of a link that just came up
+	// asynchronously (linkwatch): early frames may be dropped. Send until
+	// one arrives.
 	f, _ = canbus.NewExtended(0x1234, []byte{1, 2})
-	if err := a.Send(ctx, &f); err != nil {
-		t.Fatal(err)
-	}
 	var g canbus.Frame
-	if err := b.Receive(ctx, &g); err != nil || g.ID != 0x1234 || g.Interface != "gotestvx1" {
-		t.Fatal(g, err)
+	var rerr error
+	for try := 0; try < 40; try++ {
+		if err := a.Send(context.Background(), &f); err != nil {
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+		rerr = b.Receive(ctx, &g)
+		cancel()
+		if rerr == nil {
+			break
+		}
+	}
+	if rerr != nil || g.ID != 0x1234 || g.Interface != "gotestvx1" {
+		t.Fatal(g, rerr)
 	}
 	if err := Delete("gotestvx0"); err != nil {
 		t.Fatal(err)
