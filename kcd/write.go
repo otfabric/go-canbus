@@ -155,8 +155,8 @@ func signal(s *candb.Signal, ref func([]string) []xNodeRef) xSignal {
 		ls := &xLabelSet{}
 		for _, d := range s.Values {
 			ls.Labels = append(ls.Labels, struct {
-				Name  string `xml:"name,attr"`
-				Value string `xml:"value,attr"`
+				Name  string `xml:"name,attr,omitempty"`
+				Value string `xml:"value,attr,omitempty"`
 			}{d.Description, strconv.FormatInt(d.Value, 10)})
 		}
 		xs.Labels = ls

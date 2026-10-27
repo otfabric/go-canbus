@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/otfabric/go-canbus"
+	"github.com/otfabric/go-canbus/arxml"
 	"github.com/otfabric/go-canbus/candb"
 	"github.com/otfabric/go-canbus/dbc"
 	"github.com/otfabric/go-canbus/kcd"
@@ -39,6 +40,8 @@ type knownDifference struct {
 }
 
 var knownDifferences = []knownDifference{
+	{"cantools", "pdu-offset", "", "cantools places a PDU mapped at a byte offset of its frame at offset 0; go-canbus applies the PDU-TO-FRAME-MAPPING START-POSITION (AUTOSAR)"},
+	{"canmatrix", "pdu-offset", "", "canmatrix places a PDU mapped at a byte offset of its frame at offset 0; go-canbus applies the PDU-TO-FRAME-MAPPING START-POSITION (AUTOSAR)"},
 	{"canmatrix", "extmux", "EncodingComplexMultiplexed",
 		"canmatrix 1.3.3 decodes extended multiplexing (SG_MUL_VAL_) but cannot encode it; go-canbus's encoding is checked against cantools"},
 	{"cantools", "", "but got 3",
@@ -182,9 +185,21 @@ func report(t *testing.T, adapter, fixture string, diffs []string) {
 	_ = failed
 }
 
-func parseDB(t *testing.T, name string) *candb.Database {
+func parseDB(t *testing.T, name string) *candb.Database { return parseKind(t, "dbc", name) }
+
+// parseKind parses fixtures/<kind>/<name>.<kind> with go-canbus.
+func parseKind(t *testing.T, kind, name string) *candb.Database {
 	t.Helper()
-	db, diags, err := dbc.ParseBytes(fixture(t, "dbc/"+name+".dbc"))
+	src := fixture(t, kind+"/"+name+"."+kind)
+	var db *candb.Database
+	var diags []candb.Diagnostic
+	var err error
+	switch kind {
+	case "arxml":
+		db, diags, err = arxml.Parse(bytes.NewReader(src))
+	default:
+		db, diags, err = dbc.ParseBytes(src)
+	}
 	if err != nil {
 		t.Fatalf("%v %v", err, diags)
 	}
@@ -205,28 +220,34 @@ func TestDBCDecode(t *testing.T) {
 				if fx.needs != "" && !c.Features[fx.needs] {
 					skipf(t, "%s lacks %s", a, fx.needs)
 				}
-				db := parseDB(t, fx.name)
-				src := fixture(t, "dbc/"+fx.name+".frames.jsonl")
-				in := frames(t, src)
-				out, code := run(t, a, src, "", "decode", "--db", "/fixtures/dbc/"+fx.name+".dbc", "--frames", "-")
-				if code != 0 {
-					t.Fatalf("exit %d: %s", code, out)
-				}
-				docs := parseStack(t, out)
-				if len(docs) != len(in) {
-					t.Fatalf("%d results for %d frames", len(docs), len(in))
-				}
-				var diffs []string
-				for i := range in {
-					m, sigs, err := db.DecodeFrame(&in[i])
-					if d := differ(m, sigs, err, docs[i]); d != "" {
-						diffs = append(diffs, fmt.Sprintf("frame %d (%s): %s", i, in[i].String(), d))
-					}
-				}
-				report(t, a, fx.name, diffs)
+				decodeDiff(t, a, "dbc", fx.name)
 			})
 		}
 	}
+}
+
+// decodeDiff runs one decode comparison of fixtures/<kind>/<name>.
+func decodeDiff(t *testing.T, a, kind, name string) {
+	t.Helper()
+	db := parseKind(t, kind, name)
+	src := fixture(t, kind+"/"+name+".frames.jsonl")
+	in := frames(t, src)
+	out, code := run(t, a, src, "", "decode", "--db", "/fixtures/"+kind+"/"+name+"."+kind, "--frames", "-")
+	if code != 0 {
+		t.Fatalf("exit %d: %s", code, out)
+	}
+	docs := parseStack(t, out)
+	if len(docs) != len(in) {
+		t.Fatalf("%d results for %d frames", len(docs), len(in))
+	}
+	var diffs []string
+	for i := range in {
+		m, sigs, err := db.DecodeFrame(&in[i])
+		if d := differ(m, sigs, err, docs[i]); d != "" {
+			diffs = append(diffs, fmt.Sprintf("frame %d (%s): %s", i, in[i].String(), d))
+		}
+	}
+	report(t, a, name, diffs)
 }
 
 // TestDBCEncode encodes the fixture's physical values and, with raw

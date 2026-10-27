@@ -142,6 +142,9 @@ func skipReason(t *testing.T) string {
 }
 
 func TestMain(m *testing.M) {
+	// ASC and BLF carry local wall-clock time without a zone; the
+	// reference containers run in UTC.
+	time.Local = time.UTC
 	code := m.Run()
 	if path := os.Getenv("CANBUS_INTEROP_REPORT"); path != "" {
 		resultsMu.Lock()

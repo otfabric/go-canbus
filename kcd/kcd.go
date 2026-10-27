@@ -45,33 +45,33 @@ type xAny struct {
 }
 
 type xDocument struct {
-	Version string `xml:"version,attr"`
+	Version string `xml:"version,attr,omitempty"`
 	Text    string `xml:",chardata"`
 }
 
 type xNode struct {
-	ID   string `xml:"id,attr"`
-	Name string `xml:"name,attr"`
+	ID   string `xml:"id,attr,omitempty"`
+	Name string `xml:"name,attr,omitempty"`
 }
 
 type xBus struct {
-	Name     string     `xml:"name,attr"`
+	Name     string     `xml:"name,attr,omitempty"`
 	Messages []xMessage `xml:"Message"`
 	Any      []xAny     `xml:",any"`
 }
 
 type xNodeRef struct {
-	ID string `xml:"id,attr"`
+	ID string `xml:"id,attr,omitempty"`
 }
 
 type xMessage struct {
-	ID        string       `xml:"id,attr"`
-	Name      string       `xml:"name,attr"`
-	Length    string       `xml:"length,attr"`
-	Interval  string       `xml:"interval,attr"`
-	Format    string       `xml:"format,attr"`
-	Remote    string       `xml:"remote,attr"`
-	Notes     string       `xml:"Notes"`
+	ID        string       `xml:"id,attr,omitempty"`
+	Name      string       `xml:"name,attr,omitempty"`
+	Length    string       `xml:"length,attr,omitempty"`
+	Interval  string       `xml:"interval,attr,omitempty"`
+	Format    string       `xml:"format,attr,omitempty"`
+	Remote    string       `xml:"remote,attr,omitempty"`
+	Notes     string       `xml:"Notes,omitempty"`
 	Producer  []xNodeRef   `xml:"Producer>NodeRef"`
 	Signals   []xSignal    `xml:"Signal"`
 	Multiplex []xMultiplex `xml:"Multiplex"`
@@ -79,11 +79,11 @@ type xMessage struct {
 }
 
 type xSignal struct {
-	Name      string     `xml:"name,attr"`
-	Offset    string     `xml:"offset,attr"`
-	Length    string     `xml:"length,attr"`
-	Endianess string     `xml:"endianess,attr"`
-	Notes     string     `xml:"Notes"`
+	Name      string     `xml:"name,attr,omitempty"`
+	Offset    string     `xml:"offset,attr,omitempty"`
+	Length    string     `xml:"length,attr,omitempty"`
+	Endianess string     `xml:"endianess,attr,omitempty"`
+	Notes     string     `xml:"Notes,omitempty"`
 	Consumer  []xNodeRef `xml:"Consumer>NodeRef"`
 	Value     *xValue    `xml:"Value"`
 	Labels    *xLabelSet `xml:"LabelSet"`
@@ -96,29 +96,29 @@ type xMultiplex struct {
 }
 
 type xMuxGroup struct {
-	Count   string    `xml:"count,attr"`
+	Count   string    `xml:"count,attr,omitempty"`
 	Signals []xSignal `xml:"Signal"`
 	Any     []xAny    `xml:",any"`
 }
 
 type xValue struct {
-	Type      string `xml:"type,attr"`
-	Slope     string `xml:"slope,attr"`
-	Intercept string `xml:"intercept,attr"`
-	Unit      string `xml:"unit,attr"`
-	Min       string `xml:"min,attr"`
-	Max       string `xml:"max,attr"`
+	Type      string `xml:"type,attr,omitempty"`
+	Slope     string `xml:"slope,attr,omitempty"`
+	Intercept string `xml:"intercept,attr,omitempty"`
+	Unit      string `xml:"unit,attr,omitempty"`
+	Min       string `xml:"min,attr,omitempty"`
+	Max       string `xml:"max,attr,omitempty"`
 }
 
 type xLabelSet struct {
 	Labels []struct {
-		Name  string `xml:"name,attr"`
-		Value string `xml:"value,attr"`
+		Name  string `xml:"name,attr,omitempty"`
+		Value string `xml:"value,attr,omitempty"`
 	} `xml:"Label"`
 	Groups []struct {
-		Name string `xml:"name,attr"`
-		From string `xml:"from,attr"`
-		To   string `xml:"to,attr"`
+		Name string `xml:"name,attr,omitempty"`
+		From string `xml:"from,attr,omitempty"`
+		To   string `xml:"to,attr,omitempty"`
 	} `xml:"LabelGroup"`
 }
 

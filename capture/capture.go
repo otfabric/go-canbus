@@ -16,7 +16,9 @@
 //     tcpdump and read by Wireshark; pcapng ([FormatPCAPNG]) is read.
 //   - Vector ASC ([FormatASC]) and BLF ([FormatBLF]), the trace formats of
 //     CANoe/CANalyzer, read and written. Lossy: ASC and BLF carry no Linux
-//     error class (error frames are read as protocol errors).
+//     error class (error frames are read as protocol errors). Their times
+//     are local wall-clock times without a zone: they are read and written
+//     in time.Local (set TZ to read a file from another zone).
 //
 // Readers and writers stream: a trace of any size is processed frame by
 // frame. [Replay] sends a trace with its original, scaled or no timing.
