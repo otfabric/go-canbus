@@ -170,7 +170,7 @@ func (r *ASCReader) event(fields []string, f *canbus.Frame) (bool, error) {
 	}
 	ch, err := strconv.Atoi(fields[0])
 	if err != nil || len(fields) < 2 {
-		return false, nil // "Start of measurement", statistics, ...
+		return false, nil //nolint:nilerr // not a channel number: "Start of measurement", statistics, ...
 	}
 	f.Interface = fields[0]
 	if strings.EqualFold(fields[1], "ErrorFrame") {
