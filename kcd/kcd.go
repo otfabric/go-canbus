@@ -143,7 +143,7 @@ func ParseFile(path string) (*candb.Database, []candb.Diagnostic, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	return Parse(f)
 }
 
@@ -158,9 +158,7 @@ func Parse(r io.Reader) (*candb.Database, []candb.Diagnostic, error) {
 	}
 	p := &parser{db: &candb.Database{}, nodes: map[string]string{}}
 	p.network(&x)
-	for _, d := range p.db.Validate() {
-		p.diags = append(p.diags, d)
-	}
+	p.diags = append(p.diags, p.db.Validate()...)
 	if candb.HasErrors(p.diags) {
 		return p.db, p.diags, &ParseError{Diagnostics: p.diags}
 	}

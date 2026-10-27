@@ -146,6 +146,13 @@ func (p *parser) diag(sev candb.Severity, line int, obj, format string, args ...
 
 func (p *parser) peek() token { return p.toks[p.pos] }
 
+// atStatement reports a keyword at the start of a line: where a
+// statement starts.
+func (p *parser) atStatement() bool {
+	t := p.peek()
+	return t.kind == tIdent && keywords[t.text] && t.col == 0
+}
+
 func (p *parser) next() token {
 	t := p.toks[p.pos]
 	if t.kind != tEOF {
@@ -320,7 +327,7 @@ func (p *parser) run() {
 					if p.pos == start {
 						p.pos++
 					}
-					for p.peek().kind != tEOF && !(p.peek().kind == tIdent && keywords[p.peek().text] && p.peek().col == 0) {
+					for p.peek().kind != tEOF && !p.atStatement() {
 						p.pos++
 					}
 				}
@@ -565,7 +572,7 @@ func (p *parser) signalRecover(t token, id msgKey) (s *candb.Signal) {
 				panic(r)
 			}
 			p.diag(candb.Error, e.line, "", "%s", e.msg)
-			for p.peek().kind != tEOF && !(p.peek().kind == tIdent && (p.peek().text == "SG_" || keywords[p.peek().text] && p.peek().col == 0)) {
+			for p.peek().kind != tEOF && !p.atStatement() && (p.peek().kind != tIdent || p.peek().text != "SG_") {
 				p.pos++
 			}
 			s = nil

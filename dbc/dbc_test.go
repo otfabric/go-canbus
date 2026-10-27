@@ -97,14 +97,6 @@ func TestParseModel(t *testing.T) {
 	}
 }
 
-func mustHex(s string) []byte {
-	b, err := hex.DecodeString(s)
-	if err != nil {
-		panic(err)
-	}
-	return b
-}
-
 // TestDecodeKnownBytes checks layouts computed by hand.
 func TestDecodeKnownBytes(t *testing.T) {
 	db := load(t)

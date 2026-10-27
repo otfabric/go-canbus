@@ -110,6 +110,7 @@ func NewWriter(w io.Writer, format Format) (Writer, error) {
 		return NewJSONLWriter(w), nil
 	case FormatPCAP:
 		return NewPCAPWriter(w)
+	default:
 	}
 	return nil, fmt.Errorf("%w: cannot write %q", ErrUnknownFormat, format)
 }

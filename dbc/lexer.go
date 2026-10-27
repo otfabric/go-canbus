@@ -34,6 +34,7 @@ func (t token) String() string {
 		return "end of file"
 	case tString:
 		return fmt.Sprintf("string %q", t.text)
+	default:
 	}
 	return fmt.Sprintf("%q", t.text)
 }

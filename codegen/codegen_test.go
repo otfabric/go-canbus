@@ -14,8 +14,8 @@ import (
 	"github.com/otfabric/go-canbus"
 	"github.com/otfabric/go-canbus/candb"
 	"github.com/otfabric/go-canbus/candb/bits"
-	"github.com/otfabric/go-canbus/codegen/internal/golden/full"
 	"github.com/otfabric/go-canbus/dbc"
+	"github.com/otfabric/go-canbus/internal/golden/full"
 )
 
 func loadFull(t testing.TB) *candb.Database {
@@ -42,6 +42,7 @@ func fieldBits(v reflect.Value, s *candb.Signal) uint64 {
 		return math.Float64bits(v.Float())
 	case reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		return bits.Truncate(uint64(v.Int()), s.Length)
+	default:
 	}
 	return v.Uint()
 }

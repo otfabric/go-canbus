@@ -47,8 +47,6 @@ const (
 	iflaCANRestart       = 7
 	iflaCANBerrCounter   = 8
 	iflaCANDataBittiming = 9
-
-	vxcanInfoPeer = 1
 )
 
 var ne = binary.NativeEndian

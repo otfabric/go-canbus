@@ -229,3 +229,38 @@ func TestJSONAndNames(t *testing.T) {
 		t.Fatal("RawString")
 	}
 }
+
+// FuzzCodec decodes arbitrary payloads with an arbitrary signal layout and
+// re-encodes the raw value: the payload bits of the signal must survive.
+func FuzzCodec(f *testing.F) {
+	f.Add(uint16(7), uint8(16), true, true, []byte{1, 2, 3, 4, 5, 6, 7, 8})
+	f.Fuzz(func(t *testing.T, start uint16, length uint8, big, signed bool, data []byte) {
+		if len(data) == 0 || len(data) > 64 {
+			return
+		}
+		s := &Signal{Name: "S", StartBit: int(start % 512), Length: int(length%64) + 1, Signed: signed, Factor: 1}
+		if big {
+			s.ByteOrder = BigEndian
+		}
+		v, err := s.Decode(data)
+		if err != nil {
+			if !errors.Is(err, ErrShortPayload) {
+				t.Fatal(err)
+			}
+			return
+		}
+		out := make([]byte, len(data))
+		copy(out, data)
+		if err := s.Insert(out, v.Raw); err != nil {
+			t.Fatal(err)
+		}
+		if string(out) != string(data) {
+			t.Fatalf("re-inserting the decoded value changed the payload")
+		}
+		if s.Signed {
+			if r, err := s.RawFromInt(v.Signed); err != nil || r != v.Raw {
+				t.Fatalf("RawFromInt(%d) = %x, %v; want %x", v.Signed, r, err, v.Raw)
+			}
+		}
+	})
+}

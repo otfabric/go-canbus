@@ -81,7 +81,7 @@ func token(s string) bool {
 		return false
 	}
 	for i, r := range s {
-		if !(r == '_' || unicode.IsLetter(r) || i > 0 && unicode.IsDigit(r)) || r > unicode.MaxASCII {
+		if r != '_' && !unicode.IsLetter(r) && (i == 0 || !unicode.IsDigit(r)) || r > unicode.MaxASCII {
 			return false
 		}
 	}
@@ -164,6 +164,7 @@ func rawType(s *candb.Signal) string {
 		return "float32"
 	case candb.Float64:
 		return "float64"
+	default:
 	}
 	if s.Length == 1 && !s.Signed && len(s.Values) == 0 {
 		return "bool"

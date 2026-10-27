@@ -165,7 +165,7 @@ func RecordFrames(ctx context.Context, sub *canbus.Subscription, w Writer, count
 		f, err := sub.Receive(ctx)
 		if err != nil {
 			if ctx.Err() != nil {
-				return n, nil
+				return n, nil //nolint:nilerr // the end of ctx ends a recording normally
 			}
 			return n, err
 		}

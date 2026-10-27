@@ -177,6 +177,11 @@ func Open(ifname string, opts ...Option) (*Conn, error) {
 	}
 	sa := sockaddrCAN{family: afCAN, ifindex: int32(c.ifindex)}
 	if _, _, e := syscall.Syscall(syscall.SYS_BIND, uintptr(fd), uintptr(unsafe.Pointer(&sa)), unsafe.Sizeof(sa)); e != 0 {
+		if e == syscall.ENODEV {
+			// The interface exists (it was looked up above) but is not a
+			// CAN device.
+			return nil, opErr(fmt.Errorf("%w: %s is not a CAN interface", canbus.ErrUnsupported, ifname))
+		}
 		return nil, opErr(fmt.Errorf("bind: %w", mapErrno(e)))
 	}
 	c.file = os.NewFile(uintptr(fd), "can:"+c.name)

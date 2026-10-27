@@ -117,6 +117,7 @@ func (s *Signal) Value(raw uint64) Value {
 		v.Signed = int64(raw)
 		v.Physical = math.Float64frombits(raw)*s.Factor + s.Offset
 		return v
+	default:
 	}
 	if s.Signed {
 		v.Signed = bits.SignExtend(raw, s.Length)
@@ -185,6 +186,7 @@ func (s *Signal) RawFromPhysical(p float64) (uint64, error) {
 		return uint64(math.Float32bits(float32(x))), nil
 	case Float64:
 		return math.Float64bits(x), nil
+	default:
 	}
 	r := math.RoundToEven(x)
 	if s.Signed {

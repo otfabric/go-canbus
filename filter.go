@@ -73,6 +73,7 @@ func (f Filter) Kernel() (id, mask uint32) {
 	case FormatExtended:
 		mask |= linuxEFF
 		id |= linuxEFF
+	default:
 	}
 	switch f.Remote {
 	case RemoteDataOnly:
@@ -80,6 +81,7 @@ func (f Filter) Kernel() (id, mask uint32) {
 	case RemoteOnly:
 		mask |= linuxRTR
 		id |= linuxRTR
+	default:
 	}
 	if f.Invert {
 		id |= linuxINV
@@ -152,6 +154,7 @@ func (f Filter) String() string {
 		b.WriteString(",data")
 	case RemoteOnly:
 		b.WriteString(",rtr")
+	default:
 	}
 	return b.String()
 }

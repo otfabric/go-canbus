@@ -1,0 +1,139 @@
+name: CI
+run-name: "CI (${{ github.event_name }}) on ${{ github.ref_name }} by @${{ github.actor }}"
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  # Lint, vet, module checks and the test matrix on every supported Go
+  # version. Its coverage run has no vcan interface, so the SocketCAN
+  # code is not exercised there: coverage is measured and uploaded by the
+  # vcan job instead (run-codecov: false here).
+  ci:
+    uses: otfabric/.github/.github/workflows/go-ci.yml@v2
+    with:
+      codecov-name: go-canbus
+      run-codecov: false
+      coverpkg: >-
+        github.com/otfabric/go-canbus,github.com/otfabric/go-canbus/candb,github.com/otfabric/go-canbus/candb/bits,github.com/otfabric/go-canbus/capture,github.com/otfabric/go-canbus/codegen,github.com/otfabric/go-canbus/dbc,github.com/otfabric/go-canbus/isotp,github.com/otfabric/go-canbus/kcd,github.com/otfabric/go-canbus/socketcan,github.com/otfabric/go-canbus/socketcan/link,github.com/otfabric/go-canbus/virtual
+      go-versions: '["1.23", "1.24", "1.25", "1.26"]'
+    secrets: inherit
+
+  # The SocketCAN, netlink and kernel ISO-TP tests on real vcan
+  # interfaces, natively on amd64 and arm64. CANBUS_REQUIRE_VCAN=1 turns a
+  # missing interface into a failure, never a skip. Coverage of the whole
+  # library is measured here, gated at 90 % and uploaded to Codecov.
+  vcan:
+    name: vcan (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: amd64, runner: ubuntu-24.04 }
+          - { arch: arm64, runner: ubuntu-24.04-arm }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Load the CAN modules and create vcan0
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq "linux-modules-extra-$(uname -r)"
+          sudo modprobe vcan
+          sudo modprobe vxcan
+          sudo modprobe can-isotp
+          sudo ip link add vcan0 type vcan
+          sudo ip link set vcan0 mtu 72 up
+          ip -d link show vcan0
+      - name: Tests with the race detector
+        run: make test-vcan
+      - name: Netlink administration tests (root)
+        run: make test-admin
+      - name: Coverage (minimum 90 %)
+        run: make coverage-check
+      - name: Upload to Codecov
+        if: matrix.arch == 'amd64'
+        uses: codecov/codecov-action@v7
+        with:
+          use_oidc: true
+          files: coverage.out
+          flags: vcan
+          name: go-canbus
+          fail_ci_if_error: false
+
+  # The golden output of the code generator follows the generator.
+  generate:
+    name: Generated code
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.23.x"
+      - run: make generate-check coverpkg-check
+
+  examples:
+    name: Examples
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.23.x"
+      - run: make build examples
+
+  # Every package builds for the release platforms, including 32-bit ARM
+  # (int has 32 bits there).
+  cross:
+    name: Cross-compile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - run: make cross
+
+  # The tests on macOS and Windows: everything but SocketCAN runs there.
+  portable:
+    name: Tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - run: go test -count=1 ./...
+        env:
+          GOWORK: "off"
+
+  fuzz:
+    name: Fuzz
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.23.x"
+      - run: make fuzz FUZZTIME=15s
+      - name: Upload the failing inputs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fuzz-failures
+          path: "**/testdata/fuzz/"
+          if-no-files-found: warn

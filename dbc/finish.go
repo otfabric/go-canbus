@@ -43,9 +43,7 @@ func (p *parser) finish() {
 			m.BRS = false // CANFD_BRS (often a default) means nothing for classical frames
 		}
 	}
-	for _, d := range p.db.Validate() {
-		p.diags = append(p.diags, d)
-	}
+	p.diags = append(p.diags, p.db.Validate()...)
 }
 
 func (p *parser) resolveMux(m *candb.Message) {
@@ -230,6 +228,7 @@ func (p *parser) applyAttr(pa pendingAttr) {
 			}
 			s.Initial = &v
 		}
+	default:
 	}
 }
 
@@ -278,6 +277,7 @@ func defaultToken(d *candb.AttributeDefinition) token {
 		return token{kind: tString, text: d.Default.String}
 	case candb.AttrFloat:
 		return token{kind: tNumber, text: strconv.FormatFloat(d.Default.Float, 'g', -1, 64)}
+	default:
 	}
 	return token{kind: tNumber, text: strconv.FormatInt(d.Default.Int, 10)}
 }

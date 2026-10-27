@@ -11,6 +11,14 @@ linters:
     - godot          # comment punctuation
     - nilerr         # return nil instead of err
     - exhaustive     # exhaustive switch on enums
+  exclusions:
+    rules:
+      # Tests close buses, ports and connections in deferred and cleanup
+      # calls whose errors do not matter; production code is checked.
+      - path: _test\.go
+        linters: [errcheck]
+      - path: examples/
+        linters: [errcheck]
   settings:
     exhaustive:
       default-signifies-exhaustive: true  # a default: case satisfies exhaustiveness

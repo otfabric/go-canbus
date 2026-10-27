@@ -195,7 +195,7 @@ func AddVXCAN(name, peer string) error {
 	peerInfo := append(ifinfomsg(0, 0, 0), attr(iflaIfname, cstr(peer))...)
 	attrs := append(ifinfomsg(0, 0, 0), attr(iflaIfname, cstr(name))...)
 	attrs = append(attrs, nested(iflaLinkinfo, attr(iflaInfoKind, cstr("vxcan")),
-		nested(iflaInfoData, nested(vxcanInfoPeer, peerInfo)))...)
+		nested(iflaInfoData, nested(1 /* VXCAN_INFO_PEER */, peerInfo)))...)
 	_, err := request(message(rtmNewLink, nlmFAck|nlmFCreate|nlmFExcl, seq.Add(1), attrs), false)
 	return err
 }

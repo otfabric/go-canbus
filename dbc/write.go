@@ -208,6 +208,7 @@ func (w *writer) all() {
 				w.p("SIG_VALTYPE_ %d %s : 1;\n", dbcID(m), s.Name)
 			case candb.Float64:
 				w.p("SIG_VALTYPE_ %d %s : 2;\n", dbcID(m), s.Name)
+			default:
 			}
 		}
 	}
@@ -255,6 +256,7 @@ func (w *writer) attrText(d *candb.AttributeDefinition, a candb.Attribute) strin
 		return quote(a.String)
 	case candb.AttrFloat:
 		return num(a.Float)
+	default:
 	}
 	return strconv.FormatInt(a.Int, 10)
 }

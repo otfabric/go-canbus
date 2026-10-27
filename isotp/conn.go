@@ -76,7 +76,7 @@ func Dial(bus *canbus.Bus, cfg Config) (*Conn, error) {
 		return nil, err
 	}
 	c := &Conn{cfg: cfg, bus: bus, sub: sub, rx: make(chan result, cfg.QueueSize),
-		fc: make(chan flowControl, 1), done: make(chan struct{})}
+		fc: make(chan flowControl, 64), done: make(chan struct{})}
 	if cfg.Addressing != Normal {
 		c.off = 1
 	}
@@ -90,7 +90,7 @@ func Dial(bus *canbus.Bus, cfg Config) (*Conn, error) {
 func (c *Conn) Close() error {
 	c.once.Do(func() {
 		close(c.done)
-		c.sub.Close()
+		_ = c.sub.Close()
 		c.wg.Wait()
 	})
 	return nil
@@ -193,9 +193,12 @@ func (c *Conn) sendMessage(ctx context.Context, p []byte) error {
 		return c.send(ctx, append([]byte{0, byte(n)}, p...))
 	}
 	// Drop flow controls left over from an earlier transfer.
-	select {
-	case <-c.fc:
-	default:
+	for drained := false; !drained; {
+		select {
+		case <-c.fc:
+		default:
+			drained = true
+		}
 	}
 	var first []byte
 	if n <= 4095 {
@@ -460,17 +463,12 @@ func (c *Conn) handle(f *canbus.Frame, timer *time.Timer, crC *<-chan time.Time)
 			return
 		}
 		fc := flowControl{status: data[0] & 0x0F, bs: data[1], stmin: data[2]}
+		// Every flow control counts (a burst of WAITs must reach the
+		// sender's WFTmax check); a flood beyond the buffer is dropped.
 		select {
 		case c.fc <- fc:
-		default: // a newer flow control replaces an unread one
-			select {
-			case <-c.fc:
-			default:
-			}
-			select {
-			case c.fc <- fc:
-			default:
-			}
+		default:
+			c.cfg.Logger.Warn("isotp: flow control frames dropped", "rx", uint32(c.cfg.RxID))
 		}
 	}
 }

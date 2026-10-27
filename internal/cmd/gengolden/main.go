@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 // Command gengolden regenerates the code generator's golden output,
-// codegen/internal/golden/*, from the DBC fixtures (go generate ./...).
+// internal/golden/*, from the DBC fixtures (go generate ./...).
 // With -check it fails when the files on disk differ instead.
 package main
 
@@ -46,7 +46,7 @@ func main() {
 		if err != nil {
 			fail(err)
 		}
-		dir := filepath.Join(*root, "codegen/internal/golden", g.pkg)
+		dir := filepath.Join(*root, "internal/golden", g.pkg)
 		for name, want := range map[string][]byte{g.pkg + ".go": code, g.pkg + ".json": js} {
 			path := filepath.Join(dir, name)
 			if *check {

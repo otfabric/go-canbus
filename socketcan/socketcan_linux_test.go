@@ -397,8 +397,8 @@ func TestOpenErrors(t *testing.T) {
 	if _, err := Open("nosuchcan0"); !errors.Is(err, canbus.ErrInterfaceDown) {
 		t.Fatal(err)
 	}
-	if _, err := Open("lo", WithFD()); !errors.Is(err, canbus.ErrUnsupported) {
-		t.Fatal("FD on lo:", err)
+	if _, err := Open("lo"); !errors.Is(err, canbus.ErrUnsupported) {
+		t.Fatal("lo:", err)
 	}
 	if !Supported() {
 		t.Fatal("Supported")
