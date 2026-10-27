@@ -4,7 +4,7 @@
 
 .DEFAULT_GOAL := help
 
-.PHONY: interop-images help all build examples fmt fmt-check lint lint-ci vet vuln test test-vcan test-admin coverage coverage-check cover bench fuzz check clean generate generate-check coverpkg-check cross interop vcan-setup
+.PHONY: microvm interop-images help all build examples fmt fmt-check lint lint-ci vet vuln test test-vcan test-admin coverage coverage-check cover bench fuzz check clean generate generate-check coverpkg-check cross interop vcan-setup
 
 help: ## This help
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z0-9_-]+:.*?## / {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -82,6 +82,12 @@ vcan-setup: ## Create vcan0 (CAN FD MTU) and load the CAN modules (Linux, sudo)
 	@sudo modprobe vcan; sudo modprobe can-isotp || true
 	@ip link show vcan0 >/dev/null 2>&1 || sudo ip link add vcan0 type vcan
 	@sudo ip link set vcan0 mtu 72 up
+
+KERNEL ?= v6.12
+microvm: ## Run the SocketCAN tests in a microVM with a mainline kernel (Linux with KVM, virtme-ng; KERNEL=v6.12)
+	@scripts/mainline-kernel.sh $(KERNEL) $(BIN_DIR)/kernel-$(KERNEL)
+	@sudo depmod -b $(BIN_DIR)/kernel-$(KERNEL)/root $$(ls $(BIN_DIR)/kernel-$(KERNEL)/root/lib/modules)
+	@scripts/microvm-test.sh $(BIN_DIR)/kernel-$(KERNEL)/root/boot/vmlinuz-$$(ls $(BIN_DIR)/kernel-$(KERNEL)/root/lib/modules) $(CURDIR)/$(BIN_DIR)/kernel-$(KERNEL)/root
 
 coverage: ## Run the tests with coverage across the library packages (writes coverage.out)
 	@go test -count=1 -race -covermode=atomic -coverpkg=$(COVER_PKGS) -coverprofile=coverage.out $(TEST_PKGS)

@@ -34,7 +34,10 @@ func kernelISOTP(t *testing.T, ifc string, cfg isotp.Config) *ISOTPConn {
 
 func userISOTP(t *testing.T, ifc string, cfg isotp.Config) *isotp.Conn {
 	t.Helper()
-	opts := []Option{}
+	// A userspace ISO-TP receiver that advertises STmin 0 must absorb a
+	// whole block at bus speed: give its socket a large receive buffer
+	// (without it, Ubuntu's 6.8 kernel in a 2-vCPU microVM overflowed it).
+	opts := []Option{WithReceiveBuffer(1 << 20)}
 	if cfg.FD {
 		opts = append(opts, WithFD())
 	}
@@ -47,7 +50,14 @@ func userISOTP(t *testing.T, ifc string, cfg isotp.Config) *isotp.Conn {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { c.Close(); bus.Close() })
+	t.Cleanup(func() {
+		if t.Failed() {
+			n, _ := sock.Drops()
+			t.Logf("userspace socket: %d frames dropped by the kernel (receive queue overflow), bus %+v", n, bus.Stats())
+		}
+		c.Close()
+		bus.Close()
+	})
 	return c
 }
 
