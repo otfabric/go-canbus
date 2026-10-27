@@ -31,7 +31,6 @@ const (
 	isotpExtendAddr = 0x002
 	isotpTxPadding  = 0x004
 	isotpRxExtAddr  = 0x200
-	isotpWaitTxDone = 0x400
 	isotpForceTxSTm = 0x080
 )
 
@@ -76,7 +75,12 @@ func DialISOTP(ifname string, cfg isotp.Config) (*ISOTPConn, error) {
 	}()
 	// struct can_isotp_options
 	opts := make([]byte, 12)
-	flags := uint32(isotpWaitTxDone)
+	// Not CAN_ISOTP_WAIT_TX_DONE: the kernel would wait for the transfer
+	// inside sendmsg, interruptibly. Go's runtime signals threads (SIGURG
+	// preemption); the wait then aborts the transfer, and the restarted
+	// syscall (SA_RESTART) sends the whole message again. Send waits for
+	// completion through poll instead.
+	flags := uint32(0)
 	if cfg.ListenOnly {
 		flags |= isotpListenMode
 	}
@@ -184,8 +188,8 @@ func (c *ISOTPConn) finish(ctx context.Context, op string, err error) error {
 	return &canbus.OpError{Op: op, Interface: c.name, Err: mapErrno(err)}
 }
 
-// Send transmits one message; with the kernel's WAIT_TX_DONE it returns
-// when the transfer completed or failed.
+// Send transmits one message and returns when the kernel has finished
+// the transfer (or failed it: no flow control, overflow).
 func (c *ISOTPConn) Send(ctx context.Context, payload []byte) error {
 	if c.closed.Load() {
 		return canbus.ErrClosed
@@ -197,6 +201,8 @@ func (c *ISOTPConn) Send(ctx context.Context, payload []byte) error {
 	defer c.wmu.Unlock()
 	stop := watch(ctx, c.file, false)
 	defer stop()
+	// The write starts the transfer and returns; EAGAIN means an earlier
+	// transfer is still running (the poller waits for it).
 	var werr error
 	err := c.rc.Write(func(fd uintptr) bool {
 		_, werr = syscall.Write(int(fd), payload)
@@ -208,7 +214,43 @@ func (c *ISOTPConn) Send(ctx context.Context, payload []byte) error {
 	if err != nil {
 		return c.finish(ctx, "send", err)
 	}
+	// The socket polls writable again once the transmitter is idle.
+	err = c.rc.Write(func(fd uintptr) bool { return writable(fd) })
+	if err != nil {
+		return c.finish(ctx, "send", err)
+	}
+	// A failed transfer leaves its error on the socket.
+	var serr error
+	if cerr := c.rc.Control(func(fd uintptr) {
+		v, gerr := syscall.GetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_ERROR)
+		switch {
+		case gerr != nil:
+			serr = gerr
+		case v != 0:
+			serr = syscall.Errno(v)
+		}
+	}); cerr != nil {
+		return c.finish(ctx, "send", cerr)
+	}
+	if serr != nil {
+		return c.finish(ctx, "send", serr)
+	}
 	return nil
+}
+
+// writable polls the descriptor for POLLOUT without blocking (ppoll with
+// a zero timeout; ppoll exists on every architecture, poll does not).
+func writable(fd uintptr) bool {
+	type pollfd struct {
+		fd      int32
+		events  int16
+		revents int16
+	}
+	const pollOut = 0x4
+	p := pollfd{fd: int32(fd), events: pollOut}
+	var ts syscall.Timespec
+	n, _, e := syscall.Syscall6(syscall.SYS_PPOLL, uintptr(unsafe.Pointer(&p)), 1, uintptr(unsafe.Pointer(&ts)), 0, 0, 0)
+	return e == 0 && n == 1 && p.revents&pollOut != 0
 }
 
 // Receive returns the next message or a reception error reported by the
