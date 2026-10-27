@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<NetworkDefinition xmlns="http://kayak.2codeornot2code.org/1.0">
+  <Document name="t" version="1"/>
+  <Node id="1" name="A"/>
+  <Node id="2" name="B"/>
+  <Bus name="Main">
+    <Message id="0x10" name="M" length="8" interval="100">
+      <Producer><NodeRef id="1"/></Producer>
+      <Signal name="BE12" offset="8" length="12" endianess="big">
+        <Consumer><NodeRef id="2"/></Consumer>
+        <Value type="unsigned" slope="0.5" intercept="-1" unit="V" min="0" max="10"/>
+      </Signal>
+      <Signal name="LE8" offset="40" length="8"><Value type="signed"/>
+        <LabelSet><Label name="Zero" value="0"/></LabelSet></Signal>
+    </Message>
+    <Message id="0x1234" name="X" length="8" format="extended">
+      <Multiplex name="Mux" offset="0" length="4">
+        <MuxGroup count="0"><Signal name="P" offset="8" length="8"/></MuxGroup>
+        <MuxGroup count="1"><Signal name="Q" offset="8" length="16" endianess="big"/></MuxGroup>
+      </Multiplex>
+    </Message>
+  </Bus>
+</NetworkDefinition>
