@@ -465,3 +465,28 @@ func TestNopMetricsAndDiscard(t *testing.T) {
 	_ = h.Handle(context.Background(), slog.Record{})
 	_ = h.WithAttrs(nil).WithGroup("g")
 }
+
+// TestListenOnly: a third node monitors a transfer between two others and
+// sends nothing.
+func TestListenOnly(t *testing.T) {
+	a, b, vb := pair(t, func(a, b *Config) { b.BlockSize = 2 })
+	port, _ := vb.Open(virtual.WithFD())
+	bus, _ := canbus.NewBus(port)
+	defer bus.Close()
+	mon, err := Dial(bus, Config{TxID: 0x7E8, RxID: 0x7E0, ListenOnly: true, MaxMessageSize: 4095})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mon.Close()
+	exchange(t, a, b, 300)
+	got, err := mon.Receive(ctxT(t))
+	if err != nil || !bytes.Equal(got, payload(300)) {
+		t.Fatal(len(got), err)
+	}
+	if bus.Stats().TxFrames != 0 {
+		t.Fatal("the monitor transmitted")
+	}
+	if err := mon.Send(ctxT(t), []byte{1}); !errors.Is(err, canbus.ErrUnsupported) {
+		t.Fatal(err)
+	}
+}

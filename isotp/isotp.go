@@ -130,6 +130,11 @@ type Config struct {
 	// up to 1<<32−1 with the first frame escape). A larger first frame
 	// is answered with OVERFLOW.
 	MaxMessageSize int
+	// ListenOnly reassembles messages without ever transmitting: no flow
+	// control is sent and Send fails (as the kernel's
+	// CAN_ISOTP_LISTEN_MODE). Use it to monitor a transfer between two
+	// other nodes; it then sees the messages sent on RxID.
+	ListenOnly bool
 	// SendFlowWait makes this receiver answer the first frame with this
 	// many WAIT flow controls before CTS (for tests of peers).
 	SendFlowWait int

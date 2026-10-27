@@ -27,6 +27,7 @@ const (
 	isotpRecvFC     = 2
 	isotpTxSTmin    = 3
 	isotpLLOpts     = 5
+	isotpListenMode = 0x001
 	isotpExtendAddr = 0x002
 	isotpTxPadding  = 0x004
 	isotpRxExtAddr  = 0x200
@@ -76,6 +77,9 @@ func DialISOTP(ifname string, cfg isotp.Config) (*ISOTPConn, error) {
 	// struct can_isotp_options
 	opts := make([]byte, 12)
 	flags := uint32(isotpWaitTxDone)
+	if cfg.ListenOnly {
+		flags |= isotpListenMode
+	}
 	if cfg.Addressing != isotp.Normal {
 		flags |= isotpExtendAddr | isotpRxExtAddr
 		opts[8] = cfg.TxAddress  // ext_address

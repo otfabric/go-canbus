@@ -177,6 +177,8 @@ func (c *Conn) sendMessage(ctx context.Context, p []byte) error {
 		return fmt.Errorf("%w: isotp: empty message", canbus.ErrInvalidOption)
 	case n > c.cfg.MaxMessageSize:
 		return fmt.Errorf("%w: %d bytes, MaxMessageSize is %d", ErrTooLarge, n, c.cfg.MaxMessageSize)
+	case c.cfg.ListenOnly:
+		return fmt.Errorf("%w: isotp: a listen-only connection cannot send", canbus.ErrUnsupported)
 	}
 	select {
 	case <-c.done:
@@ -331,6 +333,9 @@ func (c *Conn) deliver(data []byte, err error) {
 }
 
 func (c *Conn) sendFC(status byte) {
+	if c.cfg.ListenOnly {
+		return
+	}
 	st, _ := encodeSTmin(c.cfg.STmin)
 	ctx, cancel := context.WithTimeout(context.Background(), c.cfg.TimeoutBs)
 	defer cancel()
@@ -453,7 +458,7 @@ func (c *Conn) handle(f *canbus.Frame, timer *time.Timer, crC *<-chan time.Time)
 			return
 		}
 		c.rxBlock++
-		if c.cfg.BlockSize > 0 && c.rxBlock == int(c.cfg.BlockSize) {
+		if !c.cfg.ListenOnly && c.cfg.BlockSize > 0 && c.rxBlock == int(c.cfg.BlockSize) {
 			c.rxBlock = 0
 			c.sendFC(fcCTS)
 		}

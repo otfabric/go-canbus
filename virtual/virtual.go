@@ -130,7 +130,11 @@ func (b *Bus) SetFaults(f Faults) {
 // FaultStats reports how many frames were delivered and affected by
 // faults so far.
 type FaultStats struct {
-	Delivered, Dropped, Duplicated, Delayed, Corrupted uint64
+	Delivered  uint64 `json:"delivered"`
+	Dropped    uint64 `json:"dropped"`
+	Duplicated uint64 `json:"duplicated"`
+	Delayed    uint64 `json:"delayed"`
+	Corrupted  uint64 `json:"corrupted"`
 }
 
 // FaultStats returns the fault counters.
