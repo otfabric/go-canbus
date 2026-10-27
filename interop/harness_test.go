@@ -26,21 +26,21 @@ import (
 	"github.com/otfabric/go-canbus"
 )
 
-// Images of canbus-interop, by adapter. Override one with
-// CANBUS_INTEROP_<ADAPTER>_IMAGE (upper case), e.g. a local build
-// canbus-interop-canutils:dev. The defaults are the published images of
-// the release in InteropRelease, pinned by multi-arch index digest.
+// Images of canbus-interop, by adapter: ghcr.io/otfabric/canbus-interop-
+// <adapter>:<InteropRelease>. Until the first release they are built from
+// canbus-interop's source (make interop-images). Override one with
+// CANBUS_INTEROP_<ADAPTER>_IMAGE (upper case).
 const InteropRelease = "dev"
 
-var defaultImages = map[string]string{
-	"canutils":       "canbus-interop-canutils:dev",
-	"pythoncan":      "canbus-interop-pythoncan:dev",
-	"socketcanrs":    "canbus-interop-socketcanrs:dev",
-	"scapy":          "canbus-interop-scapy:dev",
-	"pythoncanisotp": "canbus-interop-pythoncanisotp:dev",
-	"cantools":       "canbus-interop-cantools:dev",
-	"canmatrix":      "canbus-interop-canmatrix:dev",
-}
+var adapters = []string{"canutils", "pythoncan", "socketcanrs", "scapy", "pythoncanisotp", "cantools", "canmatrix"}
+
+var defaultImages = func() map[string]string {
+	m := map[string]string{}
+	for _, a := range adapters {
+		m[a] = "ghcr.io/otfabric/canbus-interop-" + a + ":" + InteropRelease
+	}
+	return m
+}()
 
 // Adapter order: raw CAN stacks, ISO-TP stacks, database oracles.
 var (

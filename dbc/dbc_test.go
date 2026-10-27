@@ -443,3 +443,18 @@ func TestCRLF(t *testing.T) {
 		t.Fatal("CRLF input parses differently", err)
 	}
 }
+
+func TestLexerDetails(t *testing.T) {
+	toks, err := lex("A 0x1F \"s\" ; 1e-3 2abc")
+	if err != nil || len(toks) != 7 {
+		t.Fatal(toks, err)
+	}
+	if toks[1].text != "0x1F" || toks[4].text != "1e-3" || toks[5].kind != tIdent || toks[6].String() != "end of file" ||
+		toks[2].String() != `string "s"` || toks[0].String() != `"A"` || tNumber.String() != "number" {
+		t.Fatal(toks)
+	}
+	db, _, err := ParseBytes([]byte("BO_ 0x10 M: 8 A\n SG_ S : 0|8@1+ (1,0) [0|0x10] \"\" A\nBA_DEF_ BO_ \"H\" HEX 0 0xFF;\nBA_ \"H\" BO_ 16 0x1F;\n"))
+	if err != nil || db.Messages[0].Attributes[0].Int != 31 || db.Messages[0].Signals[0].Maximum != 16 {
+		t.Fatal(err)
+	}
+}

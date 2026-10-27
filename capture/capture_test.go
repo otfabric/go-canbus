@@ -180,6 +180,13 @@ func TestRoundTrips(t *testing.T) {
 	}
 }
 
+func TestFormatFrame(t *testing.T) {
+	f, _ := canbus.NewExtended(5, []byte{1})
+	if FormatFrame(&f) != "00000005#01" {
+		t.Fatal(FormatFrame(&f))
+	}
+}
+
 func TestCandumpWriterDefaults(t *testing.T) {
 	var b bytes.Buffer
 	w := NewCandumpWriter(&b, "")

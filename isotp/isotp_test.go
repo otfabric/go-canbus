@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -453,4 +454,14 @@ func FuzzReceiver(f *testing.F) {
 			}
 		}
 	})
+}
+
+func TestNopMetricsAndDiscard(t *testing.T) {
+	var m NopMetrics
+	m.OnMessageSent(1, 0)
+	m.OnMessageReceived(1, 0)
+	m.OnError("x", nil)
+	var h discard
+	_ = h.Handle(context.Background(), slog.Record{})
+	_ = h.WithAttrs(nil).WithGroup("g")
 }

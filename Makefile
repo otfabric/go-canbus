@@ -4,7 +4,7 @@
 
 .DEFAULT_GOAL := help
 
-.PHONY: help all build examples fmt fmt-check lint lint-ci vet vuln test test-vcan test-admin coverage coverage-check cover bench fuzz check clean generate generate-check coverpkg-check cross interop vcan-setup
+.PHONY: interop-images help all build examples fmt fmt-check lint lint-ci vet vuln test test-vcan test-admin coverage coverage-check cover bench fuzz check clean generate generate-check coverpkg-check cross interop vcan-setup
 
 help: ## This help
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z0-9_-]+:.*?## / {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -123,10 +123,19 @@ cross: ## Build every package for the release platforms
 	@for t in linux/amd64 linux/arm64 linux/arm darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do \
 		echo "build $$t"; GOOS=$${t%/*} GOARCH=$${t#*/} go build ./... || exit 1; done
 
-# Reference implementations of otfabric/canbus-interop, pinned by digest
-# in interop/harness_test.go; see INTEROPERABILITY.md.
-interop: ## Run the interop suite against the canbus-interop images (Linux, Docker, vcan0)
-	@CANBUS_REQUIRE_VCAN=1 go test -tags=interop -count=1 -timeout=30m ./interop/...
+# Reference implementations of otfabric/canbus-interop (interop/harness_test.go;
+# see INTEROPERABILITY.md). Until canbus-interop publishes its images,
+# interop-images builds them from its source at INTEROP_REF.
+INTEROP_REF ?= feat/adapters
+interop-images: ## Build the canbus-interop images from source (needs Docker)
+	@rm -rf $(BIN_DIR)/canbus-interop && mkdir -p $(BIN_DIR)
+	@git clone -q --depth 1 --branch $(INTEROP_REF) https://github.com/otfabric/canbus-interop.git $(BIN_DIR)/canbus-interop
+	@$(MAKE) -C $(BIN_DIR)/canbus-interop images REGISTRY=ghcr.io/otfabric VERSION=dev
+
+interop: ## Run the interop suite against the canbus-interop images (Linux, Docker, vcan0; writes bin/interop-report.json)
+	@mkdir -p $(BIN_DIR)
+	@CANBUS_REQUIRE_VCAN=1 CANBUS_REQUIRE_INTEROP=1 CANBUS_INTEROP_REPORT=$(CURDIR)/$(BIN_DIR)/interop-report.json \
+		go test -tags=interop -count=1 -timeout=60m ./interop/...
 
 check: generate-check fmt-check lint lint-ci vet vuln test coverage examples cross ## Everything CI checks except the vcan and interop jobs
 
