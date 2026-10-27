@@ -30,8 +30,8 @@ func testIface(t testing.TB) string {
 		name = "vcan0"
 	}
 	ifi, err := net.InterfaceByName(name)
-	if err != nil || ifi.Flags&net.FlagUp == 0 || ifi.MTU != canFDMTU {
-		msg := "no usable " + name + " (needs a vcan interface, up, mtu 72)"
+	if err != nil || ifi.Flags&net.FlagUp == 0 || ifi.MTU < canFDMTU {
+		msg := "no usable " + name + " (needs a vcan interface, up, mtu 72 or more)"
 		if os.Getenv("CANBUS_REQUIRE_VCAN") == "1" {
 			t.Fatal(msg)
 		}

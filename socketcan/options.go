@@ -18,8 +18,9 @@ type config struct {
 type Option func(*config)
 
 // WithFD opens the socket for CAN FD (CAN_RAW_FD_FRAMES). The interface
-// must have the CAN FD MTU (72); otherwise Open fails with
-// [canbus.ErrUnsupported].
+// must have the CAN FD MTU (72) or the CAN XL MTU (2060); otherwise Open
+// fails with [canbus.ErrUnsupported]. CAN XL frames themselves are not
+// supported.
 func WithFD() Option { return func(c *config) { c.fd = true } }
 
 // WithFilters sets the kernel filters and error mask (CAN_RAW_FILTER,

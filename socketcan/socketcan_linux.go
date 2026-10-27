@@ -113,7 +113,9 @@ func Open(ifname string, opts ...Option) (*Conn, error) {
 			return nil, opErr(fmt.Errorf("%w: %v", canbus.ErrInterfaceDown, err))
 		}
 		c.ifindex = ifi.Index
-		if cfg.fd && ifi.MTU != canFDMTU {
+		// CAN FD needs the CAN FD MTU (72) or, since Linux 6.2, the CAN XL
+		// MTU (2060), which carries CAN FD frames too.
+		if cfg.fd && ifi.MTU < canFDMTU {
 			return nil, opErr(fmt.Errorf("%w: interface MTU is %d, CAN FD needs %d (ip link set %s mtu 72)", canbus.ErrUnsupported, ifi.MTU, canFDMTU, ifname))
 		}
 	} else {
