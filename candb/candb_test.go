@@ -150,7 +150,7 @@ func TestValidate(t *testing.T) {
 			{Name: "Sw", Length: 4, Factor: 1, IsMultiplexer: true},
 			{Name: "P", StartBit: 8, Length: 8, Factor: 1, Multiplexer: "Sw", MuxValues: []MuxRange{{1, 1}}},
 			{Name: "Q", StartBit: 8, Length: 8, Factor: 1, Multiplexer: "Sw", MuxValues: []MuxRange{{2, 2}}}, // exclusive: no overlap
-			{Name: "R", StartBit: 12, Length: 8, Factor: 1},                                                   // overlaps both
+			{Name: "R", StartBit: 12, Length: 8, Factor: 1},                                                  // overlaps both
 			{Name: "Self", StartBit: 32, Length: 4, Factor: 1, IsMultiplexer: true, Multiplexer: "Self", MuxValues: []MuxRange{{0, 0}}},
 		}},
 	}}

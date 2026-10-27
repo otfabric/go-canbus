@@ -259,7 +259,7 @@ func pcapng(order binary.ByteOrder) []byte {
 	canOpts := append(opt(2, []byte("can7")), opt(9, []byte{9})...)
 	canOpts = append(canOpts, 0, 0, 0, 0)
 	block(blockIDB, idb(LinkTypeCANSocketCAN, canOpts)) // interface 0 (also of SPBs)
-	block(blockIDB, idb(1, nil))                         // interface 1: Ethernet
+	block(blockIDB, idb(1, nil))                        // interface 1: Ethernet
 	pkt := func(ifc uint32, ts uint64, data []byte) []byte {
 		h := make([]byte, 20)
 		order.PutUint32(h[0:], ifc)
