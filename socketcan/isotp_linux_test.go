@@ -46,6 +46,9 @@ func userISOTP(t *testing.T, ifc string, cfg isotp.Config) *isotp.Conn {
 		t.Fatal(err)
 	}
 	bus, _ := canbus.NewBus(sock)
+	// The kernel sender may miss a flow control faster than its own echo
+	// on vcan (see isotp.Config.FlowControlDelay).
+	cfg.FlowControlDelay = 200 * time.Microsecond
 	c, err := isotp.Dial(bus, cfg)
 	if err != nil {
 		t.Fatal(err)

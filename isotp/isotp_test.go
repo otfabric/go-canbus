@@ -164,6 +164,15 @@ func TestWireFormat(t *testing.T) {
 	}
 }
 
+func TestFlowControlDelay(t *testing.T) {
+	a, b, _ := pair(t, func(a, b *Config) { b.BlockSize, b.FlowControlDelay = 1, 2*time.Millisecond })
+	start := time.Now()
+	exchange(t, a, b, 6+7*10) // FC after the FF and after each of 10 CFs
+	if d := time.Since(start); d < 20*time.Millisecond {
+		t.Fatalf("took %v: delay not applied", d)
+	}
+}
+
 func TestSTminIsHonoured(t *testing.T) {
 	a, b, _ := pair(t, func(a, b *Config) { b.STmin = 10 * time.Millisecond })
 	start := time.Now()
@@ -373,6 +382,7 @@ func TestConfigValidation(t *testing.T) {
 		{STmin: 1500 * time.Microsecond},
 		{STmin: 200 * time.Millisecond},
 		{STmin: -1},
+		{FlowControlDelay: -1},
 		{ForceTxSTmin: new(time.Duration)},
 	}
 	*bad[len(bad)-1].ForceTxSTmin = time.Second

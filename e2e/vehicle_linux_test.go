@@ -68,7 +68,7 @@ func TestVehicleVCAN(t *testing.T) {
 	}
 	client := func(t *testing.T) isotp.Endpoint {
 		b, _ := canbus.NewBus(n.open(t, false))
-		c, err := isotp.Dial(b, isotp.Config{TxID: 0x7E0, RxID: 0x7E8, Padding: true})
+		c, err := isotp.Dial(b, isotp.Config{TxID: 0x7E0, RxID: 0x7E8, Padding: true, FlowControlDelay: 200 * time.Microsecond})
 		if err != nil {
 			t.Fatal(err)
 		}

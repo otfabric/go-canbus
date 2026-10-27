@@ -74,7 +74,8 @@ func TestMonkeyKernelISOTP(t *testing.T) {
 		}
 		sock, _ := socketcan.Open(ifB, socketcan.WithReceiveBuffer(1<<20))
 		bus, _ := canbus.NewBus(sock)
-		u, _ := isotp.Dial(bus, isotp.Config{TxID: 0x6A8, RxID: 0x6A0, MaxMessageSize: 4095, TimeoutBs: time.Second, TimeoutCr: time.Second})
+		u, _ := isotp.Dial(bus, isotp.Config{TxID: 0x6A8, RxID: 0x6A0, MaxMessageSize: 4095, TimeoutBs: time.Second, TimeoutCr: time.Second,
+			FlowControlDelay: 200 * time.Microsecond})
 
 		check := func(from, to isotp.Endpoint, name string) {
 			sent := map[string]bool{}
@@ -119,7 +120,12 @@ func TestMonkeyKernelISOTP(t *testing.T) {
 		for {
 			got, err := u.Receive(c)
 			if c.Err() != nil {
-				t.Fatalf("seed %d: no recovery: %v", seed, err)
+				var sendErr error
+				select {
+				case sendErr = <-errc:
+				default:
+				}
+				t.Fatalf("seed %d: no recovery: receive %v, kernel send %v, bridge %+v", seed, err, sendErr, clean.Stats())
 			}
 			// Errors of receptions the faults broke may still be queued.
 			if err == nil && bytes.Equal(got, msg) {

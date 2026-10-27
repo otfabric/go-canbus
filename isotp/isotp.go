@@ -130,6 +130,13 @@ type Config struct {
 	// up to 1<<32−1 with the first frame escape). A larger first frame
 	// is answered with OVERFLOW.
 	MaxMessageSize int
+	// FlowControlDelay (N_Br) waits this long before each flow control
+	// frame of this receiver (default 0). On a virtual interface the Linux
+	// kernel's ISO-TP sender can miss a flow control that answers a block
+	// faster than the kernel processes the echo of its own last frame
+	// (it enters its wait state only then, net/can/isotp.c): a few hundred
+	// microseconds avoid that race. Real buses need no delay.
+	FlowControlDelay time.Duration
 	// ListenOnly reassembles messages without ever transmitting: no flow
 	// control is sent and Send fails (as the kernel's
 	// CAN_ISOTP_LISTEN_MODE). Use it to monitor a transfer between two
@@ -208,6 +215,9 @@ func (c Config) withDefaults() (Config, error) {
 	}
 	if c.TimeoutCr <= 0 {
 		c.TimeoutCr = time.Second
+	}
+	if c.FlowControlDelay < 0 || c.FlowControlDelay > time.Second {
+		return bad("FlowControlDelay %v (0..1s)", c.FlowControlDelay)
 	}
 	if c.MaxWait <= 0 {
 		c.MaxWait = 10
