@@ -112,7 +112,7 @@ func TestNames(t *testing.T) {
 	if StateBusOff.String() != "BUS-OFF" || ControllerState(9).String() != "STATE-9" {
 		t.Fatal("state names")
 	}
-	if (ModeFD | ModeBerrReporting).String() != "BERR-REPORTING,FD" || CtrlMode(0x1000).String() != "0x1000" {
+	if (ModeFD|ModeBerrReporting).String() != "BERR-REPORTING,FD" || CtrlMode(0x1000).String() != "0x1000" {
 		t.Fatal((ModeFD | ModeBerrReporting).String())
 	}
 	if operState(2) != "DOWN" || operState(9) != "STATE-9" || cstring([]byte("ab")) != "ab" {
