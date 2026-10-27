@@ -35,13 +35,13 @@ const InteropRelease = "v0.1.0"
 var adapters = []string{"canutils", "pythoncan", "socketcanrs", "scapy", "pythoncanisotp", "cantools", "canmatrix"}
 
 var defaultImages = map[string]string{
-	"canutils": "ghcr.io/otfabric/canbus-interop-canutils@sha256:c4d541a178b7bedec714136c3b01897a722a06cefad4c39d6fde3afbe8b7f6de",
-	"pythoncan": "ghcr.io/otfabric/canbus-interop-pythoncan@sha256:11178bac2eb2432acb1f9620dcb4f6945ceaacaf8472056783b776cf6efd99f9",
-	"socketcanrs": "ghcr.io/otfabric/canbus-interop-socketcanrs@sha256:2d620fbb94e2af90ba10616bff8a3abbc6c500309ee9042e495ef1d8a15a0d97",
-	"scapy": "ghcr.io/otfabric/canbus-interop-scapy@sha256:3eb6de2ca15c7849f2a4a76d21d79e297d92d29355c1e092686b2e0b2103a751",
+	"canutils":       "ghcr.io/otfabric/canbus-interop-canutils@sha256:c4d541a178b7bedec714136c3b01897a722a06cefad4c39d6fde3afbe8b7f6de",
+	"pythoncan":      "ghcr.io/otfabric/canbus-interop-pythoncan@sha256:11178bac2eb2432acb1f9620dcb4f6945ceaacaf8472056783b776cf6efd99f9",
+	"socketcanrs":    "ghcr.io/otfabric/canbus-interop-socketcanrs@sha256:2d620fbb94e2af90ba10616bff8a3abbc6c500309ee9042e495ef1d8a15a0d97",
+	"scapy":          "ghcr.io/otfabric/canbus-interop-scapy@sha256:3eb6de2ca15c7849f2a4a76d21d79e297d92d29355c1e092686b2e0b2103a751",
 	"pythoncanisotp": "ghcr.io/otfabric/canbus-interop-pythoncanisotp@sha256:130e54cab8e665dd917ce577ffced6d9870d6769e2f80d8beeb87ae9ff2c2492",
-	"cantools": "ghcr.io/otfabric/canbus-interop-cantools@sha256:67265f75d15d9155e877e50e92e51c530d88dce63600df24ad993e2717fa9c93",
-	"canmatrix": "ghcr.io/otfabric/canbus-interop-canmatrix@sha256:42f14775360e86ff710496be5c1eae2397ae089ec02d2c4a6082c8dba0798878",
+	"cantools":       "ghcr.io/otfabric/canbus-interop-cantools@sha256:67265f75d15d9155e877e50e92e51c530d88dce63600df24ad993e2717fa9c93",
+	"canmatrix":      "ghcr.io/otfabric/canbus-interop-canmatrix@sha256:42f14775360e86ff710496be5c1eae2397ae089ec02d2c4a6082c8dba0798878",
 }
 
 // Adapter order: raw CAN stacks, ISO-TP stacks, database oracles.
