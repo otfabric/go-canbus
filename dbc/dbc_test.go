@@ -89,7 +89,7 @@ func TestParseModel(t *testing.T) {
 	ext := db.MessageByName("ExtMux")
 	in := ext.Signal("Inner")
 	if !in.IsMultiplexer || in.Multiplexer != "Outer" || ext.Signal("Deep").Multiplexer != "Inner" ||
-		!reflect.DeepEqual(ext.Signal("Deep").MuxValues, []candb.MuxRange{{2, 2}, {5, 6}}) {
+		!reflect.DeepEqual(ext.Signal("Deep").MuxValues, []candb.MuxRange{{Low: 2, High: 2}, {Low: 5, High: 6}}) {
 		t.Fatalf("extended mux %+v", ext.Signal("Deep"))
 	}
 	if db.AttributeDefinition("NodeLayer", candb.ObjectNode).Type != candb.AttrHex || db.Node("ECU1").Attributes[0].Int != 16 || db.Attributes[0].String != "CAN FD" {

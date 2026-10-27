@@ -10,6 +10,7 @@ import (
 	"runtime"
 
 	"github.com/otfabric/go-canbus"
+	"github.com/otfabric/go-canbus/isotp"
 )
 
 // Conn is a SocketCAN raw socket. On this system it cannot be opened.
@@ -32,3 +33,21 @@ func (c *Conn) Close() error { return nil }
 
 // Supported reports whether SocketCAN is available on this platform.
 func Supported() bool { return false }
+
+// ISOTPConn is a kernel ISO-TP socket. On this system it cannot be opened.
+type ISOTPConn struct{}
+
+// DialISOTP reports [canbus.ErrUnsupported].
+func DialISOTP(ifname string, cfg isotp.Config) (*ISOTPConn, error) {
+	return nil, &canbus.OpError{Op: "open isotp", Interface: ifname,
+		Err: fmt.Errorf("%w: kernel ISO-TP is not available on %s/%s", canbus.ErrUnsupported, runtime.GOOS, runtime.GOARCH)}
+}
+
+// Send reports [canbus.ErrUnsupported].
+func (c *ISOTPConn) Send(context.Context, []byte) error { return canbus.ErrUnsupported }
+
+// Receive reports [canbus.ErrUnsupported].
+func (c *ISOTPConn) Receive(context.Context) ([]byte, error) { return nil, canbus.ErrUnsupported }
+
+// Close does nothing.
+func (c *ISOTPConn) Close() error { return nil }

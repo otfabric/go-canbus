@@ -190,7 +190,7 @@ func TestIdentifiers(t *testing.T) {
 			{Name: "speed", StartBit: 8, Length: 8, Factor: 1},
 			{Name: "Speed", StartBit: 16, Length: 8, Factor: 1},
 			{Name: "SpeedPhys", StartBit: 24, Length: 8, Factor: 1},
-			{Name: "E", StartBit: 32, Length: 4, Factor: 1, Values: []candb.ValueDescription{{1, "a b"}, {2, "a_b"}, {3, "a b"}, {-1, "neg"}}},
+			{Name: "E", StartBit: 32, Length: 4, Factor: 1, Values: []candb.ValueDescription{{Value: 1, Description: "a b"}, {Value: 2, Description: "a_b"}, {Value: 3, Description: "a b"}, {Value: -1, Description: "neg"}}},
 		}},
 		{Name: "encode", ID: 2, Length: 8},
 	}}
