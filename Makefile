@@ -4,7 +4,7 @@
 
 .DEFAULT_GOAL := help
 
-.PHONY: microvm interop-images help all build examples fmt fmt-check lint lint-ci vet vuln test test-vcan test-admin coverage coverage-check cover bench fuzz check clean generate generate-check coverpkg-check cross interop vcan-setup
+.PHONY: chaos e2e microvm interop-images help all build examples fmt fmt-check lint lint-ci vet vuln test test-vcan test-admin coverage coverage-check cover bench fuzz check clean generate generate-check coverpkg-check cross interop vcan-setup
 
 help: ## This help
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z0-9_-]+:.*?## / {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -22,7 +22,7 @@ TEST_PKGS := $(shell go list ./... | grep -v '/examples')
 # examples, the generator of the golden files (internal/cmd), the
 # generated golden code (internal/golden, verified by the
 # differential test) and the leak-check test helper.
-COVER_PKGS := $(shell go list ./... | grep -v '/examples' | grep -v '/internal/cmd' | grep -v '/internal/golden' | grep -v '/internal/leak' | paste -sd, -)
+COVER_PKGS := $(shell go list ./... | grep -v '/examples' | grep -v '/internal/cmd' | grep -v '/internal/golden' | grep -v '/internal/leak' | grep -v '/e2e' | paste -sd, -)
 COVER_MIN := 90
 
 # vcan interface the SocketCAN and kernel ISO-TP tests use (Linux).
@@ -78,16 +78,22 @@ test-admin: ## Run the netlink administration tests (Linux, needs sudo)
 	@go test -c -o $(BIN_DIR)/link.test ./socketcan/link
 	@sudo CANBUS_TEST_ADMIN=1 $(BIN_DIR)/link.test -test.v -test.run TestAdmin
 
-vcan-setup: ## Create vcan0 (CAN FD MTU) and load the CAN modules (Linux, sudo)
+vcan-setup: ## Create vcan0 and vcan1 (CAN FD MTU) and load the CAN modules (Linux, sudo)
 	@sudo modprobe vcan; sudo modprobe can-isotp || true
-	@ip link show vcan0 >/dev/null 2>&1 || sudo ip link add vcan0 type vcan
-	@sudo ip link set vcan0 mtu 72 up
+	@for i in vcan0 vcan1; do ip link show $$i >/dev/null 2>&1 || sudo ip link add $$i type vcan; sudo ip link set $$i mtu 72 up; done
 
 KERNEL ?= v6.12
 microvm: ## Run the SocketCAN tests in a microVM with a mainline kernel (Linux with KVM, virtme-ng; KERNEL=v6.12)
 	@scripts/mainline-kernel.sh $(KERNEL) $(BIN_DIR)/kernel-$(KERNEL)
 	@sudo depmod -b $(BIN_DIR)/kernel-$(KERNEL)/root $$(ls $(BIN_DIR)/kernel-$(KERNEL)/root/lib/modules)
 	@scripts/microvm-test.sh $(BIN_DIR)/kernel-$(KERNEL)/root/boot/vmlinuz-$$(ls $(BIN_DIR)/kernel-$(KERNEL)/root/lib/modules) $(CURDIR)/$(BIN_DIR)/kernel-$(KERNEL)/root
+
+CHAOS_ITERATIONS ?= 200
+chaos: ## Run the chaos-monkey suites with CHAOS_ITERATIONS seeds each (Linux with vcan0/vcan1 adds the kernel ISO-TP one)
+	@CANBUS_CHAOS_ITERATIONS=$(CHAOS_ITERATIONS) go test -count=1 -timeout=60m -run Monkey -v ./chaos | grep -E '^(---|ok|FAIL|PASS)'
+
+e2e: ## Run the end-to-end suite (on Linux with vcan0 also over SocketCAN and the kernel)
+	@go test -count=1 -race ./e2e
 
 coverage: ## Run the tests with coverage across the library packages (writes coverage.out)
 	@go test -count=1 -race -covermode=atomic -coverpkg=$(COVER_PKGS) -coverprofile=coverage.out $(TEST_PKGS)
@@ -113,6 +119,7 @@ fuzz: ## Run every fuzz target for FUZZTIME (default 30s)
 	@go test -run='^$$' -fuzz='^FuzzReaders$$' -fuzztime=$(FUZZTIME) ./capture
 	@go test -run='^$$' -fuzz='^FuzzParse$$' -fuzztime=$(FUZZTIME) ./dbc
 	@go test -run='^$$' -fuzz='^FuzzParse$$' -fuzztime=$(FUZZTIME) ./kcd
+	@go test -run='^$$' -fuzz='^FuzzParse$$' -fuzztime=$(FUZZTIME) ./arxml
 	@go test -run='^$$' -fuzz='^FuzzReceiver$$' -fuzztime=$(FUZZTIME) ./isotp
 	@go test -run='^$$' -fuzz='^FuzzCodec$$' -fuzztime=$(FUZZTIME) ./candb
 
