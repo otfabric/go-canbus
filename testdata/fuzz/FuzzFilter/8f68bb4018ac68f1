@@ -1,0 +1,8 @@
+go test fuzz v1
+uint32(4660)
+uint32(536870911)
+byte('\x01')
+byte('\x02')
+bool(false)
+uint32(4660)
+byte('\x03')
