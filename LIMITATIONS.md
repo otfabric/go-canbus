@@ -18,10 +18,15 @@
   covered by SocketCAN on Linux). Implement `canbus.Transport` to add one.
 - SocketCAN on macOS and Windows (there is none). Interface commands
   return `ErrUnsupported`.
-- AUTOSAR ARXML. Planned as a build-time conversion through a pinned
-  canmatrix with the AUTOSAR versions and features it covers documented;
-  no ARXML compatibility is claimed. Use `canconvert in.arxml out.dbc`
-  meanwhile.
+- ARXML beyond the CAN subset of AUTOSAR 4.x listed in the `arxml`
+  package: no AUTOSAR 3.x, multiplexed, container, secured or diagnostic
+  PDUs, signal groups, end-to-end protection, other bus types; they are
+  reported as diagnostics. A PDU at a byte offset in its frame is placed at
+  that offset (AUTOSAR); cantools 45.1.0 and canmatrix 1.3.3 place it at 0.
+- ASC and BLF carry no Linux error class: error frames read from them are
+  protocol errors. python-can reads a classical frame's DLC 9..15 in ASC as
+  a length and a 0-byte CAN FD frame as remote; go-canbus follows Vector's
+  meaning.
 - DBC: environment variables, signal types, relation attributes,
   categories and filters are skipped with a warning diagnostic. Value
   descriptions of environment variables likewise.
@@ -45,6 +50,10 @@
   arrives corrupted; a real bus would reject it by CRC.
 - vcan is a perfect medium: tests on it prove interoperability of frame
   encoding and protocol logic, not electrical or timing behaviour.
+- ISO-TP cannot tell a consecutive frame of an earlier transfer from one
+  of the current transfer: a gateway that reorders frames can corrupt a
+  message undetected (see TESTING.md, chaos monkey). A single CAN bus keeps
+  each sender's order.
 - Kernel drop counts arrive with the next queued frame (SO_RXQ_OVFL).
 - A userspace ISO-TP receiver that advertises STmin 0 must absorb a whole
   block at bus speed. On a slow host its socket's receive queue can

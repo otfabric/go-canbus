@@ -70,6 +70,7 @@ func dialGo(t *testing.T, ifc string, cfg isotp.Config) *isotp.Conn {
 	}
 	bus, _ := canbus.NewBus(conn)
 	cfg.MaxMessageSize = 1 << 16
+	cfg.FlowControlDelay = 200 * time.Microsecond // kernel senders on vcan: see isotp.Config
 	c, err := isotp.Dial(bus, cfg)
 	if err != nil {
 		t.Fatal(err)

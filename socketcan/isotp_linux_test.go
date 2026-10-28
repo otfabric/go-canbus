@@ -10,6 +10,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -46,6 +48,9 @@ func userISOTP(t *testing.T, ifc string, cfg isotp.Config) *isotp.Conn {
 		t.Fatal(err)
 	}
 	bus, _ := canbus.NewBus(sock)
+	// The kernel sender may miss a flow control faster than its own echo
+	// on vcan (see isotp.Config.FlowControlDelay).
+	cfg.FlowControlDelay = 200 * time.Microsecond
 	c, err := isotp.Dial(bus, cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -67,6 +72,44 @@ func pattern(n int) []byte {
 		p[i] = byte(i % 251)
 	}
 	return p
+}
+
+// spy records every frame on the interface, to show what happened when a
+// transfer fails.
+type spy struct {
+	mu     sync.Mutex
+	frames []string
+}
+
+func startSpy(t *testing.T, ifc string) *spy {
+	s := &spy{}
+	c, err := Open(ifc, WithFD(), WithReceiveBuffer(1<<20))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		var f canbus.Frame
+		for c.Receive(ctx, &f) == nil {
+			s.mu.Lock()
+			s.frames = append(s.frames, f.Timestamp.Format("05.000000")+" "+f.String())
+			s.mu.Unlock()
+		}
+	}()
+	t.Cleanup(func() {
+		cancel()
+		<-done
+		c.Close()
+		if t.Failed() {
+			s.mu.Lock()
+			from := max(0, len(s.frames)-40)
+			t.Logf("last frames on %s:\n%s", ifc, strings.Join(s.frames[from:], "\n"))
+			s.mu.Unlock()
+		}
+	})
+	return s
 }
 
 func transfer(t *testing.T, from, to isotp.Endpoint, n int) {
@@ -120,6 +163,7 @@ func TestKernelVersusUserspace(t *testing.T) {
 			if ka.ExtendedIDs {
 				ka.TxID, ka.RxID, ub.TxID, ub.RxID = 0x18DA0000|base, 0x18DA0000|base+1, 0x18DA0000|base+1, 0x18DA0000|base
 			}
+			startSpy(t, ifc)
 			k := kernelISOTP(t, ifc, ka)
 			u := userISOTP(t, ifc, ub)
 			for _, n := range []int{1, 7, 8, 62, 100, 4095, 4096, 8000} {

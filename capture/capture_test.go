@@ -515,6 +515,14 @@ func FuzzReaders(f *testing.F) {
 	f.Add(pcapng(binary.LittleEndian))
 	f.Add([]byte("(1.5) vcan0 123#00\n"))
 	f.Add([]byte(`{"type":"frame","id":1,"len":1,"data":"00"}` + "\n"))
+	f.Add([]byte("date Mon Oct 27 08:15:00.123 pm 2026\nbase hex timestamps absolute\n 0.1 1 123 Rx d 2 11 22\n 0.2 CANFD 1 Rx 10 1 0 9 12 00 01 02 03 04 05 06 07 08 09 0a 0b\n"))
+	var blf bytes.Buffer
+	bw, _ := NewBLFWriter(&blf)
+	for _, fr := range frames(f) {
+		_ = bw.Write(&fr)
+	}
+	_ = bw.Close()
+	f.Add(blf.Bytes())
 	f.Fuzz(func(t *testing.T, data []byte) {
 		r, _, err := NewReader(bytes.NewReader(data))
 		if err != nil {

@@ -336,6 +336,9 @@ func (c *Conn) sendFC(status byte) {
 	if c.cfg.ListenOnly {
 		return
 	}
+	if c.cfg.FlowControlDelay > 0 {
+		time.Sleep(c.cfg.FlowControlDelay)
+	}
 	st, _ := encodeSTmin(c.cfg.STmin)
 	ctx, cancel := context.WithTimeout(context.Background(), c.cfg.TimeoutBs)
 	defer cancel()

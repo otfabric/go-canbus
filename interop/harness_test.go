@@ -30,18 +30,18 @@ import (
 // digest. Override one with CANBUS_INTEROP_<ADAPTER>_IMAGE (upper case),
 // e.g. a local build (make interop-images builds canbus-interop's source
 // at INTEROP_REF as ghcr.io/otfabric/canbus-interop-<adapter>:dev).
-const InteropRelease = "v0.1.0"
+const InteropRelease = "v0.2.0"
 
 var adapters = []string{"canutils", "pythoncan", "socketcanrs", "scapy", "pythoncanisotp", "cantools", "canmatrix"}
 
 var defaultImages = map[string]string{
-	"canutils":       "ghcr.io/otfabric/canbus-interop-canutils@sha256:c4d541a178b7bedec714136c3b01897a722a06cefad4c39d6fde3afbe8b7f6de",
-	"pythoncan":      "ghcr.io/otfabric/canbus-interop-pythoncan@sha256:11178bac2eb2432acb1f9620dcb4f6945ceaacaf8472056783b776cf6efd99f9",
-	"socketcanrs":    "ghcr.io/otfabric/canbus-interop-socketcanrs@sha256:2d620fbb94e2af90ba10616bff8a3abbc6c500309ee9042e495ef1d8a15a0d97",
-	"scapy":          "ghcr.io/otfabric/canbus-interop-scapy@sha256:3eb6de2ca15c7849f2a4a76d21d79e297d92d29355c1e092686b2e0b2103a751",
-	"pythoncanisotp": "ghcr.io/otfabric/canbus-interop-pythoncanisotp@sha256:130e54cab8e665dd917ce577ffced6d9870d6769e2f80d8beeb87ae9ff2c2492",
-	"cantools":       "ghcr.io/otfabric/canbus-interop-cantools@sha256:67265f75d15d9155e877e50e92e51c530d88dce63600df24ad993e2717fa9c93",
-	"canmatrix":      "ghcr.io/otfabric/canbus-interop-canmatrix@sha256:42f14775360e86ff710496be5c1eae2397ae089ec02d2c4a6082c8dba0798878",
+	"canutils":       "ghcr.io/otfabric/canbus-interop-canutils@sha256:f50df2dedd63575a1b91b58b379bfe2cc266ff0a9ca1058f7b497a742ed7b7cb",
+	"pythoncan":      "ghcr.io/otfabric/canbus-interop-pythoncan@sha256:f29e20aa79d889166e6f35277907ee33b3c01b32b6f726a86c0648319f8ec204",
+	"socketcanrs":    "ghcr.io/otfabric/canbus-interop-socketcanrs@sha256:cf07b3b0ba34204c61aa95ec6cca63ef4c863f5a97bf77d141e35998ac878ff2",
+	"scapy":          "ghcr.io/otfabric/canbus-interop-scapy@sha256:2e3d8136f97a0ca764c80796673da77a501fb9783b55f8f9476f414ae10b16c0",
+	"pythoncanisotp": "ghcr.io/otfabric/canbus-interop-pythoncanisotp@sha256:e71401d61e289d0f3ab2248791d19d439498a42188facf93ca997543891251b2",
+	"cantools":       "ghcr.io/otfabric/canbus-interop-cantools@sha256:56baa64227ad282296bd62e25a01298f0d492a71fb218388a1a4a9e7bd47f0ee",
+	"canmatrix":      "ghcr.io/otfabric/canbus-interop-canmatrix@sha256:8024a5c03911116bd27492ae8c237a9f79855105e46518180eb983813dfb7a33",
 }
 
 // Adapter order: raw CAN stacks, ISO-TP stacks, database oracles.
@@ -142,6 +142,9 @@ func skipReason(t *testing.T) string {
 }
 
 func TestMain(m *testing.M) {
+	// ASC and BLF carry local wall-clock time without a zone; the
+	// reference containers run in UTC.
+	time.Local = time.UTC
 	code := m.Run()
 	if path := os.Getenv("CANBUS_INTEROP_REPORT"); path != "" {
 		resultsMu.Lock()

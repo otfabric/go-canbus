@@ -22,7 +22,7 @@ jobs:
       codecov-name: go-canbus
       run-codecov: false
       coverpkg: >-
-        github.com/otfabric/go-canbus,github.com/otfabric/go-canbus/candb,github.com/otfabric/go-canbus/candb/bits,github.com/otfabric/go-canbus/capture,github.com/otfabric/go-canbus/codegen,github.com/otfabric/go-canbus/dbc,github.com/otfabric/go-canbus/isotp,github.com/otfabric/go-canbus/kcd,github.com/otfabric/go-canbus/socketcan,github.com/otfabric/go-canbus/socketcan/link,github.com/otfabric/go-canbus/virtual
+        github.com/otfabric/go-canbus,github.com/otfabric/go-canbus/arxml,github.com/otfabric/go-canbus/candb,github.com/otfabric/go-canbus/candb/bits,github.com/otfabric/go-canbus/capture,github.com/otfabric/go-canbus/chaos,github.com/otfabric/go-canbus/codegen,github.com/otfabric/go-canbus/dbc,github.com/otfabric/go-canbus/isotp,github.com/otfabric/go-canbus/kcd,github.com/otfabric/go-canbus/socketcan,github.com/otfabric/go-canbus/socketcan/link,github.com/otfabric/go-canbus/virtual
       go-versions: '["1.23", "1.24", "1.25", "1.26"]'
     secrets: inherit
 
@@ -53,8 +53,7 @@ jobs:
         run: |
           scripts/ci-can-modules.sh
           if lsmod | grep -q can_isotp; then echo "isotp=1" >> "$GITHUB_OUTPUT"; fi
-          sudo ip link add vcan0 type vcan
-          sudo ip link set vcan0 mtu 72 up
+          for i in vcan0 vcan1; do sudo ip link add $i type vcan; sudo ip link set $i mtu 72 up; done
           ip -d link show vcan0
       - name: Tests with the race detector
         env:

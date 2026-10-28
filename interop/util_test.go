@@ -5,6 +5,7 @@
 package interop
 
 import (
+	"encoding/json"
 	"os"
 	"testing"
 )
@@ -27,3 +28,5 @@ func mustCreate(t *testing.T, p string) *os.File {
 	}
 	return f
 }
+
+func jsonUnmarshal(b []byte, v any) error { return json.Unmarshal(b, v) }

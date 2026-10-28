@@ -1,0 +1,48 @@
+name: Nightly chaos
+run-name: "Nightly chaos on ${{ github.ref_name }}"
+
+# The chaos-monkey suites with many more seeds than CI runs on every push:
+# random fault schedules over ISO-TP, the Bus and replay on the virtual
+# bus, and the kernel's ISO-TP against go-canbus's through a chaos bridge
+# between vcan0 and vcan1.
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      iterations:
+        description: Seeds per monkey test
+        required: false
+        default: "500"
+
+permissions:
+  contents: read
+
+jobs:
+  chaos:
+    name: Chaos (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: amd64, runner: ubuntu-24.04 }
+          - { arch: arm64, runner: ubuntu-24.04-arm }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: CAN modules, vcan0 and vcan1
+        id: modules
+        run: |
+          scripts/ci-can-modules.sh
+          if lsmod | grep -q can_isotp; then echo "isotp=1" >> "$GITHUB_OUTPUT"; fi
+          for i in vcan0 vcan1; do sudo ip link add $i type vcan; sudo ip link set $i mtu 72 up; done
+      - name: Chaos monkey
+        env:
+          CANBUS_REQUIRE_VCAN: "1"
+          CANBUS_REQUIRE_ISOTP: ${{ steps.modules.outputs.isotp }}
+        run: make chaos CHAOS_ITERATIONS=${{ inputs.iterations || '500' }}

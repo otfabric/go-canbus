@@ -11,9 +11,11 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"github.com/otfabric/go-canbus"
@@ -31,8 +33,8 @@ const (
 	isotpExtendAddr = 0x002
 	isotpTxPadding  = 0x004
 	isotpRxExtAddr  = 0x200
-	isotpWaitTxDone = 0x400
 	isotpForceTxSTm = 0x080
+	isotpWaitTxDone = 0x400
 )
 
 // ISOTPConn is a kernel ISO-TP socket (CAN_ISOTP, Linux ≥ 5.10 or the
@@ -76,6 +78,9 @@ func DialISOTP(ifname string, cfg isotp.Config) (*ISOTPConn, error) {
 	}()
 	// struct can_isotp_options
 	opts := make([]byte, 12)
+	// CAN_ISOTP_WAIT_TX_DONE: sendmsg returns when the transfer is done
+	// and reports its error. The kernel waits interruptibly, so Send
+	// blocks signals on its thread for the duration (see Send).
 	flags := uint32(isotpWaitTxDone)
 	if cfg.ListenOnly {
 		flags |= isotpListenMode
@@ -184,8 +189,16 @@ func (c *ISOTPConn) finish(ctx context.Context, op string, err error) error {
 	return &canbus.OpError{Op: op, Interface: c.name, Err: mapErrno(err)}
 }
 
-// Send transmits one message; with the kernel's WAIT_TX_DONE it returns
-// when the transfer completed or failed.
+// Send transmits one message and returns when the kernel has finished
+// the transfer (or failed it: no flow control, overflow).
+//
+// The kernel waits for the transfer inside sendmsg, interruptibly. Go's
+// runtime signals its threads (SIGURG, for preemption); a signal would
+// abort the transfer, and the syscall, restarted (SA_RESTART), would send
+// the whole message again. Send therefore runs the write on a locked OS
+// thread with all signals blocked; they are delivered when it returns.
+// The write cannot be cancelled once started: ctx is checked before, and
+// the kernel's own timeouts (N_Bs, 1 s per flow control) bound it.
 func (c *ISOTPConn) Send(ctx context.Context, payload []byte) error {
 	if c.closed.Load() {
 		return canbus.ErrClosed
@@ -195,20 +208,48 @@ func (c *ISOTPConn) Send(ctx context.Context, payload []byte) error {
 	}
 	c.wmu.Lock()
 	defer c.wmu.Unlock()
-	stop := watch(ctx, c.file, false)
-	defer stop()
-	var werr error
-	err := c.rc.Write(func(fd uintptr) bool {
-		_, werr = syscall.Write(int(fd), payload)
-		return werr != syscall.EAGAIN
-	})
-	if err == nil {
-		err = werr
+	backoff := 100 * time.Microsecond
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		var werr error
+		if err := c.rc.Control(func(fd uintptr) { werr = writeSignalsBlocked(int(fd), payload) }); err != nil {
+			return c.finish(ctx, "send", err)
+		}
+		if werr == syscall.EAGAIN { // the transmitter is busy (another writer)
+			t := time.NewTimer(backoff)
+			select {
+			case <-ctx.Done():
+				t.Stop()
+				return ctx.Err()
+			case <-t.C:
+			}
+			backoff = min(2*backoff, 10*time.Millisecond)
+			continue
+		}
+		if werr != nil {
+			return c.finish(ctx, "send", werr)
+		}
+		return nil
 	}
-	if err != nil {
-		return c.finish(ctx, "send", err)
+}
+
+// writeSignalsBlocked writes on the current, locked OS thread with every
+// signal blocked (rt_sigprocmask), so the kernel's interruptible wait for
+// the transfer is not interrupted.
+func writeSignalsBlocked(fd int, p []byte) error {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	all := ^uint64(0)
+	var old uint64
+	const sigBlock, sigSetMask = 0, 2
+	if _, _, e := syscall.RawSyscall6(syscall.SYS_RT_SIGPROCMASK, sigBlock, uintptr(unsafe.Pointer(&all)), uintptr(unsafe.Pointer(&old)), 8, 0, 0); e != 0 {
+		return e
 	}
-	return nil
+	_, err := syscall.Write(fd, p)
+	_, _, _ = syscall.RawSyscall6(syscall.SYS_RT_SIGPROCMASK, sigSetMask, uintptr(unsafe.Pointer(&old)), 0, 8, 0, 0)
+	return err
 }
 
 // Receive returns the next message or a reception error reported by the

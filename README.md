@@ -21,10 +21,11 @@ standard library.
 | [`socketcan/link`](https://pkg.go.dev/github.com/otfabric/go-canbus/socketcan/link) | rtnetlink administration, kept apart from the transport: list and inspect CAN interfaces (state, bit timing, error counters), up/down, bit rates, CAN FD, restart, vcan/vxcan create/delete |
 | [`virtual`](https://pkg.go.dev/github.com/otfabric/go-canbus/virtual) | An in-memory bus for tests and simulation on every OS: SocketCAN delivery rules, queue policies, seeded fault injection (drop, duplicate, delay, corrupt, error frames, interface down) |
 | [`isotp`](https://pkg.go.dev/github.com/otfabric/go-canbus/isotp) | ISO-TP in userspace: normal, extended and mixed addressing, flow control with block size, STmin, WAIT and OVERFLOW, timeouts, padding, CAN FD and messages above 4095 bytes |
-| [`capture`](https://pkg.go.dev/github.com/otfabric/go-canbus/capture) | candump logs, lossless JSON Lines, pcap and pcapng (`LINKTYPE_CAN_SOCKETCAN`); streaming replay with original, scaled or maximum timing, filters and limits |
+| [`capture`](https://pkg.go.dev/github.com/otfabric/go-canbus/capture) | candump logs, lossless JSON Lines, pcap and pcapng (`LINKTYPE_CAN_SOCKETCAN`), Vector ASC and BLF; streaming replay with original, scaled or maximum timing, filters and limits |
 | [`candb`](https://pkg.go.dev/github.com/otfabric/go-canbus/candb) | The format-independent message model and signal codec: Intel and Motorola, signed, float, scaling, value tables, simple and extended multiplexing, CAN FD; exact 64-bit raw values |
-| [`dbc`](https://pkg.go.dev/github.com/otfabric/go-canbus/dbc), [`kcd`](https://pkg.go.dev/github.com/otfabric/go-canbus/kcd) | DBC parser and writer, KCD parser; every unsupported construct yields a diagnostic |
+| [`dbc`](https://pkg.go.dev/github.com/otfabric/go-canbus/dbc), [`kcd`](https://pkg.go.dev/github.com/otfabric/go-canbus/kcd), [`arxml`](https://pkg.go.dev/github.com/otfabric/go-canbus/arxml) | DBC parser and writer, KCD parser and writer, AUTOSAR 4.x ARXML reader (CAN clusters, frames, I-PDUs, signals, compu methods); every unsupported construct yields a diagnostic |
 | [`codegen`](https://pkg.go.dev/github.com/otfabric/go-canbus/codegen) | Deterministic Go generation: typed message structs, enums, constants, physical accessors, multiplexer-aware encode/decode |
+| [`chaos`](https://pkg.go.dev/github.com/otfabric/go-canbus/chaos) | A fault-injecting bridge between two transports (drop, duplicate, delay, reorder, corrupt; seeded): tests real stacks and devices under faults |
 
 The command-line tool built on it is
 [canbusctl](https://github.com/otfabric/canbusctl); the independent
@@ -97,7 +98,7 @@ simulation with faults, capture and replay, and two processes on vcan.
 | Physical interface, bit rate | Configured explicitly through `socketcan/link`; opening a socket never changes an interface |
 | Data link (ISO 11898-1 framing concepts) | Classical CAN 2.0A/B, CAN FD; not CAN XL |
 | Transport | ISO-TP (ISO 15765-2), userspace and Linux kernel |
-| Message definitions | DBC (read/write), KCD (read); ARXML not yet (see [LIMITATIONS.md](LIMITATIONS.md)) |
+| Message definitions | DBC (read/write), KCD (read/write), AUTOSAR 4.x ARXML (read, CAN subset: see [LIMITATIONS.md](LIMITATIONS.md)) |
 | Application protocols | None: CANopen, J1939, UDS, NMEA 2000, ISOBUS and DroneCAN belong in their own modules on top of `canbus.Bus` and `isotp` |
 
 A CAN identifier names a message, not a device. Nothing here identifies a

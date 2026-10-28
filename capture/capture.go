@@ -14,6 +14,11 @@
 //     nanosecond timestamps. Schema: schemas/capture-v1.schema.json.
 //   - pcap ([FormatPCAP]) with LINKTYPE_CAN_SOCKETCAN, as written by
 //     tcpdump and read by Wireshark; pcapng ([FormatPCAPNG]) is read.
+//   - Vector ASC ([FormatASC]) and BLF ([FormatBLF]), the trace formats of
+//     CANoe/CANalyzer, read and written. Lossy: ASC and BLF carry no Linux
+//     error class (error frames are read as protocol errors). Their times
+//     are local wall-clock times without a zone: they are read and written
+//     in time.Local (set TZ to read a file from another zone).
 //
 // Readers and writers stream: a trace of any size is processed frame by
 // frame. [Replay] sends a trace with its original, scaled or no timing.
@@ -25,6 +30,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path/filepath"
+	"strings"
 
 	"github.com/otfabric/go-canbus"
 )
@@ -38,7 +45,30 @@ const (
 	FormatJSONL   Format = "jsonl"
 	FormatPCAP    Format = "pcap"
 	FormatPCAPNG  Format = "pcapng"
+	FormatASC     Format = "asc"
+	FormatBLF     Format = "blf"
 )
+
+// FormatFromPath returns the format of a file name's extension: .log
+// (candump), .jsonl/.json, .pcap, .pcapng, .asc, .blf; "" otherwise.
+func FormatFromPath(path string) Format {
+	ext := strings.ToLower(filepath.Ext(path))
+	switch ext {
+	case ".log":
+		return FormatCandump
+	case ".jsonl", ".json", ".ndjson":
+		return FormatJSONL
+	case ".pcap":
+		return FormatPCAP
+	case ".pcapng":
+		return FormatPCAPNG
+	case ".asc":
+		return FormatASC
+	case ".blf":
+		return FormatBLF
+	}
+	return ""
+}
 
 // Reader reads the frames of a trace in order. Read returns io.EOF after
 // the last frame.
@@ -80,6 +110,9 @@ func NewReader(r io.Reader) (Reader, Format, error) {
 	case len(head) >= 4 && isPCAPMagic(head[:4]):
 		pr, err := NewPCAPReader(br)
 		return pr, FormatPCAP, err
+	case len(head) >= 4 && string(head[:4]) == blfFileSig:
+		r, err := NewBLFReader(br)
+		return r, FormatBLF, err
 	}
 	// Text: skip blank lines and comments to the first record.
 	for i := 0; ; i++ {
@@ -96,6 +129,14 @@ func NewReader(r io.Reader) (Reader, Format, error) {
 			return NewCandumpReader(br), FormatCandump, nil
 		case '{':
 			return NewJSONLReader(br), FormatJSONL, nil
+		case 'd', 'D', 'b', 'B':
+			// ASC starts with its "date" or "base" header.
+			if w, _ := br.Peek(i + 4); len(w) == i+4 {
+				switch strings.ToLower(string(w[i:])) {
+				case "date", "base":
+					return NewASCReader(br), FormatASC, nil
+				}
+			}
 		}
 		return nil, "", ErrUnknownFormat
 	}
@@ -110,6 +151,10 @@ func NewWriter(w io.Writer, format Format) (Writer, error) {
 		return NewJSONLWriter(w), nil
 	case FormatPCAP:
 		return NewPCAPWriter(w)
+	case FormatASC:
+		return NewASCWriter(w), nil
+	case FormatBLF:
+		return NewBLFWriter(w)
 	default:
 	}
 	return nil, fmt.Errorf("%w: cannot write %q", ErrUnknownFormat, format)
