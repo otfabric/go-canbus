@@ -43,9 +43,11 @@ canmatrix, and KCD written by go-canbus read back by canmatrix. Against
 canbus-interop v0.3.0 (contract 1.2, 2026-10-28): **163 passed, 0 failed,
 4 skipped**, 78 known-difference records; the additions are slcan with
 python-can (both directions, CAN FD, 2000-frame burst) and PEAK TRC with
-python-can. Against canbus-interop v0.4.0 (contract 1.2, 2026-10-28): see the
-Interop workflow of v0.4.0; the addition is multiplexed ARXML PDUs with
-cantools (canmatrix recorded as known).
+python-can. Against canbus-interop v0.4.0 (contract 1.2, 2026-10-28): **167 passed,
+0 failed, 4 skipped**, 132 known-difference records; the addition is
+multiplexed ARXML PDUs with cantools (canmatrix 1.3.3 reads only their
+selector: recorded as known, as are cantools' rejections of undescribed
+selector values).
 
 | Area | Scenario | can-utils / kernel | python-can | socketcan-rs | Scapy | python-can-isotp | cantools | canmatrix |
 |------|----------|---|---|---|---|---|---|---|

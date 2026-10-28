@@ -13,7 +13,9 @@ that version as the release notes. Add the section, headed exactly
 ## Summary
 
 Adapter status over slcan, multiplexed PDUs in ARXML, and two fixes.
-Interoperability against canbus-interop v0.4.0 (contract 1.2): INTEROP_SUMMARY.
+Interoperability against canbus-interop v0.4.0 (contract 1.2), amd64 and
+arm64: 167 passed, 0 failed, 4 skipped (capture/replay operations
+socketcan-rs and Scapy do not have), 132 known-difference records.
 
 ## Additions
 
@@ -58,7 +60,8 @@ Interoperability against canbus-interop v0.4.0 (contract 1.2): INTEROP_SUMMARY.
   `multiplexed.arxml`: decode of every selector code and encode agree
   byte for byte. cantools rejects undescribed selector values (known
   difference, as for DBC); canmatrix 1.3.3 reads only the selector (known
-  difference).
+  difference). The known-difference records rise from 78 to 132 for these
+  two reasons; no other result changed.
 - Coverage: `slcan` 98.4 %, `arxml` 95.1 %.
 
 ---
