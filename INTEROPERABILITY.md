@@ -5,7 +5,7 @@ go-canbus is tested against independent implementations published by
 its container contract only (no code of those stacks is linked or vendored).
 The suite is `interop/` (build tag `interop`), run with `make interop` on
 Linux with Docker and `vcan0`, and in CI by the Interop workflow on amd64 and
-arm64, against the published images of canbus-interop v0.1.0 pinned by digest in `interop/harness_test.go`. It writes a result matrix (`bin/interop-report.json`): every scenario
+arm64, against the published images of canbus-interop v0.2.0 (contract 1.1) pinned by digest in `interop/harness_test.go`. It writes a result matrix (`bin/interop-report.json`): every scenario
 is `pass`, `fail`, `skip` (with the reason) or, for individual frames,
 `known-difference` (with the reason below). A skipped scenario is never
 counted as passed.
@@ -35,7 +35,11 @@ implementations of the protocol.
 Run 2026-10-27 on Ubuntu (kernel 7.0, vcan0 MTU 72, can-isotp loaded) with
 the canbus-interop images (`make interop`; since v0.1.0 they are the published images, pinned by digest, in CI on amd64 and arm64 with the same result):
 **120 scenarios passed, 0 failed, 4 skipped**, 66 frames with a known
-difference.
+difference (v0.1.0). Against canbus-interop v0.2.0 (contract 1.1, 2026-10-28,
+published images pinned by digest): **145 passed, 0 failed, 4 skipped**,
+76 known-difference frames; the additions are ASC, BLF and candump logs
+both ways with python-can, ARXML decode and encode with cantools and
+canmatrix, and KCD written by go-canbus read back by canmatrix.
 
 | Area | Scenario | can-utils / kernel | python-can | socketcan-rs | Scapy | python-can-isotp | cantools | canmatrix |
 |------|----------|---|---|---|---|---|---|---|
@@ -48,7 +52,9 @@ difference.
 | ISO-TP | go receiver answers OVERFLOW, stack sender fails | pass | | | | pass | | |
 | DBC | decode 7 fixtures (Intel/Motorola, cross-byte, signed, 64-bit, scaling, value tables, mux, extended mux, CAN FD, float): raw exact, physical, labels, active signals | | | | | | pass² | pass² |
 | DBC | encode physical and raw values, compare bytes | | | | | | pass² | pass² |
-| KCD | canmatrix's KCD→DBC layout vs go-canbus's KCD parser, decode agreement | | | | | | | pass |
+| KCD | canmatrix's KCD→DBC layout vs go-canbus's KCD parser, decode agreement; KCD written by go-canbus converted by canmatrix | | | | | | | pass |
+| ARXML | decode and encode 3 fixtures (byte orders, compu methods, CAN FD, extended IDs, PDU offset) | | | | | | pass² | pass² |
+| Logs | python-can's ASC/BLF fixtures read by go-canbus; go-canbus writes ASC/BLF/candump read back by python-can; python-can writes, go-canbus reads | | pass | | | | | |
 
 ¹ The stack's adapter has no capture/replay operation (capability).
 ² With the known differences below.
@@ -60,6 +66,7 @@ difference.
 | cantools | Rejects decoding and encoding a multiplexer value that selects no multiplexed signal (for example `Mux = 3` when only 0..2 exist) | go-canbus decodes the switch and the always-present signals, as canmatrix does; a payload with an undescribed switch value is still a valid frame |
 | canmatrix | Rejects payloads longer than the message length | go-canbus, like cantools, decodes the first Length bytes: CAN FD frames are padded to the next valid FD length |
 | canmatrix | Cannot encode extended multiplexing (`EncodingComplexMultiplexed`) | Limitation of canmatrix 1.3.3; go-canbus's extended-multiplexing encoding is checked against cantools |
+| cantools, canmatrix | Place an ARXML PDU mapped at a byte offset of its frame at offset 0 | go-canbus applies the PDU-TO-FRAME-MAPPING START-POSITION, as AUTOSAR defines it |
 
 ## Test choices
 
