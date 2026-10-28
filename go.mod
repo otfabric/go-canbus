@@ -2,4 +2,4 @@ module github.com/otfabric/go-canbus
 
 go 1.23
 
-require github.com/otfabric/go-serial v0.1.7
+require github.com/otfabric/go-serial v0.1.8
