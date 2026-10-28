@@ -5,6 +5,67 @@ it computes the version, tags it and publishes this file's section of
 that version as the release notes. Add the section, headed exactly
 `## vX.Y.Z` and closed by a line `---`, before running it.
 
+## v0.4.0
+
+**Date:** 2026-10-28
+**Previous release:** v0.3.0
+
+## Summary
+
+Adapter status over slcan, multiplexed PDUs in ARXML, and two fixes.
+Interoperability against canbus-interop v0.4.0 (contract 1.2), amd64 and
+arm64: 167 passed, 0 failed, 4 skipped (capture/replay operations
+socketcan-rs and Scapy do not have), 132 known-difference records.
+
+## Additions
+
+- **slcan adapter status.** Adapters that report status send "e" records
+  (bus errors: ACK, bit 0/1, CRC, form, stuff, RX/TX overrun) and "s"
+  records (controller state and error counters). A `slcan.Conn` turns them
+  into error frames byte for byte as the Linux slcan driver does
+  (`slcan_bump_err`, `slcan_bump_state`, `can_change_state`), including
+  that a state record repeating the current state yields nothing. New:
+  `ParseErrorRecord`, `ParseStateRecord`, `StateFrame`, `Conn.State`
+  (state and counters of the last record), `Conn.SetFilters` (applied in
+  software; as with SocketCAN, no error frames until an ErrorMask selects
+  them). A `canbus.Bus` on slcan now tracks warning, passive and bus-off.
+- **ARXML MULTIPLEXED-I-PDUs**, read as cantools reads them: a multiplexer
+  switch `<frame>_selector<n>` at the selector field (Intel or Motorola),
+  each dynamic alternative's signals multiplexed by its
+  SELECTOR-FIELD-CODE, static parts always present, the initial dynamic
+  part as the switch's initial value; AUTOSAR 4.1+ (`DYNAMIC-PARTS`,
+  `STATIC-PARTS`) and earlier 4.x layouts. Diagnostics for bad selectors,
+  codes that do not fit, alternatives that are not I-SIGNAL-I-PDUs and
+  nested multiplexing.
+
+## Fixes
+
+- go-serial v0.1.7: a failing read no longer returns a negative count, and
+  an unplugged adapter reads `io.EOF` instead of empty reads forever
+  (go-canbus guarded against both since v0.3.0).
+- `Subscription.Received` counts a frame before queueing it: a consumer
+  could hold the frame before the counter showed it (found by the race
+  detector in CI).
+
+## Verification
+
+- slcan status against the Linux kernel's slcan driver (6.1, 6.6, 6.12,
+  6.18 and Ubuntu's kernel in microVMs): 13 "e" and "s" records written to
+  the driver; its error frames equal go-canbus's, and where it delivers
+  nothing (an unchanged state) neither does go-canbus. Kernels before 6.18
+  ignore records of four characters or fewer (such as `e1a`) and accept
+  characters after a state record; go-canbus decodes the short records
+  and, like 6.18, requires state records of exactly eight characters.
+- Multiplexed ARXML against cantools 45.1.1 with canbus-interop's
+  `multiplexed.arxml`: decode of every selector code and encode agree
+  byte for byte. cantools rejects undescribed selector values (known
+  difference, as for DBC); canmatrix 1.3.3 reads only the selector (known
+  difference). The known-difference records rise from 78 to 132 for these
+  two reasons; no other result changed.
+- Coverage: `slcan` 98.4 %, `arxml` 95.1 %.
+
+---
+
 ## v0.3.0
 
 **Date:** 2026-10-28

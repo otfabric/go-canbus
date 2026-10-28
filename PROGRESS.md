@@ -3,12 +3,12 @@
 Durable state of the CAN bus ecosystem work (go-canbus, canbus-interop,
 canbusctl). Newest first within each section.
 
-## Status (2026-10-28): v0.3 released
+## Status (2026-10-28): v0.4 in release
 
 | Repo | Release | Notes |
 |------|---------|-------|
-| go-canbus | v0.3.0 | v0.3.0: slcan transport (any OS, go-serial), PEAK TRC; interop vs canbus-interop v0.3.0: 163 pass / 0 fail / 4 capability skips; coverage 92.8 %. v0.2.2: Bus WithStartOnSubscribe (no frames lost before the first Subscribe); ASC/BLF, ARXML, KCD writer, chaos + e2e suites, kernel ISO-TP fixes; interop vs canbus-interop v0.2.0: 145 pass / 0 fail / 4 capability skips; coverage 92.3 % |
-| canbus-interop | v0.3.0 | contract 1.2 (pythoncan slcan interfaces, pyserial 3.5; ISO-TP adapter 1 MiB rcvbuf); v0.2.0: contract 1.1 (log-convert, ARXML); self-test 341 pass / 0 fail; weekly upstream pin check; ISO-TP in a microVM on amd64 |
+| go-canbus | v0.4.0 | v0.4.0: slcan adapter status records as error frames (kernel-identical), multiplexed ARXML I-PDUs, go-serial v0.1.7, Subscription.Received fix; interop vs canbus-interop v0.4.0: 167 pass / 0 fail / 4 capability skips / 132 known. v0.3.0: slcan transport (any OS, go-serial), PEAK TRC; interop vs canbus-interop v0.3.0: 163 pass / 0 fail / 4 capability skips; coverage 92.8 %. v0.2.2: Bus WithStartOnSubscribe (no frames lost before the first Subscribe); ASC/BLF, ARXML, KCD writer, chaos + e2e suites, kernel ISO-TP fixes; interop vs canbus-interop v0.2.0: 145 pass / 0 fail / 4 capability skips; coverage 92.3 % |
+| canbus-interop | v0.4.0 | v0.4.0: multiplexed.arxml fixture, cantools probe (canmatrix known); contract 1.2 (pythoncan slcan interfaces, pyserial 3.5; ISO-TP adapter 1 MiB rcvbuf); v0.2.0: contract 1.1 (log-convert, ARXML); self-test 341 pass / 0 fail; weekly upstream pin check; ISO-TP in a microVM on amd64 |
 | canbusctl | v0.3.0 | v0.3.0: slcan adapters (-i slcan:<device> or slcan:tcp://), listen-only passive commands, TRC; kernel-slcan e2e in microVMs; interop 84 pass / 27 known / 0 skip; coverage 92.4 %. v0.2.2: on go-canbus v0.2.2 (buses read from the first subscription on); v0.2.1: deadline workarounds removed; v0.2.0: trace convert/info, ARXML, KCD output, bridge (chaos), --fc-delay; interop 63 pass / 0 fail (27 known differences); coverage 92.2 % (macOS) |
 
 ## Decisions
@@ -49,6 +49,17 @@ canbusctl). Newest first within each section.
 - e2e process harnesses wait for the kernel's CAN receive lists
   (/proc/net/can/rcvlist_*, count entries: they carry match counters) to
   grow before sending: a fixed pause raced on a slow microVM.
+- slcan status records follow the Linux driver byte for byte; the kernel is
+  the oracle (TestKernelSlcanStatus in the microVMs). Kernels before 6.18
+  ignore records of ≤ 4 characters and accept trailing characters after a
+  state record; go-canbus decodes short records and requires exactly 8.
+- ARXML MULTIPLEXED-I-PDUs follow cantools (selector `<frame>_selector<n>`,
+  the alternatives' own selector mapping dropped); canmatrix 1.3.3 reads
+  only the selector, so cantools is the only oracle (canbus-interop v0.4.0
+  probes it against hand-worked frames).
+- Merging: list every check (`gh pr checks N`) and look at each non-pass,
+  including codecov/patch, before merging; never chain a merge after a
+  summary in the same command.
 - Known differences (not defects): cantools rejects multiplexer values that
   select no signal; canmatrix rejects payloads longer than the message and
   cannot encode extended multiplexing.
@@ -63,9 +74,10 @@ canbusctl). Newest first within each section.
 
 ## Next actions
 
-1. otfabric.io pages from docs/WEBSITE-INTEGRATION.md (not applied).
-2. go-serial: Read returns n = -1 with an error (io.Reader contract);
-   slcan guards against it since v0.3.0.
-3. Later: multiplexed I-PDUs in ARXML, CAN XL, vendor transports (PEAK,
-   Kvaser), slcan error/status records, CANopen/J1939/UDS modules on
+1. go-serial v0.1.7 is tagged (the fix is on main) but has no GitHub
+   release entry yet: publishing it needs the owner (the release workflow
+   computes its own tag).
+2. Next phase: CAN XL (frames, SocketCAN XL sockets, vcan with XL MTU),
+   vendor transports (PEAK, Kvaser), CANopen/J1939/UDS modules on
    canbus.Bus and isotp.
+3. otfabric.io: the owner's, after approval (docs/WEBSITE-INTEGRATION.md).

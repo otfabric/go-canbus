@@ -15,7 +15,7 @@ import (
 	"github.com/otfabric/go-canbus/kcd"
 )
 
-var arxmlFixtures = []string{"basic", "fd", "pdu-offset"}
+var arxmlFixtures = []string{"basic", "fd", "pdu-offset", "multiplexed"}
 
 // TestARXMLDecode compares go-canbus's ARXML reader with cantools and
 // canmatrix, which decode the same ARXML files (contract 1.1).

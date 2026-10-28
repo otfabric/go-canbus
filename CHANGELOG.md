@@ -4,6 +4,10 @@ Release notes with details are in [RELEASE.md](RELEASE.md).
 
 ## Unreleased
 
+ARXML MULTIPLEXED-I-PDUs (static and dynamic parts, Intel and Motorola
+selectors), read as cantools reads them; checked against cantools with
+canbus-interop's multiplexed.arxml fixture.
+
 slcan adapter status: "e" (bus error) and "s" (controller state, error
 counters) records become error frames, byte for byte as the Linux slcan
 driver delivers them; `Conn.SetFilters` (software, SocketCAN defaults)
