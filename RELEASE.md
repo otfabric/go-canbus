@@ -13,8 +13,10 @@ that version as the release notes. Add the section, headed exactly
 ## Summary
 
 CAN XL on SocketCAN, in traces and against can-utils. Interoperability
-against canbus-interop v0.5.0 (contract 1.3), amd64 and arm64:
-INTEROP_SUMMARY.
+against canbus-interop v0.5.0 (contract 1.3), amd64 and arm64: 170
+passed, 0 failed, 13 skipped (the 4 capture/replay skips as before, and 9
+CAN XL scenarios with stacks that have no CAN XL), 132 known-difference
+records (unchanged).
 
 ## Additions
 

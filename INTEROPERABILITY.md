@@ -47,7 +47,10 @@ python-can. Against canbus-interop v0.4.0 (contract 1.2, 2026-10-28): **167 pass
 0 failed, 4 skipped**, 132 known-difference records; the addition is
 multiplexed ARXML PDUs with cantools (canmatrix 1.3.3 reads only their
 selector: recorded as known, as are cantools' rejections of undescribed
-selector values).
+selector values). Against canbus-interop v0.5.0 (contract 1.3, 2026-10-28):
+**170 passed, 0 failed, 13 skipped**, 132 known-difference records; the
+additions are CAN XL with can-utils (both directions and a candump
+capture); the 9 new skips are the stacks without CAN XL.
 
 | Area | Scenario | can-utils / kernel | python-can | socketcan-rs | Scapy | python-can-isotp | cantools | canmatrix |
 |------|----------|---|---|---|---|---|---|---|
