@@ -5,6 +5,27 @@ it computes the version, tags it and publishes this file's section of
 that version as the release notes. Add the section, headed exactly
 `## vX.Y.Z` and closed by a line `---`, before running it.
 
+## v0.2.1
+
+**Date:** 2026-10-28
+**Previous release:** v0.2.0
+
+## Summary
+
+Two fixes reported by canbusctl v0.2.0: a socket deadline that fires a
+moment before its context's deadline now ends calls the way the context
+does.
+
+## Fixes
+
+- `chaos.Bridge.Run` returns nil when ctx ends, also when the transport's
+  deadline fired first (it returned a deadline error) and when ctx ends
+  during a send.
+- `socketcan.ISOTPConn` reports such a deadline as `context.DeadlineExceeded`
+  (or `canbus.ErrTimeout`), not as an `*OpError` "i/o timeout".
+
+---
+
 ## v0.2.0
 
 **Date:** 2026-10-28

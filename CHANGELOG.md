@@ -2,6 +2,10 @@
 
 Release notes with details are in [RELEASE.md](RELEASE.md).
 
+## v0.2.1 (2026-10-28)
+
+Deadline edge cases in chaos.Bridge.Run and kernel ISO-TP sockets.
+
 ## v0.2.0 (2026-10-28)
 
 Vector ASC and BLF traces; AUTOSAR 4.x ARXML reader; KCD writer; exact

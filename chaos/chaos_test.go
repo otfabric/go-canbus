@@ -174,3 +174,30 @@ func TestErrorsAndOptions(t *testing.T) {
 		t.Fatal("held frame not flushed:", got)
 	}
 }
+
+// edgeTransport fails Receive with a deadline error just before ctx's
+// deadline, as a socket's file deadline can.
+type edgeTransport struct{ canbus.Transport }
+
+func (e edgeTransport) Receive(ctx context.Context, f *canbus.Frame) error {
+	dl, _ := ctx.Deadline()
+	time.Sleep(time.Until(dl))
+	return context.DeadlineExceeded
+}
+
+func TestRunEndsQuietlyAtDeadline(t *testing.T) {
+	b, _ := New(Config{})
+	x := newSegment(t, "x")
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	if err := b.Run(ctx, edgeTransport{x.bridge}, x.node); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Run(context.Background(), failing{}, x.node); err == nil {
+		t.Fatal("a real receive error must be returned")
+	}
+}
+
+type failing struct{ canbus.Transport }
+
+func (failing) Receive(context.Context, *canbus.Frame) error { return errors.New("boom") }
