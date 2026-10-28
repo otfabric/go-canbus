@@ -373,6 +373,37 @@ func TestBusOverSocketCAN(t *testing.T) {
 	}
 }
 
+// TestBusStartOnSubscribeOverSocketCAN: frames sent between NewBus and
+// the first Subscribe wait in the socket and all reach the subscription.
+func TestBusStartOnSubscribeOverSocketCAN(t *testing.T) {
+	leak.Check(t)
+	ifc := testIface(t)
+	base := uniqueID(t)
+	c := open(t, ifc, WithFD(), onlyID(base, true))
+	b, err := canbus.NewBus(c, canbus.WithStartOnSubscribe())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Close()
+	tx := open(t, ifc, WithFD())
+	ctx := ctxT(t, 5*time.Second)
+	const n = 100
+	for i := 0; i < n; i++ {
+		f, _ := canbus.NewExtended(base|canbus.ID(i), []byte{byte(i)})
+		if err := tx.Send(ctx, &f); err != nil {
+			t.Fatal(err)
+		}
+	}
+	time.Sleep(20 * time.Millisecond)
+	s, _ := b.Subscribe(canbus.WithoutEcho())
+	for i := 0; i < n; i++ {
+		g, err := s.Receive(ctx)
+		if err != nil || g.ID != base|canbus.ID(i) {
+			t.Fatalf("frame %d: %v %v", i, g.ID, err)
+		}
+	}
+}
+
 func TestAnyInterface(t *testing.T) {
 	ifc := testIface(t)
 	base := uniqueID(t)

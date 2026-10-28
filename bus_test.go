@@ -489,3 +489,62 @@ func TestBusStress(t *testing.T) {
 	cwg.Wait()
 	close(stopChurn)
 }
+
+func TestBusStartOnSubscribe(t *testing.T) {
+	leak.Check(t)
+	ctx := ctxT(t)
+	vb := virtual.New(virtual.Config{Name: "vtest"})
+	defer vb.Close()
+	pa, _ := vb.Open()
+	pb, _ := vb.Open()
+	defer pa.Close()
+	b, err := canbus.NewBus(pb, canbus.WithStartOnSubscribe())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Close()
+	// Frames sent before the first subscription wait in the port.
+	for i := 0; i < 50; i++ {
+		f, _ := canbus.NewStandard(canbus.ID(i), []byte{byte(i)})
+		if err := pa.Send(ctx, &f); err != nil {
+			t.Fatal(err)
+		}
+	}
+	time.Sleep(20 * time.Millisecond) // an eager reader would have taken them
+	sub, err := b.Subscribe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 50; i++ {
+		f, err := sub.Receive(ctx)
+		if err != nil || f.ID != canbus.ID(i) {
+			t.Fatalf("frame %d: %v %v", i, f.ID, err)
+		}
+	}
+}
+
+func TestBusStartOnSubscribeCloseUnstarted(t *testing.T) {
+	leak.Check(t)
+	vb := virtual.New(virtual.Config{Name: "vtest"})
+	defer vb.Close()
+	p, _ := vb.Open()
+	b, _ := canbus.NewBus(p, canbus.WithStartOnSubscribe())
+	done := make(chan error, 1)
+	go func() { done <- b.Close() }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Close of a bus without subscriptions hangs")
+	}
+	if _, err := b.Subscribe(); !errors.Is(err, canbus.ErrClosed) {
+		t.Fatalf("Subscribe after Close: %v", err)
+	}
+	select {
+	case <-b.Done():
+	default:
+		t.Fatal("Done not closed")
+	}
+}

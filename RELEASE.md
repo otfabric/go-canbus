@@ -5,6 +5,28 @@ it computes the version, tags it and publishes this file's section of
 that version as the release notes. Add the section, headed exactly
 `## vX.Y.Z` and closed by a line `---`, before running it.
 
+## v0.2.2
+
+**Date:** 2026-10-28
+**Previous release:** v0.2.1
+
+## Summary
+
+A Bus can now start reading at its first subscription, so no frame that
+arrives between `NewBus` and `Subscribe` is lost. Found by canbusctl's
+end-to-end tests in a slow microVM: `record` saw 21 of 60 frames.
+
+## Additions
+
+- `canbus.WithStartOnSubscribe()`: the bus's reader starts at the first
+  `Subscribe` (or `Close`); until then frames wait in the transport (the
+  socket's receive buffer). Without it the reader starts in `NewBus`, as
+  before, and frames read before the first subscription reach nobody — now
+  documented on `Bus`.
+- The `monitor` and `capture-replay` examples and the README use it.
+
+---
+
 ## v0.2.1
 
 **Date:** 2026-10-28

@@ -26,7 +26,7 @@ func main() {
 	defer src.Close()
 	node, _ := src.Open()
 	recPort, _ := src.Open()
-	recBus, _ := canbus.NewBus(recPort)
+	recBus, _ := canbus.NewBus(recPort, canbus.WithStartOnSubscribe())
 	defer recBus.Close()
 	sub, _ := recBus.Subscribe()
 	go func() {

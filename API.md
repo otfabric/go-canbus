@@ -13,7 +13,7 @@ has every symbol; this is the map.
 | `Filter`, `FilterSet`, `ExactStandard`, `ExactExtended`, `ParseFilter`, `KernelID` | Identifier filters with `CAN_RAW_FILTER` semantics; `Filter.Kernel()` gives the kernel's `can_filter` |
 | `ErrorInfo`, `ParseError`, `NewErrorFrame`, `ErrorClass`, `ControllerStatus`, `ProtocolViolation` | Error frames |
 | `Transport` (+ optional `Filterer`, `Statser`, `DropCounter`, `Namer`, `Capabilitier`) | The transport contract |
-| `Bus`, `NewBus`, `WithLogger`, `WithMetrics`, `WithInterfaceName` | One transport shared by many users |
+| `Bus`, `NewBus`, `WithLogger`, `WithMetrics`, `WithInterfaceName`, `WithStartOnSubscribe` | One transport shared by many users |
 | `Subscription`, `WithFilters`, `WithQueueSize`, `WithOverflow` (`DropNewest`, `DropOldest`, `Block`), `WithoutEcho` | Filtered, bounded receive queues |
 | `Metrics`, `NopMetrics`, `DropReason`, `State`, `Stats` | Observability |
 | Errors | see [ERRORS.md](ERRORS.md) |
