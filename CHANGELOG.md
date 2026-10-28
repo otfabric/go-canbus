@@ -2,6 +2,13 @@
 
 Release notes with details are in [RELEASE.md](RELEASE.md).
 
+## Unreleased
+
+slcan adapter status: "e" (bus error) and "s" (controller state, error
+counters) records become error frames, byte for byte as the Linux slcan
+driver delivers them; `Conn.SetFilters` (software, SocketCAN defaults)
+and `Conn.State`. go-serial v0.1.7.
+
 ## v0.3.0 (2026-10-28)
 
 Package `slcan`: serial-line CAN adapters (CANable, CANtact, USBtin,

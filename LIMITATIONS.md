@@ -16,13 +16,15 @@
 - Hardware adapters other than SocketCAN and slcan (PEAK PCAN-Basic,
   Kvaser CANlib, Vector XL; gs_usb is covered by SocketCAN on Linux).
   Implement `canbus.Transport` to add one.
-- slcan: the protocol has no error frames, error state indicator, echo of
-  sent frames or adapter timestamps (frames are stamped on arrival; a
+- slcan: error frames come only from adapters that send "e" and "s"
+  records (decoded as the Linux slcan driver does); there is no error
+  state indicator, echo of sent frames or adapter timestamps (frames are stamped on arrival; a
   LAWICEL "Z1" timestamp is ignored), and no confirmation that a frame was
   sent on the bus. A classical DLC 9..15 is sent as 8. Acknowledgements
   ("\r", "\a", "z", "Z") are not matched to commands: a bell from the
-  adapter is not reported. The Linux kernel's slcan driver exchanges
-  classical frames only, so CAN FD records are checked against python-can.
+  adapter is not reported. Filters are applied in software. The Linux
+  kernel's slcan driver exchanges classical frames only, so CAN FD records
+  are checked against python-can.
 - SocketCAN on macOS and Windows (there is none). Interface commands
   return `ErrUnsupported`.
 - ARXML beyond the CAN subset of AUTOSAR 4.x listed in the `arxml`

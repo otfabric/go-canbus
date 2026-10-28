@@ -19,8 +19,9 @@ type Transport interface {
 	Close() error
 }
 
-// Filterer is implemented by transports that filter in the kernel or in
-// hardware. Frames that do not pass are never delivered to Receive.
+// Filterer is implemented by transports that filter in the kernel, in
+// hardware or as frames arrive. Frames that do not pass are never
+// delivered to Receive.
 type Filterer interface {
 	SetFilters(FilterSet) error
 }

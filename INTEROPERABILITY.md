@@ -61,6 +61,7 @@ python-can.
 | Logs | python-can's ASC/BLF fixtures read by go-canbus; go-canbus writes ASC/BLF/candump read back by python-can; python-can writes, go-canbus reads | | pass | | | | | |
 | slcan | go-canbus slcan transport ↔ python-can's slcan interface over TCP (pyserial `socket://`), both directions: standard, extended, remote, CAN FD + BRS, 2000-frame burst; ESI refused | | pass² | | | | | |
 | slcan | the Linux kernel's slcan driver on a pty (`make test-admin`, microVMs): standard, extended, remote frames both ways | pass | | | | | | |
+| slcan | adapter status: "e" and "s" records written to the Linux slcan driver; its error frames equal go-canbus's, including records it ignores (`make test-admin`, microVMs) | pass | | | | | | |
 | Logs | PEAK TRC: python-can's fixture and files read by go-canbus; TRC 2.1 written by go-canbus read by python-can; TRC 1.0, 1.1, 1.3, 2.0 records read alike by both | | pass² | | | | | |
 
 ¹ The stack's adapter has no capture/replay operation (capability).
