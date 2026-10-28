@@ -2,7 +2,7 @@
 
 Release notes with details are in [RELEASE.md](RELEASE.md).
 
-## Unreleased
+## v0.6.0 (2026-10-29)
 
 CAN XL beyond SocketCAN sockets: a `canbus.Bus` carries CAN XL on an
 `XLTransport` (`Bus.SendXL`, subscriptions `WithXL`, `ReceiveXL`); the
@@ -13,6 +13,8 @@ CI kernels); pcap and pcapng carry CAN XL as libpcap writes it, and a
 pcapng writer keeps interface names; `capture.Replay` sends CAN XL,
 `capture.RecordAll` records it; the chaos bridge forwards it. Checked
 against tcpdump/libpcap captures of the kernel and against Wireshark.
+A `WithXL` subscription keeps every kind in one queue in arrival order
+(`Subscription.ReceiveAny`).
 The pcap snap length in the file header is now 2060 (CAN XL).
 
 ## v0.5.0 (2026-10-28)

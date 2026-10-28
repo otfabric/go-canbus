@@ -5,6 +5,79 @@ it computes the version, tags it and publishes this file's section of
 that version as the release notes. Add the section, headed exactly
 `## vX.Y.Z` and closed by a line `---`, before running it.
 
+## v0.6.0
+
+**Date:** 2026-10-29
+**Previous release:** v0.5.0
+
+## Summary
+
+CAN XL beyond SocketCAN sockets: through a `canbus.Bus`, on the virtual
+bus, in pcap and pcapng traces (checked against the kernel, libpcap and
+Wireshark), in replay and recording, and through the chaos bridge.
+Interoperability against canbus-interop v0.5.0 (contract 1.3), amd64 and
+arm64: 170 passed, 0 failed, 13 skipped, 132 known-difference records
+(unchanged). Coverage 93.3 % (Linux with vcan).
+
+## Additions
+
+- **CAN XL on a Bus**: `canbus.XLTransport` (`SendXL`, `ReceiveAny`),
+  implemented by SocketCAN sockets and virtual bus ports; `Bus.SendXL`;
+  subscriptions `WithXL` receive CAN, CAN FD and CAN XL frames in arrival
+  order through one queue (`Subscription.ReceiveAny`; `Receive` and
+  `ReceiveXL` skip the other kind); `XLMetrics`; `XLFrame.Clone`.
+- **Kernel filter semantics for CAN XL**: `FilterSet.MatchXL`,
+  `Filter.MatchXL`, `XLKernelID`. Linux's CAN_RAW_FILTER matches a CAN XL
+  frame on VCID<<16 | priority as a standard data identifier: a filter for
+  0x242 selects priority 0x242 of every VCID, an extended filter none.
+  Found by probing Linux 7.0; `TestXLKernelFilterParity` installs each
+  filter set on a socket and compares with `MatchXL` on every CI kernel.
+- **Virtual bus**: `WithXL` and `WithVCIDFilter` ports (`SendXL`,
+  `ReceiveXL`, `ReceiveAny`), `InjectXL`; faults apply to CAN XL frames
+  (corruption anywhere in up to 2048 bytes).
+- **pcap and pcapng**: CAN XL read and written in libpcap's Linux layout
+  (priority/VCID word big-endian, length and acceptance field
+  little-endian); a new `PCAPNGWriter` (an interface block per interface
+  name, nanosecond timestamps). `NewWriter(w, FormatPCAPNG)` works. The
+  pcap header's snap length is 2060.
+- **Replay and recording**: `Replay` sends CAN XL frames through senders
+  that carry it (`XLSender`; `ReplayStats.SkippedXL`,
+  `ReplayOptions.OnXLFrame`); `RecordAll` records every kind in order.
+- **Chaos bridge** forwards CAN XL between `XLTransport`s
+  (`Stats.SkippedXL`).
+
+## Verification
+
+- Real captures from Linux 7.0 in `capture/testdata`: tcpdump 4.99.6 /
+  libpcap 1.10.6 (pcap) and dumpcap 4.6.4 (pcapng, two interfaces) of CAN,
+  CAN FD, remote and CAN XL frames up to 2048 bytes. Read exactly; the CAN
+  XL packets `PCAPWriter` writes are byte-identical to libpcap's.
+- Wireshark (tshark 4.6, CI and macOS): every frame kind written to pcap
+  and pcapng is dissected into the frame written, interface names
+  included; Wireshark and this package read the real captures alike.
+- Live: as root, tcpdump captures CAN, CAN FD and CAN XL frames sent on
+  `vcanxl0` (VCIDs where the kernel passes them); the capture is read back
+  here and by tshark (CI kernels, Linux 7.0).
+- Kernels (microVMs): 6.12 and 6.18 pass everything; 6.6 and Ubuntu's 6.8
+  everything but the VCID cases (Linux ≥ 6.9); 6.1 has no CAN XL.
+- Fuzzing: the reader fuzzer is seeded with the real captures and checks
+  CAN XL frames too.
+
+## Findings
+
+- **Wireshark before 4.4 does not dissect CAN XL**: 4.2 (Ubuntu 24.04)
+  shows CAN XL frames, libpcap's own captures included, as malformed CAN
+  frames of length 128+. CI installs Wireshark from its PPA.
+- **libpcap before 1.10.6 alters captures**: 1.10.4 (Ubuntu 24.04's
+  tcpdump) writes CAN FD flags as 0 (BRS and ESI lost) and clears bit 2 of
+  a CAN XL frame's SDT; reproduced against 1.10.6 on the same kernel.
+  Files are read as captured (LIMITATIONS.md).
+- A first design queued CAN XL frames apart and merged by timestamp; on
+  Windows, whose clock gives many frames one timestamp, recordings came
+  out reordered. Order now never depends on clocks.
+
+---
+
 ## v0.5.0
 
 **Date:** 2026-10-28
