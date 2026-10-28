@@ -130,10 +130,40 @@ func dissected(t *testing.T, layers map[string]json.RawMessage) string {
 	default:
 		f, _ = canbus.NewStandard(canbus.ID(num(c, "can.id")), data[:n])
 	}
+	if _, ok := c["can.len8dlc"]; !ok && n == 8 {
+		// Older Wireshark (4.2) does not dissect the DLC 9..15 of a
+		// classical frame: mark it unknown for sameFrames.
+		return ifc + " " + f.String() + noDLC
+	}
 	if d := num(c, "can.len8dlc"); d != 0 {
 		f.Len8DLC = uint8(d)
 	}
 	return ifc + " " + f.String()
+}
+
+// noDLC marks a classical 8-byte frame whose DLC Wireshark did not
+// dissect.
+const noDLC = " (DLC not dissected)"
+
+// sameFrames compares Wireshark's frames with the expected ones; where
+// Wireshark did not dissect the DLC, a DLC 9..15 suffix is not compared.
+func sameFrames(got, want []string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range got {
+		g, w := got[i], want[i]
+		if c, ok := strings.CutSuffix(g, noDLC); ok {
+			g = c
+			if j := strings.LastIndexByte(w, '_'); j > 0 && j == len(w)-2 {
+				w = w[:j]
+			}
+		}
+		if g != w {
+			return false
+		}
+	}
+	return true
 }
 
 // findString returns the value of the first string field named key in a
@@ -235,7 +265,7 @@ func TestWiresharkReadsTraces(t *testing.T) {
 				want = append(want, ifc+" "+x.String())
 			}
 		})
-		if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		if !sameFrames(got, want) {
 			t.Errorf("%s: Wireshark dissected\n%s\nwant\n%s", format, short(got), short(want))
 		}
 	}
@@ -263,7 +293,7 @@ func TestWiresharkReadsRealCaptures(t *testing.T) {
 			t.Fatalf("%s: Wireshark %d packets, this package %d", path, len(packets), len(kinds))
 		}
 		for i, p := range packets {
-			if got, want := dissected(t, p.Source.Layers), ifaces[i]+" "+kinds[i]; got != want {
+			if got, want := dissected(t, p.Source.Layers), ifaces[i]+" "+kinds[i]; !sameFrames([]string{got}, []string{want}) {
 				t.Errorf("%s packet %d: Wireshark %s, this package %s", path, i+1, short([]string{got}), short([]string{want}))
 			}
 		}

@@ -244,10 +244,11 @@ func TestXLKernelFilterParity(t *testing.T) {
 		{Filters: []canbus.Filter{{ID: 0x5A2, Mask: 0x7FF, Format: canbus.FormatExtended}, {ID: 0x5A3, Mask: 0x7FF}}},
 		{Filters: []canbus.Filter{{ID: 0x5A2, Mask: 0x7FF, Remote: canbus.RemoteOnly}, {ID: 0x5A2, Mask: 0x7FF, Remote: canbus.RemoteDataOnly}}},
 	}
-	tx := open(t, ifc, WithXL(), WithVCIDFilter(0, 0))
-	if len(vcids) == 1 {
-		tx = open(t, ifc, WithXL())
+	txOpts := []Option{WithXL()}
+	if len(vcids) > 1 {
+		txOpts = append(txOpts, WithVCIDFilter(0, 0)) // pass VCIDs through
 	}
+	tx := open(t, ifc, txOpts...)
 	for i, fs := range sets {
 		opts := []Option{WithXL(), WithFilters(fs)}
 		if len(vcids) > 1 {
