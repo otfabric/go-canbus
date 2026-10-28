@@ -22,7 +22,10 @@
 - pcap and pcapng do not keep the echo mark (`Echo`); pcap keeps no
   interface name. Wireshark dissects CAN XL from 4.4 on: 4.2 (Ubuntu
   24.04's) shows CAN XL frames, libpcap's own captures included, as
-  malformed CAN frames.
+  malformed CAN frames. libpcap before 1.10.6 alters CAN FD and CAN XL
+  captures on Linux: 1.10.4 (Ubuntu 24.04's tcpdump) writes the CAN FD
+  flags as 0 (BRS and ESI lost) and clears bit 2 of a CAN XL frame's SDT
+  type. Such files read as captured; the bits are not recoverable.
 - Hardware adapters other than SocketCAN and slcan (PEAK PCAN-Basic,
   Kvaser CANlib, Vector XL; gs_usb is covered by SocketCAN on Linux).
   Implement `canbus.Transport` to add one.

@@ -8,6 +8,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"net"
 	"os"
@@ -51,6 +52,18 @@ func TestTcpdumpCapturesXL(t *testing.T) {
 	tcpdump, err := exec.LookPath("tcpdump")
 	if err != nil {
 		need("tcpdump not installed")
+	}
+	// libpcap before 1.10.6 rewrites byte 5 of CAN FD and CAN XL packets:
+	// 1.10.4 (Ubuntu 24.04) writes the CAN FD flags as 0 (BRS and ESI
+	// lost) and clears bit 2 of the CAN XL SDT. 1.10.6 keeps both.
+	oldLibpcap := false
+	if v, err := exec.Command(tcpdump, "--version").CombinedOutput(); err == nil {
+		var a, b, c int
+		if i := strings.Index(string(v), "libpcap version "); i >= 0 {
+			_, _ = fmt.Sscanf(string(v[i+len("libpcap version "):]), "%d.%d.%d", &a, &b, &c)
+		}
+		oldLibpcap = a < 1 || a == 1 && (b < 10 || b == 10 && c < 6)
+		t.Logf("%s", strings.SplitN(string(v[strings.Index(string(v), "libpcap"):]), "\n", 2)[0])
 	}
 	path := filepath.Join(t.TempDir(), "xl.pcap")
 	// -Z root: the file stays root's (tcpdump otherwise hands it to its
@@ -146,6 +159,26 @@ func TestTcpdumpCapturesXL(t *testing.T) {
 			got = append(got, f.String())
 		}
 	}
+	if oldLibpcap {
+		// Compare what that libpcap keeps: CAN FD without BRS/ESI, CAN XL
+		// SDT without bit 2.
+		strip := func(s []string) []string {
+			out := make([]string, len(s))
+			for i, v := range s {
+				if j := strings.Index(v, "##"); j >= 0 {
+					v = v[:j+2] + "0" + v[j+3:]
+				} else if canbus.IsXLText(v) {
+					x, _ := canbus.ParseXLFrame(v)
+					x.SDT &^= 0x04
+					v = x.String()
+				}
+				out[i] = v
+			}
+			return out
+		}
+		t.Logf("libpcap older than 1.10.6: CAN FD flags and CAN XL SDT bit 2 not compared (libpcap alters them)")
+		got, want = strip(got), strip(want)
+	}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("libpcap capture read as\n%.300s\nwant\n%.300s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
@@ -170,6 +203,9 @@ func TestTcpdumpCapturesXL(t *testing.T) {
 		}
 	}
 	wantFields := []string{"1475," + strconv.Itoa(int(vcid)) + ",0x01,3,305419896", "1476,0,0x07,2048,4294967295"}
+	if oldLibpcap {
+		wantFields[1] = "1476,0,0x03,2048,4294967295"
+	}
 	if strings.Join(fields, " ") != strings.Join(wantFields, " ") {
 		t.Fatalf("Wireshark dissected %v, want %v", fields, wantFields)
 	}
