@@ -12,15 +12,20 @@ kernel=$1 moddir=$2
 out=$(mktemp -d)
 GOWORK=off go test -c -o "$out/socketcan.test" ./socketcan
 GOWORK=off go test -c -o "$out/link.test" ./socketcan/link
+GOWORK=off go test -c -o "$out/slcan.test" ./slcan
 GOWORK=off go test -c -o "$out/chaos.test" ./chaos
 GOWORK=off go test -c -o "$out/e2e.test" ./e2e
 cat > "$out/guest.sh" <<GUEST
 set -e
 uname -a
-modprobe -a can can-raw vcan vxcan can-isotp can-gw
+modprobe -a can can-raw vcan vxcan can-isotp can-gw slcan
+# Let tests have the socket receive buffers they ask for (1 MiB for a
+# userspace ISO-TP receiver at STmin 0).
+sysctl -qw net.core.rmem_max=4194304
 for i in vcan0 vcan1; do ip link add \$i type vcan && ip link set \$i mtu 72 up; done
 cd $PWD/socketcan && CANBUS_REQUIRE_VCAN=1 CANBUS_REQUIRE_ISOTP=1 $out/socketcan.test -test.count=1
 cd $PWD/socketcan/link && CANBUS_REQUIRE_VCAN=1 CANBUS_TEST_ADMIN=1 $out/link.test -test.count=1
+cd $PWD/slcan && CANBUS_TEST_ADMIN=1 CANBUS_REQUIRE_SLCAN=1 $out/slcan.test -test.count=1
 cd $PWD/chaos && CANBUS_REQUIRE_VCAN=1 CANBUS_REQUIRE_ISOTP=1 $out/chaos.test -test.count=1 -test.run MonkeyKernel
 cd $PWD/e2e && CANBUS_REQUIRE_VCAN=1 CANBUS_REQUIRE_ISOTP=1 $out/e2e.test -test.count=1 -test.short -test.run "VehicleVCAN"
 echo MICROVM-OK

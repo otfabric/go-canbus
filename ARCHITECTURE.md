@@ -19,8 +19,8 @@ without changes to the core.
  ├──────────────────────────────┬───────────────────────────────────────────┤
  │ socketcan (linux): CAN_RAW,  │ virtual: deterministic in-memory bus with │
  │  CAN FD, kernel filters,     │  fault injection                          │
- │  timestamps, overflow; link  │                                           │
- │  (netlink admin, separate)   │                                           │
+ │  timestamps, overflow; link  │ slcan: serial-line CAN adapters (any OS,  │
+ │  (netlink admin, separate)   │  serial port, pty or TCP)                 │
  └──────────────────────────────┴───────────────────────────────────────────┘
 ```
 

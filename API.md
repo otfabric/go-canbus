@@ -41,6 +41,16 @@ timing, clock, control modes, restart-ms, error counters, statistics);
 DataBitrate, DataSamplePoint, Set, Clear, RestartMs})`, `Restart`,
 `AddVCAN`, `AddVXCAN`, `Delete`.
 
+## slcan
+
+| Identifier | Purpose |
+|------------|---------|
+| `Open(device, baud, Config)` | A serial adapter through go-serial (115200 baud by default; USB adapters ignore it) |
+| `New(io.ReadWriteCloser, Config)` | slcan over any byte stream: a pseudo-terminal, a TCP connection to a serial server |
+| `Config` (`Bitrate`, `DataBitrate`, `ListenOnly`, `NoCommands`, `Name`, `QueueSize`), `Bitrates`, `DataBitrates` | Setup: "C", "S0".."S9", "Y2"/"Y5", then "O" or "L"; `NoCommands` for peers that are not adapters |
+| `Conn` | `canbus.Transport` with `Name`, `Capabilities`, `Stats`, `Drops`; a lost device is `canbus.ErrInterfaceDown` |
+| `AppendFrame`, `ParseFrame` | The record codec ("t", "T", "r", "R", "d", "D", "b", "B") |
+
 ## virtual
 
 `New(Config{Name, Seed, QueueSize, Clock})` → `*Bus` with `Open(...PortOption)`
@@ -65,7 +75,7 @@ DelayBy, Corrupt, DropNext})`, `FaultStats`, `SetUp`, `Inject`,
 `NewCandumpReader`/`Writer`, `ParseCandumpLine`, `ParseFrame`,
 `FormatFrame`; `NewJSONLReader`/`Writer`, `Record`, `ToRecord`;
 `NewPCAPReader`/`Writer`, `NewPCAPNGReader`; `NewASCReader`/`Writer`,
-`NewBLFReader`/`Writer`; `FormatFromPath`; `Replay(ctx, Reader,
+`NewBLFReader`/`Writer`, `NewTRCReader`/`Writer`; `FormatFromPath`; `Replay(ctx, Reader,
 Sender, ReplayOptions) (ReplayStats, error)`; `RecordFrames`.
 
 ## candb, dbc, kcd, codegen

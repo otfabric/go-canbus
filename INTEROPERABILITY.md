@@ -39,7 +39,11 @@ difference (v0.1.0). Against canbus-interop v0.2.0 (contract 1.1, 2026-10-28,
 published images pinned by digest): **145 passed, 0 failed, 4 skipped**,
 76 known-difference frames; the additions are ASC, BLF and candump logs
 both ways with python-can, ARXML decode and encode with cantools and
-canmatrix, and KCD written by go-canbus read back by canmatrix.
+canmatrix, and KCD written by go-canbus read back by canmatrix. Against
+canbus-interop v0.3.0 (contract 1.2, 2026-10-28): **163 passed, 0 failed,
+4 skipped**, 78 known-difference records; the additions are slcan with
+python-can (both directions, CAN FD, 2000-frame burst) and PEAK TRC with
+python-can.
 
 | Area | Scenario | can-utils / kernel | python-can | socketcan-rs | Scapy | python-can-isotp | cantools | canmatrix |
 |------|----------|---|---|---|---|---|---|---|
@@ -55,6 +59,9 @@ canmatrix, and KCD written by go-canbus read back by canmatrix.
 | KCD | canmatrix's KCD→DBC layout vs go-canbus's KCD parser, decode agreement; KCD written by go-canbus converted by canmatrix | | | | | | | pass |
 | ARXML | decode and encode 3 fixtures (byte orders, compu methods, CAN FD, extended IDs, PDU offset) | | | | | | pass² | pass² |
 | Logs | python-can's ASC/BLF fixtures read by go-canbus; go-canbus writes ASC/BLF/candump read back by python-can; python-can writes, go-canbus reads | | pass | | | | | |
+| slcan | go-canbus slcan transport ↔ python-can's slcan interface over TCP (pyserial `socket://`), both directions: standard, extended, remote, CAN FD + BRS, 2000-frame burst; ESI refused | | pass² | | | | | |
+| slcan | the Linux kernel's slcan driver on a pty (`make test-admin`, microVMs): standard, extended, remote frames both ways | pass | | | | | | |
+| Logs | PEAK TRC: python-can's fixture and files read by go-canbus; TRC 2.1 written by go-canbus read by python-can; TRC 1.0, 1.1, 1.3, 2.0 records read alike by both | | pass² | | | | | |
 
 ¹ The stack's adapter has no capture/replay operation (capability).
 ² With the known differences below.
@@ -67,6 +74,9 @@ canmatrix, and KCD written by go-canbus read back by canmatrix.
 | canmatrix | Rejects payloads longer than the message length | go-canbus, like cantools, decodes the first Length bytes: CAN FD frames are padded to the next valid FD length |
 | canmatrix | Cannot encode extended multiplexing (`EncodingComplexMultiplexed`) | Limitation of canmatrix 1.3.3; go-canbus's extended-multiplexing encoding is checked against cantools |
 | cantools, canmatrix | Place an ARXML PDU mapped at a byte offset of its frame at offset 0 | go-canbus applies the PDU-TO-FRAME-MAPPING START-POSITION, as AUTOSAR defines it |
+| python-can | Sends CAN FD frames with ESI over slcan without the flag | slcan has no error state indicator: go-canbus's slcan transport refuses to send it (ErrUnsupported) rather than drop it |
+| python-can | Reads TRC FE records (CAN FD with error state indicator) as bit-rate switched | PEAK's format: FD plain, FB bit rate switch, FE error state indicator, BI both |
+| python-can | Skips TRC ER (error frame) records; its TRC writer skips remote, CAN FD and error frames | Limitations of python-can 4.6.1; go-canbus reads and writes them |
 
 ## Test choices
 

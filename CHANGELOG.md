@@ -2,6 +2,14 @@
 
 Release notes with details are in [RELEASE.md](RELEASE.md).
 
+## v0.3.0 (2026-10-28)
+
+Package `slcan`: serial-line CAN adapters (CANable, CANtact, USBtin,
+LAWICEL) on every OS through go-serial, or slcan over any byte stream;
+tested against the Linux kernel's slcan driver and python-can. PEAK TRC
+traces in `capture` (1.0–2.1 read, 2.1 written). Interop against
+canbus-interop v0.3.0 (contract 1.2).
+
 ## v0.2.2 (2026-10-28)
 
 `canbus.WithStartOnSubscribe`: a Bus that reads from its first
