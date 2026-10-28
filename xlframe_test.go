@@ -73,3 +73,12 @@ func FuzzParseXLFrame(f *testing.F) {
 		}
 	})
 }
+
+func TestXLFrameClone(t *testing.T) {
+	x := canbus.XLFrame{Priority: 1, Data: []byte{1, 2}}
+	c := x.Clone()
+	c.Data[0] = 9
+	if x.Data[0] != 1 || c.Priority != 1 || len(c.Data) != 2 {
+		t.Fatal("Clone shares the payload")
+	}
+}

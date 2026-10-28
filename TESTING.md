@@ -7,7 +7,9 @@
 | Unit and property tests, race detector | any OS | `make test` |
 | SocketCAN, netlink, kernel ISO-TP on vcan | Linux with `vcan0` (MTU ≥ 72) | `make vcan-setup test-vcan`, `make test-admin` (root) |
 | slcan against the Linux kernel's slcan driver (a pty with the N_SLCAN line discipline) | Linux, root, `slcan` module | `make test-admin`; the microVMs require it (`CANBUS_REQUIRE_SLCAN=1`). slcan over real ptys with go-serial: `make test` (Linux, macOS) |
-| CAN XL on vcan: send, receive, mixed CAN/CAN FD/CAN XL order, echo, VCID pass-through and filter | Linux ≥ 6.2 with `vcanxl0` (MTU 2060; VCIDs need ≥ 6.9) | `make vcan-setup test-vcan`; CI and the microVMs on kernels ≥ 6.2 require it (`CANBUS_REQUIRE_XL=1`) |
+| CAN XL on vcan: send, receive, mixed CAN/CAN FD/CAN XL order, echo, VCID pass-through and filter, kernel CAN_RAW_FILTER decisions against `FilterSet.MatchXL`, a `canbus.Bus` on CAN XL sockets | Linux ≥ 6.2 with `vcanxl0` (MTU 2060; VCIDs need ≥ 6.9) | `make vcan-setup test-vcan`; CI and the microVMs on kernels ≥ 6.2 require it (`CANBUS_REQUIRE_XL=1`) |
+| pcap/pcapng against Wireshark: every frame kind written by this package dissected by tshark into the same frame; the captures in `capture/testdata` (tcpdump and dumpcap on Linux 7.0) read alike by tshark and this package | any OS with tshark | `make test`; CI installs tshark and requires it (`CANBUS_REQUIRE_TSHARK=1`) |
+| pcap against the kernel and libpcap: tcpdump captures CAN, CAN FD and CAN XL frames sent on `vcanxl0`; this package and tshark read the capture | Linux ≥ 6.2, root, tcpdump | `make test-admin`; required in CI |
 | Coverage gate (90 %) | Linux with vcan0 | `make coverage-check` |
 | Fuzzing | any OS | `make fuzz FUZZTIME=30s` |
 | Golden code generation | any OS | `make generate-check` |

@@ -11,11 +11,18 @@
 
 ## Not implemented
 
-- CAN XL beyond SocketCAN raw sockets: a `canbus.Bus`, the virtual bus,
-  slcan, ISO-TP and the message databases carry classical and CAN FD frames
-  only; of the trace formats, candump logs and JSON Lines carry CAN XL
-  (pcap, pcapng, ASC, BLF and TRC do not). VCID pass-through and filters
-  need Linux ≥ 6.9; earlier kernels (6.2..6.8) ignore VCIDs.
+- CAN XL on slcan, ISO-TP and in the message databases (DBC, KCD, ARXML):
+  they carry classical and CAN FD frames only. Of the trace formats,
+  candump logs, JSON Lines, pcap and pcapng carry CAN XL; ASC, BLF and TRC
+  do not. SocketCAN, the virtual bus, `canbus.Bus`, replay and the chaos
+  bridge carry it. VCID pass-through and filters need Linux ≥ 6.9; earlier
+  kernels (6.2..6.8) ignore VCIDs.
+- A `canbus.Subscription` opened `WithXL` queues CAN XL frames apart from
+  CAN and CAN FD frames: the order between the two queues is only given by
+  the timestamps (`capture.RecordAll` writes them as they are taken from
+  the queues). A transport's `ReceiveAny` keeps the order.
+- pcap and pcapng do not keep the echo mark (`Echo`); pcap keeps no
+  interface name.
 - Hardware adapters other than SocketCAN and slcan (PEAK PCAN-Basic,
   Kvaser CANlib, Vector XL; gs_usb is covered by SocketCAN on Linux).
   Implement `canbus.Transport` to add one.

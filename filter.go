@@ -107,6 +107,20 @@ func KernelID(fr *Frame) uint32 {
 	return id
 }
 
+// XLKernelID returns the identifier Linux's CAN_RAW_FILTER matches for a
+// CAN XL frame: the priority with the VCID in bits 16..23, without any
+// flag (a standard data frame identifier).
+func XLKernelID(x *XLFrame) uint32 {
+	return uint32(x.VCID)<<16 | uint32(x.Priority&MaxXLPriority)
+}
+
+// MatchXL reports whether a CAN XL frame passes the filter, as the kernel
+// decides it: on [XLKernelID], so a filter for a standard identifier
+// selects the CAN XL frames of that priority (and any VCID unless the
+// mask covers bits 16..23), and a filter for an extended identifier
+// selects none.
+func (f Filter) MatchXL(x *XLFrame) bool { return f.matchKernelID(XLKernelID(x)) }
+
 // Match reports whether a data or remote frame passes the filter. Error
 // frames are selected by an error mask instead; Match reports false for
 // them.
@@ -223,7 +237,18 @@ func (s *FilterSet) Match(fr *Frame) bool {
 	if len(s.Filters) == 0 {
 		return true
 	}
-	cid := KernelID(fr)
+	return s.matchKernelID(KernelID(fr))
+}
+
+// MatchXL reports whether a CAN XL frame passes the set ([Filter.MatchXL]).
+func (s *FilterSet) MatchXL(x *XLFrame) bool {
+	if len(s.Filters) == 0 {
+		return true
+	}
+	return s.matchKernelID(XLKernelID(x))
+}
+
+func (s *FilterSet) matchKernelID(cid uint32) bool {
 	if s.Join {
 		for _, f := range s.Filters {
 			if !f.matchKernelID(cid) {

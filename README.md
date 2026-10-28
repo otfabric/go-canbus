@@ -8,8 +8,8 @@
 [![Kernels](https://github.com/otfabric/go-canbus/actions/workflows/kernels.yml/badge.svg)](https://github.com/otfabric/go-canbus/actions/workflows/kernels.yml)
 [![Code Coverage](https://codecov.io/gh/otfabric/go-canbus/graph/badge.svg)](https://codecov.io/gh/otfabric/go-canbus)
 
-A pure Go library for Controller Area Network: classical CAN and CAN FD
-frames, Linux SocketCAN, serial-line (slcan) adapters on every OS, a
+A pure Go library for Controller Area Network: classical CAN, CAN FD and
+CAN XL frames, Linux SocketCAN, serial-line (slcan) adapters on every OS, a
 deterministic virtual bus, ISO-TP (ISO 15765-2), capture and replay, and
 DBC/KCD/ARXML message databases with a signal codec and a Go code
 generator. No cgo; the one dependency outside the standard library is
@@ -18,13 +18,13 @@ ports.
 
 | Package | What it does |
 |---------|--------------|
-| [`canbus`](https://pkg.go.dev/github.com/otfabric/go-canbus) | Frames (11/29-bit IDs, CAN FD with BRS/ESI, remote, error frames, DLC 9..15), the CAN FD DLC table, filters with exact Linux `CAN_RAW_FILTER` semantics, error-frame decoding, the `Transport` interface and `Bus` (one transport shared by many subscriptions with bounded queues), slog logging and metrics hooks |
+| [`canbus`](https://pkg.go.dev/github.com/otfabric/go-canbus) | Frames (11/29-bit IDs, CAN FD with BRS/ESI, remote, error frames, DLC 9..15), the CAN FD DLC table, filters with exact Linux `CAN_RAW_FILTER` semantics, error-frame decoding, CAN XL frames, the `Transport` interface and `Bus` (one transport shared by many subscriptions with bounded queues), slog logging and metrics hooks |
 | [`socketcan`](https://pkg.go.dev/github.com/otfabric/go-canbus/socketcan) | Linux `CAN_RAW` sockets: CAN FD, kernel filters, error frames, loopback and receive-own, kernel timestamps, drop accounting, context cancellation, allocation-free send/receive; kernel ISO-TP sockets (`DialISOTP`) |
 | [`socketcan/link`](https://pkg.go.dev/github.com/otfabric/go-canbus/socketcan/link) | rtnetlink administration, kept apart from the transport: list and inspect CAN interfaces (state, bit timing, error counters), up/down, bit rates, CAN FD, restart, vcan/vxcan create/delete |
 | [`slcan`](https://pkg.go.dev/github.com/otfabric/go-canbus/slcan) | Serial-line CAN (LAWICEL ASCII) adapters such as CANable, CANtact and USBtin on every OS, without the Linux slcan driver: bit rates, listen-only, CAN FD (CANable 2.0), over a serial port (go-serial), a pseudo-terminal or TCP |
-| [`virtual`](https://pkg.go.dev/github.com/otfabric/go-canbus/virtual) | An in-memory bus for tests and simulation on every OS: SocketCAN delivery rules, queue policies, seeded fault injection (drop, duplicate, delay, corrupt, error frames, interface down) |
+| [`virtual`](https://pkg.go.dev/github.com/otfabric/go-canbus/virtual) | An in-memory bus for tests and simulation on every OS: SocketCAN delivery rules, queue policies, seeded fault injection (drop, duplicate, delay, corrupt, error frames, interface down); CAN XL ports |
 | [`isotp`](https://pkg.go.dev/github.com/otfabric/go-canbus/isotp) | ISO-TP in userspace: normal, extended and mixed addressing, flow control with block size, STmin, WAIT and OVERFLOW, timeouts, padding, CAN FD and messages above 4095 bytes |
-| [`capture`](https://pkg.go.dev/github.com/otfabric/go-canbus/capture) | candump logs, lossless JSON Lines, pcap and pcapng (`LINKTYPE_CAN_SOCKETCAN`), Vector ASC and BLF, PEAK TRC (1.0–2.1 read, 2.1 written); streaming replay with original, scaled or maximum timing, filters and limits |
+| [`capture`](https://pkg.go.dev/github.com/otfabric/go-canbus/capture) | candump logs, lossless JSON Lines, pcap and pcapng (`LINKTYPE_CAN_SOCKETCAN`, read and written, CAN XL included; checked against tcpdump and Wireshark), Vector ASC and BLF, PEAK TRC (1.0–2.1 read, 2.1 written); streaming replay with original, scaled or maximum timing, filters and limits |
 | [`candb`](https://pkg.go.dev/github.com/otfabric/go-canbus/candb) | The format-independent message model and signal codec: Intel and Motorola, signed, float, scaling, value tables, simple and extended multiplexing, CAN FD; exact 64-bit raw values |
 | [`dbc`](https://pkg.go.dev/github.com/otfabric/go-canbus/dbc), [`kcd`](https://pkg.go.dev/github.com/otfabric/go-canbus/kcd), [`arxml`](https://pkg.go.dev/github.com/otfabric/go-canbus/arxml) | DBC parser and writer, KCD parser and writer, AUTOSAR 4.x ARXML reader (CAN clusters, frames, I-PDUs, multiplexed I-PDUs, signals, compu methods); every unsupported construct yields a diagnostic |
 | [`codegen`](https://pkg.go.dev/github.com/otfabric/go-canbus/codegen) | Deterministic Go generation: typed message structs, enums, constants, physical accessors, multiplexer-aware encode/decode |
@@ -99,7 +99,7 @@ simulation with faults, capture and replay, and two processes on vcan.
 | Layer | Scope |
 |-------|-------|
 | Physical interface, bit rate | Configured explicitly through `socketcan/link`; opening a socket never changes an interface |
-| Data link (ISO 11898-1 framing concepts) | Classical CAN 2.0A/B, CAN FD, CAN XL (SocketCAN, Linux ≥ 6.2) |
+| Data link (ISO 11898-1 framing concepts) | Classical CAN 2.0A/B, CAN FD, CAN XL (SocketCAN on Linux ≥ 6.2, the virtual bus, `canbus.Bus`, candump/JSON Lines/pcap/pcapng traces) |
 | Transport | ISO-TP (ISO 15765-2), userspace and Linux kernel |
 | Message definitions | DBC (read/write), KCD (read/write), AUTOSAR 4.x ARXML (read, CAN subset: see [LIMITATIONS.md](LIMITATIONS.md)) |
 | Application protocols | None: CANopen, J1939, UDS, NMEA 2000, ISOBUS and DroneCAN belong in their own modules on top of `canbus.Bus` and `isotp` |

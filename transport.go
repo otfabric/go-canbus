@@ -19,6 +19,18 @@ type Transport interface {
 	Close() error
 }
 
+// XLTransport is implemented by transports that carry CAN XL frames: a
+// SocketCAN socket opened with CAN XL, a virtual bus port. SendXL
+// transmits a CAN XL frame (copying its payload). ReceiveAny waits for the
+// next frame of any kind, a CAN or CAN FD frame in f (xl false) or a CAN XL
+// frame in x (xl true), reusing x.Data's storage; Receive skips CAN XL
+// frames. A [Bus] on an XLTransport receives with ReceiveAny.
+type XLTransport interface {
+	Transport
+	SendXL(ctx context.Context, x *XLFrame) error
+	ReceiveAny(ctx context.Context, f *Frame, x *XLFrame) (xl bool, err error)
+}
+
 // Filterer is implemented by transports that filter in the kernel, in
 // hardware or as frames arrive. Frames that do not pass are never
 // delivered to Receive.

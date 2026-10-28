@@ -11,6 +11,10 @@
 // stacks, devices on a bench bus) under faults no physical bus would
 // produce on demand.
 //
+// Between two [canbus.XLTransport]s (CAN XL sockets, virtual bus ports
+// opened with CAN XL) CAN XL frames are forwarded too, with the same
+// faults.
+//
 // Faults are userspace emulation of what a receiver sees. They do not
 // model bit errors, arbitration or the retransmissions a real controller
 // performs after a CRC error: corruption here delivers a frame that a real
@@ -51,6 +55,9 @@ type Stats struct {
 	Delayed    uint64 `json:"delayed"`
 	Reordered  uint64 `json:"reordered"`
 	Corrupted  uint64 `json:"corrupted"`
+	// SkippedXL counts CAN XL frames the destination cannot send (it is no
+	// XLTransport, or reports canbus.ErrUnsupported).
+	SkippedXL uint64 `json:"skippedXL"`
 }
 
 // Bridge forwards frames from one transport to another with faults.
@@ -59,7 +66,7 @@ type Bridge struct {
 	rng *rand.Rand
 	mu  sync.Mutex
 	st  struct {
-		received, forwarded, dropped, duplicated, delayed, reordered, corrupted atomic.Uint64
+		received, forwarded, dropped, duplicated, delayed, reordered, corrupted, skippedXL atomic.Uint64
 	}
 }
 
@@ -82,7 +89,7 @@ func New(cfg Config) (*Bridge, error) {
 // Stats returns the counters.
 func (b *Bridge) Stats() Stats {
 	return Stats{b.st.received.Load(), b.st.forwarded.Load(), b.st.dropped.Load(), b.st.duplicated.Load(),
-		b.st.delayed.Load(), b.st.reordered.Load(), b.st.corrupted.Load()}
+		b.st.delayed.Load(), b.st.reordered.Load(), b.st.corrupted.Load(), b.st.skippedXL.Load()}
 }
 
 // draw returns the fault decisions for one frame. All five values are
@@ -96,24 +103,50 @@ func (b *Bridge) draw() (drop, dup, delay, reorder, corrupt bool, bit int) {
 	delay = b.rng.Float64() < c.Delay
 	reorder = b.rng.Float64() < c.Reorder
 	corrupt = b.rng.Float64() < c.Corrupt
-	bit = b.rng.Intn(512)
+	bit = b.rng.Intn(1 << 14) // any bit of a 2048-byte CAN XL payload
 	return
+}
+
+// packet is one frame in flight: f, or the CAN XL frame x.
+type packet struct {
+	f  canbus.Frame
+	x  canbus.XLFrame
+	xl bool
 }
 
 // Run forwards frames from src to dst until ctx ends or src fails; it
 // returns nil when ctx ended. Error frames and src's own echoes are not
-// forwarded. Run may be started once per direction.
+// forwarded. CAN XL frames are forwarded when src and dst are
+// [canbus.XLTransport]s. Run may be started once per direction.
 func (b *Bridge) Run(ctx context.Context, src, dst canbus.Transport) (err error) {
 	defer func() {
 		if errors.Is(err, errEnded) {
 			err = nil // ctx ended during a send
 		}
 	}()
-	var held *canbus.Frame // a frame waiting to be reordered
-	sendCtx := func(ctx context.Context, f *canbus.Frame) error {
-		out := *f
-		out.Timestamp, out.Interface, out.Echo = time.Time{}, "", false
-		if err := dst.Send(ctx, &out); err != nil {
+	xsrc, _ := src.(canbus.XLTransport)
+	xdst, _ := dst.(canbus.XLTransport)
+	var held *packet // a frame waiting to be reordered
+	sendCtx := func(ctx context.Context, p *packet) error {
+		var err error
+		if p.xl {
+			if xdst == nil {
+				b.st.skippedXL.Add(1)
+				return nil
+			}
+			out := p.x
+			out.Timestamp, out.Interface, out.Echo = time.Time{}, "", false
+			err = xdst.SendXL(ctx, &out)
+			if errors.Is(err, canbus.ErrUnsupported) {
+				b.st.skippedXL.Add(1)
+				return nil
+			}
+		} else {
+			out := p.f
+			out.Timestamp, out.Interface, out.Echo = time.Time{}, "", false
+			err = dst.Send(ctx, &out)
+		}
+		if err != nil {
 			if ended(ctx, err) {
 				return errEnded
 			}
@@ -122,10 +155,16 @@ func (b *Bridge) Run(ctx context.Context, src, dst canbus.Transport) (err error)
 		b.st.forwarded.Add(1)
 		return nil
 	}
-	send := func(f *canbus.Frame) error { return sendCtx(ctx, f) }
-	var f canbus.Frame
+	send := func(p *packet) error { return sendCtx(ctx, p) }
+	var p packet
 	for {
-		if err := src.Receive(ctx, &f); err != nil {
+		var err error
+		if xsrc != nil {
+			p.xl, err = xsrc.ReceiveAny(ctx, &p.f, &p.x)
+		} else {
+			p.xl, err = false, src.Receive(ctx, &p.f)
+		}
+		if err != nil {
 			if ended(ctx, err) || errors.Is(err, canbus.ErrClosed) {
 				if held != nil { // flush the reordered frame with a fresh deadline
 					fctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -136,12 +175,12 @@ func (b *Bridge) Run(ctx context.Context, src, dst canbus.Transport) (err error)
 			}
 			return err
 		}
-		if f.IsError() || f.Echo {
+		if p.xl && p.x.Echo || !p.xl && (p.f.IsError() || p.f.Echo) {
 			continue
 		}
 		b.st.received.Add(1)
-		if b.cfg.Filter != nil && !b.cfg.Filter.Match(&f) {
-			if err := send(&f); err != nil {
+		if f := b.cfg.Filter; f != nil && (p.xl && !f.MatchXL(&p.x) || !p.xl && !f.Match(&p.f)) {
+			if err := send(&p); err != nil {
 				return err
 			}
 			continue
@@ -151,9 +190,14 @@ func (b *Bridge) Run(ctx context.Context, src, dst canbus.Transport) (err error)
 			b.st.dropped.Add(1)
 			continue
 		}
-		if corrupt && !f.IsRemote() && f.Len > 0 {
-			bit %= int(f.Len) * 8
-			f.Data[bit/8] ^= 1 << (bit % 8)
+		switch {
+		case corrupt && p.xl:
+			bit %= len(p.x.Data) * 8
+			p.x.Data[bit/8] ^= 1 << (bit % 8)
+			b.st.corrupted.Add(1)
+		case corrupt && !p.f.IsRemote() && p.f.Len > 0:
+			bit %= int(p.f.Len) * 8
+			p.f.Data[bit/8] ^= 1 << (bit % 8)
 			b.st.corrupted.Add(1)
 		}
 		if delay {
@@ -168,11 +212,12 @@ func (b *Bridge) Run(ctx context.Context, src, dst canbus.Transport) (err error)
 		}
 		if reorder && held == nil {
 			b.st.reordered.Add(1)
-			c := f
+			c := p
+			c.x = p.x.Clone() // p.x.Data is reused by the next receive
 			held = &c
 			continue
 		}
-		if err := send(&f); err != nil {
+		if err := send(&p); err != nil {
 			return err
 		}
 		if held != nil {
@@ -183,7 +228,7 @@ func (b *Bridge) Run(ctx context.Context, src, dst canbus.Transport) (err error)
 		}
 		if dup {
 			b.st.duplicated.Add(1)
-			if err := send(&f); err != nil {
+			if err := send(&p); err != nil {
 				return err
 			}
 		}

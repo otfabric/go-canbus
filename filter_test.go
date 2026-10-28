@@ -134,3 +134,46 @@ func FuzzFilter(f *testing.F) {
 		}
 	})
 }
+
+// TestFilterMatchXL pins the kernel's CAN_RAW_FILTER decisions for CAN XL
+// frames, observed on Linux 7.0 (vcan, CAN_RAW_XL_FRAMES with a VCID
+// receive mask of 0): the filter sees VCID<<16 | priority as a standard
+// data frame identifier.
+func TestFilterMatchXL(t *testing.T) {
+	frames := []string{"00242#80:00:00000000#01", "00243#80:00:00000000#02", "05242#80:00:00000000#03", "05243#80:00:00000000#04"}
+	cases := []struct {
+		name string
+		fs   FilterSet
+		want string // the frames that pass, by index
+	}{
+		{"none", FilterSet{}, "0123"},
+		{"exact standard", FilterSet{Filters: []Filter{ExactStandard(0x242)}}, "02"},
+		{"mask only", FilterSet{Filters: []Filter{{ID: 0x242, Mask: 0x7FF}}}, "02"},
+		{"inverted", FilterSet{Filters: []Filter{{ID: 0x242, Mask: 0x7FF, Invert: true}}}, "13"},
+		{"vcid bits", FilterSet{Filters: []Filter{{ID: 0x50242, Mask: 0xFF07FF}}}, "2"},
+		{"extended", FilterSet{Filters: []Filter{ExactExtended(0x242)}}, ""},
+		{"remote only", FilterSet{Filters: []Filter{{ID: 0x242, Mask: 0x7FF, Remote: RemoteOnly}}}, ""},
+		{"join", FilterSet{Join: true, Filters: []Filter{{ID: 0x242, Mask: 0x7FF}, {ID: 5 << 16, Mask: 0xFF << 16}}}, "2"},
+	}
+	for _, c := range cases {
+		got := ""
+		for i, s := range frames {
+			x, err := ParseXLFrame(s)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if c.fs.MatchXL(&x) {
+				got += string(rune('0' + i))
+			}
+			if len(c.fs.Filters) == 1 && c.fs.Filters[0].MatchXL(&x) != c.fs.MatchXL(&x) {
+				t.Errorf("%s: Filter.MatchXL disagrees with the set", c.name)
+			}
+		}
+		if got != c.want {
+			t.Errorf("%s: %q pass, want %q", c.name, got, c.want)
+		}
+	}
+	if id := XLKernelID(&XLFrame{Priority: 0x7FF, VCID: 0xAB}); id != 0xAB07FF {
+		t.Errorf("XLKernelID = %#x", id)
+	}
+}

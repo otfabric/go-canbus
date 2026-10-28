@@ -76,11 +76,13 @@ test: ## Run the tests with the race detector (SocketCAN tests skip without vcan
 test-vcan: ## Run the tests on Linux, failing instead of skipping when vcan0 is missing
 	@CANBUS_REQUIRE_VCAN=1 go test -p 1 -count=1 -race $(TEST_PKGS)
 
-test-admin: ## Run the netlink administration tests (Linux, needs sudo)
+test-admin: ## Run the netlink administration and tcpdump capture tests (Linux, needs sudo)
 	@go test -c -o $(BIN_DIR)/link.test ./socketcan/link
 	@sudo CANBUS_TEST_ADMIN=1 $(BIN_DIR)/link.test -test.v -test.run TestAdmin
 	@go test -c -o $(BIN_DIR)/slcan.test ./slcan
 	@cd slcan && sudo CANBUS_TEST_ADMIN=1 $(CURDIR)/$(BIN_DIR)/slcan.test -test.v -test.run TestKernelSlcan
+	@go test -c -o $(BIN_DIR)/e2e.test ./e2e
+	@cd e2e && sudo CANBUS_TEST_ADMIN=1 CANBUS_REQUIRE_XL=$(CANBUS_REQUIRE_XL) CANBUS_REQUIRE_TSHARK=$(CANBUS_REQUIRE_TSHARK) $(CURDIR)/$(BIN_DIR)/e2e.test -test.v -test.run TestTcpdumpCapturesXL
 
 vcan-setup: ## Create vcan0 and vcan1 (CAN FD MTU) and vcanxl0 (CAN XL MTU, Linux ≥ 6.2); load the CAN modules (Linux, sudo)
 	@sudo modprobe vcan; sudo modprobe can-isotp || true

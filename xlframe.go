@@ -79,6 +79,13 @@ type XLFrame struct {
 	Echo bool
 }
 
+// Clone returns a copy of f with its own payload storage.
+func (f *XLFrame) Clone() XLFrame {
+	c := *f
+	c.Data = append([]byte(nil), f.Data...)
+	return c
+}
+
 // Validate checks the priority, the payload length and the flags.
 func (f *XLFrame) Validate() error {
 	switch {

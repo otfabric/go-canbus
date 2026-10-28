@@ -13,15 +13,16 @@ import (
 	"github.com/otfabric/go-canbus"
 )
 
-// TestXLRoundTrip writes CAN, CAN FD and CAN XL frames to candump and
-// JSON Lines and reads them back with ReadAny; Read skips the XL frames.
+// TestXLRoundTrip writes CAN, CAN FD and CAN XL frames to candump, JSON
+// Lines, pcap and pcapng and reads them back with ReadAny; Read skips the
+// XL frames.
 func TestXLRoundTrip(t *testing.T) {
 	cc, _ := canbus.NewStandard(0x123, []byte{1, 2})
 	fd, _ := canbus.NewFD(0x456, false, true, make([]byte, 12))
 	x := canbus.XLFrame{Priority: 0x242, VCID: 7, Flags: canbus.XLSEC | canbus.XLRRS, SDT: 3, AF: 0xCAFE, Data: bytes.Repeat([]byte{0x5A}, 1500),
 		Timestamp: time.Unix(1700000000, 123456000), Interface: "vcanxl0", Echo: true}
 	cc.Timestamp, fd.Timestamp = x.Timestamp, x.Timestamp
-	for _, format := range []Format{FormatCandump, FormatJSONL} {
+	for _, format := range []Format{FormatCandump, FormatJSONL, FormatPCAP, FormatPCAPNG} {
 		var buf bytes.Buffer
 		w, err := NewWriter(&buf, format)
 		if err != nil {
@@ -53,7 +54,12 @@ func TestXLRoundTrip(t *testing.T) {
 			}
 			if isXL {
 				// candump logs carry no echo mark when written (as for CAN frames).
-				if g.String() != x.String() || g.Interface != x.Interface || g.Echo != (format == FormatJSONL) || !g.Timestamp.Equal(x.Timestamp) {
+				// pcap carries no interface name.
+				wantIfc := x.Interface
+				if format == FormatPCAP {
+					wantIfc = ""
+				}
+				if g.String() != x.String() || g.Interface != wantIfc || g.Echo != (format == FormatJSONL) || !g.Timestamp.Equal(x.Timestamp) {
 					t.Fatalf("%s: %.40s… %s echo=%v %v", format, g.String(), g.Interface, g.Echo, g.Timestamp)
 				}
 				kinds = append(kinds, "xl")

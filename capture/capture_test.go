@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -163,10 +164,10 @@ func roundTrip(t *testing.T, format Format) {
 }
 
 func TestRoundTrips(t *testing.T) {
-	for _, f := range []Format{FormatCandump, FormatJSONL, FormatPCAP} {
+	for _, f := range []Format{FormatCandump, FormatJSONL, FormatPCAP, FormatPCAPNG} {
 		roundTrip(t, f)
 	}
-	if _, err := NewWriter(io.Discard, FormatPCAPNG); !errors.Is(err, ErrUnknownFormat) {
+	if _, err := NewWriter(io.Discard, "xls"); !errors.Is(err, ErrUnknownFormat) {
 		t.Fatal(err)
 	}
 	if _, _, err := NewReader(strings.NewReader("hello")); !errors.Is(err, ErrUnknownFormat) {
@@ -532,17 +533,35 @@ func FuzzReaders(f *testing.F) {
 	f.Add(trc.Bytes())
 	f.Add([]byte(";$FILEVERSION=1.3\n;$STARTTIME=46322.3\n 1) 1.0 1 Rx 0001 - 2 00 11\n 2) 2.0 1 Rx 0002 - 1 RTR\n"))
 	f.Add([]byte(";$FILEVERSION=2.0\n 1 1.0 FB 0001 Rx 12 00 01 02 03 04 05 06 07 08 09 0a 0b\n"))
+	for _, p := range []string{"testdata/linux-7.0-tcpdump.pcap", "testdata/linux-7.0-dumpcap.pcapng"} {
+		if b, err := os.ReadFile(p); err == nil {
+			f.Add(b)
+		}
+	}
+	f.Add([]byte("(1.0) vcanxl0 05242#81:01:12345678#AABBCCDDEE\n"))
 	f.Fuzz(func(t *testing.T, data []byte) {
 		r, _, err := NewReader(bytes.NewReader(data))
 		if err != nil {
 			return
 		}
+		xr, _ := r.(XLReader)
 		for i := 0; i < 1000; i++ {
 			var fr canbus.Frame
-			if err := r.Read(&fr); err != nil {
+			var x canbus.XLFrame
+			var isXL bool
+			if xr != nil {
+				isXL, err = xr.ReadAny(&fr, &x)
+			} else {
+				err = r.Read(&fr)
+			}
+			if err != nil {
 				return
 			}
-			if fr.Flags&canbus.FlagError == 0 {
+			if isXL {
+				if err := x.Validate(); err != nil {
+					t.Fatalf("reader produced an invalid CAN XL frame %+v: %v", x, err)
+				}
+			} else if fr.Flags&canbus.FlagError == 0 {
 				if err := fr.Validate(); err != nil {
 					t.Fatalf("reader produced an invalid frame %+v: %v", fr, err)
 				}

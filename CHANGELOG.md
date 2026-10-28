@@ -2,6 +2,19 @@
 
 Release notes with details are in [RELEASE.md](RELEASE.md).
 
+## Unreleased
+
+CAN XL beyond SocketCAN sockets: a `canbus.Bus` carries CAN XL on an
+`XLTransport` (`Bus.SendXL`, subscriptions `WithXL`, `ReceiveXL`); the
+virtual bus has CAN XL ports (`virtual.WithXL`, `WithVCIDFilter`,
+`InjectXL`, faults); filters select CAN XL frames as the kernel does
+(`FilterSet.MatchXL`, checked against CAN_RAW_FILTER on Linux 7.0 and the
+CI kernels); pcap and pcapng carry CAN XL as libpcap writes it, and a
+pcapng writer keeps interface names; `capture.Replay` sends CAN XL,
+`capture.RecordAll` records it; the chaos bridge forwards it. Checked
+against tcpdump/libpcap captures of the kernel and against Wireshark.
+The pcap snap length in the file header is now 2060 (CAN XL).
+
 ## v0.5.0 (2026-10-28)
 
 CAN XL: `canbus.XLFrame` with can-utils notation; SocketCAN CAN XL sockets

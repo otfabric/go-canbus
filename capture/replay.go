@@ -17,6 +17,12 @@ type Sender interface {
 	Send(ctx context.Context, f *canbus.Frame) error
 }
 
+// XLSender sends CAN XL frames: a [canbus.Bus], a SocketCAN socket opened
+// with CAN XL, a virtual bus port.
+type XLSender interface {
+	SendXL(ctx context.Context, x *canbus.XLFrame) error
+}
+
 // ReplayOptions control [Replay]. The zero value replays every frame as
 // fast as possible.
 type ReplayOptions struct {
@@ -24,7 +30,7 @@ type ReplayOptions struct {
 	// 2 twice as fast, 0.5 at half speed. 0 sends as fast as possible.
 	Speed float64
 	// Filter selects the frames to send; nil sends all. Error frames are
-	// never sent.
+	// never sent. CAN XL frames are selected as by [canbus.FilterSet.MatchXL].
 	Filter *canbus.FilterSet
 	// MaxFrames stops after this many frames were sent (0: no limit).
 	MaxFrames int
@@ -39,20 +45,28 @@ type ReplayOptions struct {
 	Interfaces map[string]Sender
 	// OnFrame, if set, is called after each frame was sent.
 	OnFrame func(f *canbus.Frame)
+	// OnXLFrame, if set, is called after each CAN XL frame was sent.
+	OnXLFrame func(x *canbus.XLFrame)
 }
 
 // ReplayStats reports what [Replay] did.
 type ReplayStats struct {
-	Read     int           // frames read from the trace
-	Sent     int           // frames sent
-	Filtered int           // frames not selected by the filter
-	Skipped  int           // error frames (which cannot be sent)
-	Elapsed  time.Duration // wall time of the replay
-	Limited  bool          // MaxFrames or MaxDuration ended the replay
+	Read     int // frames read from the trace
+	Sent     int // frames sent
+	Filtered int // frames not selected by the filter
+	Skipped  int // error frames (which cannot be sent)
+	// SkippedXL counts the CAN XL frames that were not sent because their
+	// sender does not carry CAN XL (no [XLSender], or SendXL reports
+	// [canbus.ErrUnsupported], as a socket opened without CAN XL does).
+	SkippedXL int
+	Elapsed   time.Duration // wall time of the replay
+	Limited   bool          // MaxFrames or MaxDuration ended the replay
 }
 
 // Replay reads frames from r and sends them to s, streaming: memory use
-// does not depend on the trace size. It returns when the trace ends, a
+// does not depend on the trace size. A reader of CAN XL frames
+// ([XLReader]) has them replayed through senders that carry CAN XL
+// ([XLSender]); see [ReplayStats.SkippedXL]. It returns when the trace ends, a
 // limit is reached, ctx ends or a send fails.
 func Replay(ctx context.Context, r Reader, s Sender, opts ReplayOptions) (st ReplayStats, err error) {
 	if opts.Speed < 0 || opts.Rate < 0 || opts.MaxFrames < 0 || opts.MaxDuration < 0 {
@@ -87,7 +101,25 @@ func Replay(ctx context.Context, r Reader, s Sender, opts ReplayOptions) (st Rep
 			return nil
 		}
 	}
+	// pace waits until a frame recorded at ts is due.
+	pace := func(ts time.Time) error {
+		if opts.Speed > 0 && !ts.IsZero() {
+			if first.IsZero() {
+				first = ts
+			}
+			offset := time.Duration(float64(ts.Sub(first)) / opts.Speed)
+			if err := wait(start.Add(offset)); err != nil {
+				return err
+			}
+		}
+		if interval > 0 && !lastSend.IsZero() {
+			return wait(lastSend.Add(interval))
+		}
+		return nil
+	}
+	xr, _ := r.(XLReader)
 	var f canbus.Frame
+	var x canbus.XLFrame
 	for {
 		if opts.MaxFrames > 0 && st.Sent >= opts.MaxFrames {
 			st.Limited = true
@@ -100,13 +132,53 @@ func Replay(ctx context.Context, r Reader, s Sender, opts ReplayOptions) (st Rep
 		if err := ctx.Err(); err != nil {
 			return st, err
 		}
-		if err := r.Read(&f); err != nil {
+		var isXL bool
+		var err error
+		if xr != nil {
+			isXL, err = xr.ReadAny(&f, &x)
+		} else {
+			err = r.Read(&f)
+		}
+		if err != nil {
 			if errors.Is(err, io.EOF) {
 				return st, nil
 			}
 			return st, err
 		}
 		st.Read++
+		if isXL {
+			if opts.Filter != nil && !opts.Filter.MatchXL(&x) {
+				st.Filtered++
+				continue
+			}
+			var dst any = s
+			if d, ok := opts.Interfaces[x.Interface]; ok {
+				dst = d
+			}
+			xs, ok := dst.(XLSender)
+			if !ok {
+				st.SkippedXL++
+				continue
+			}
+			if err := pace(x.Timestamp); err != nil {
+				return limited(st, err)
+			}
+			out := x
+			out.Timestamp, out.Interface, out.Echo = time.Time{}, "", false
+			if err := xs.SendXL(ctx, &out); err != nil {
+				if errors.Is(err, canbus.ErrUnsupported) {
+					st.SkippedXL++
+					continue
+				}
+				return st, err
+			}
+			lastSend = time.Now()
+			st.Sent++
+			if opts.OnXLFrame != nil {
+				opts.OnXLFrame(&x)
+			}
+			continue
+		}
 		if f.Flags&canbus.FlagError != 0 {
 			st.Skipped++
 			continue
@@ -115,19 +187,8 @@ func Replay(ctx context.Context, r Reader, s Sender, opts ReplayOptions) (st Rep
 			st.Filtered++
 			continue
 		}
-		if opts.Speed > 0 && !f.Timestamp.IsZero() {
-			if first.IsZero() {
-				first = f.Timestamp
-			}
-			offset := time.Duration(float64(f.Timestamp.Sub(first)) / opts.Speed)
-			if err := wait(start.Add(offset)); err != nil {
-				return limited(st, err)
-			}
-		}
-		if interval > 0 && !lastSend.IsZero() {
-			if err := wait(lastSend.Add(interval)); err != nil {
-				return limited(st, err)
-			}
+		if err := pace(f.Timestamp); err != nil {
+			return limited(st, err)
 		}
 		dst := s
 		if d, ok := opts.Interfaces[f.Interface]; ok {
@@ -158,7 +219,8 @@ func limited(st ReplayStats, err error) (ReplayStats, error) {
 
 // RecordFrames receives frames from sub and writes them to w until ctx ends,
 // count frames were written (0: no limit) or the subscription ends. It
-// returns the number of frames written.
+// returns the number of frames written. CAN XL frames are recorded with
+// [RecordAll].
 func RecordFrames(ctx context.Context, sub *canbus.Subscription, w Writer, count int) (int, error) {
 	n := 0
 	for count <= 0 || n < count {
@@ -170,6 +232,39 @@ func RecordFrames(ctx context.Context, sub *canbus.Subscription, w Writer, count
 			return n, err
 		}
 		if err := w.Write(&f); err != nil {
+			return n, err
+		}
+		n++
+	}
+	return n, nil
+}
+
+// RecordAll is [RecordFrames] for a subscription opened with
+// [canbus.WithXL] and a writer of CAN XL frames: it records the frames of
+// both queues, each as it arrives.
+func RecordAll(ctx context.Context, sub *canbus.Subscription, w XLWriter, count int) (int, error) {
+	n := 0
+	for count <= 0 || n < count {
+		var err error
+		select {
+		case f := <-sub.Frames():
+			err = w.Write(&f)
+		case x := <-sub.XLFrames():
+			err = w.WriteXL(&x)
+		case <-sub.Done():
+			// Drain what is still queued before reporting the end.
+			select {
+			case f := <-sub.Frames():
+				err = w.Write(&f)
+			case x := <-sub.XLFrames():
+				err = w.WriteXL(&x)
+			default:
+				return n, sub.Err()
+			}
+		case <-ctx.Done():
+			return n, nil
+		}
+		if err != nil {
 			return n, err
 		}
 		n++
