@@ -107,21 +107,33 @@ func TestRecordAll(t *testing.T) {
 	bus, _ := canbus.NewBus(p)
 	defer bus.Close()
 	sub, _ := bus.Subscribe(canbus.WithXL())
-	if _, err := Replay(ctx, NewCandumpReader(strings.NewReader(mixedLog)), tx, ReplayOptions{}); err != nil {
-		t.Fatal(err)
+	// Both queues hold frames before recording starts: the recording
+	// keeps the order of arrival anyway (repeated, as a random choice
+	// between the queues would pass now and then).
+	for round := 0; round < 20; round++ {
+		if _, err := Replay(ctx, NewCandumpReader(strings.NewReader(mixedLog)), tx, ReplayOptions{}); err != nil {
+			t.Fatal(err)
+		}
+		for len(sub.Frames()) < 2 || len(sub.XLFrames()) < 2 {
+			time.Sleep(time.Millisecond)
+		}
+		var b strings.Builder
+		w := NewCandumpWriter(&b, "")
+		n, err := RecordAll(ctx, sub, w, 4)
+		_ = w.Close()
+		if err != nil || n != 4 {
+			t.Fatalf("recorded %d: %v", n, err)
+		}
+		var got []string
+		for _, l := range strings.Split(strings.TrimSpace(b.String()), "\n") {
+			got = append(got, strings.Fields(l)[2])
+		}
+		if strings.Join(got, " ") != "123#01 05242#81:01:12345678#AABB 00243#80:00:00000000#CC 124#02" {
+			t.Fatalf("round %d: recorded %v", round, got)
+		}
 	}
 	var b strings.Builder
 	w := NewCandumpWriter(&b, "")
-	n, err := RecordAll(ctx, sub, w, 4)
-	_ = w.Close()
-	if err != nil || n != 4 {
-		t.Fatalf("recorded %d: %v", n, err)
-	}
-	for _, want := range []string{"123#01", "05242#81:01:12345678#AABB", "00243#80:00:00000000#CC", "124#02"} {
-		if !strings.Contains(b.String(), want) {
-			t.Fatalf("missing %s in\n%s", want, b.String())
-		}
-	}
 	// The end of the subscription ends the recording after the queue
 	// drained; ctx ending returns no error.
 	_ = tx.SendXL(ctx, &canbus.XLFrame{Data: []byte{1}})

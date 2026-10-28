@@ -241,28 +241,60 @@ func RecordFrames(ctx context.Context, sub *canbus.Subscription, w Writer, count
 
 // RecordAll is [RecordFrames] for a subscription opened with
 // [canbus.WithXL] and a writer of CAN XL frames: it records the frames of
-// both queues, each as it arrives.
+// both queues in the order the bus received them. The bus fills the
+// queues in arrival order, so a frame taken from one queue is preceded
+// only by frames already queued in the other: of two queued frames the
+// earlier (by timestamp) is written first. When count ends the recording,
+// a frame read ahead from the other queue is left unwritten.
 func RecordAll(ctx context.Context, sub *canbus.Subscription, w XLWriter, count int) (int, error) {
-	n := 0
-	for count <= 0 || n < count {
-		var err error
-		select {
-		case f := <-sub.Frames():
-			err = w.Write(&f)
-		case x := <-sub.XLFrames():
-			err = w.WriteXL(&x)
-		case <-sub.Done():
-			// Drain what is still queued before reporting the end.
+	var (
+		f        canbus.Frame
+		x        canbus.XLFrame
+		hasF     bool
+		hasX     bool
+		n        int
+		finished bool // the subscription ended: drain, then stop
+	)
+	poll := func() {
+		if !hasF {
 			select {
-			case f := <-sub.Frames():
-				err = w.Write(&f)
-			case x := <-sub.XLFrames():
-				err = w.WriteXL(&x)
+			case f = <-sub.Frames():
+				hasF = true
 			default:
+			}
+		}
+		if !hasX {
+			select {
+			case x = <-sub.XLFrames():
+				hasX = true
+			default:
+			}
+		}
+	}
+	for count <= 0 || n < count {
+		poll()
+		if !hasF && !hasX {
+			if finished {
 				return n, sub.Err()
 			}
-		case <-ctx.Done():
-			return n, nil
+			select {
+			case f = <-sub.Frames():
+				hasF = true
+			case x = <-sub.XLFrames():
+				hasX = true
+			case <-sub.Done():
+				finished = true
+				continue
+			case <-ctx.Done():
+				return n, nil
+			}
+			poll() // a frame of the other queue may precede it
+		}
+		var err error
+		if hasF && (!hasX || !x.Timestamp.Before(f.Timestamp)) {
+			err, hasF = w.Write(&f), false
+		} else {
+			err, hasX = w.WriteXL(&x), false
 		}
 		if err != nil {
 			return n, err

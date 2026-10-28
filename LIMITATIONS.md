@@ -18,9 +18,9 @@
   bridge carry it. VCID pass-through and filters need Linux ≥ 6.9; earlier
   kernels (6.2..6.8) ignore VCIDs.
 - A `canbus.Subscription` opened `WithXL` queues CAN XL frames apart from
-  CAN and CAN FD frames: the order between the two queues is only given by
-  the timestamps (`capture.RecordAll` writes them as they are taken from
-  the queues). A transport's `ReceiveAny` keeps the order.
+  CAN and CAN FD frames: the order between the two queues is given by the
+  timestamps (`capture.RecordAll` merges them in arrival order). A
+  transport's `ReceiveAny` keeps the order.
 - pcap and pcapng do not keep the echo mark (`Echo`); pcap keeps no
   interface name.
 - Hardware adapters other than SocketCAN and slcan (PEAK PCAN-Basic,
