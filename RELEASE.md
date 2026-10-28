@@ -5,10 +5,10 @@ it computes the version, tags it and publishes this file's section of
 that version as the release notes. Add the section, headed exactly
 `## vX.Y.Z` and closed by a line `---`, before running it.
 
-## v0.6.0
+## v0.7.0
 
 **Date:** 2026-10-29
-**Previous release:** v0.5.0
+**Previous release:** v0.6.0
 
 ## Summary
 
@@ -75,6 +75,32 @@ arm64: 170 passed, 0 failed, 13 skipped, 132 known-difference records
 - A first design queued CAN XL frames apart and merged by timestamp; on
   Windows, whose clock gives many frames one timestamp, recordings came
   out reordered. Order now never depends on clocks.
+
+---
+
+## v0.6.0
+
+**Date:** 2026-10-29
+**Previous release:** v0.5.0
+
+## Summary
+
+Published as v0.6.0 by mistake: a release run meant for the CAN XL work
+(v0.7.0) picked this commit. It was prepared as v0.5.1.
+
+Dependency update: go-serial v0.1.8, which fixes two POSIX serial I/O bugs
+that affect the slcan transport. No API changes.
+
+## Changes
+
+### Dependencies
+
+- **go-serial v0.1.7 → v0.1.8.**
+  - `Write` no longer loses data when the tty output buffer is full. It
+    used to return a short count with a nil error (or `n == -1` with
+    `EAGAIN`); it now blocks until every byte is written.
+  - `Read` works when the port's file descriptor is 1024 or higher. It
+    used to return a spurious `io.EOF` at once.
 
 ---
 

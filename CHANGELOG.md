@@ -2,7 +2,7 @@
 
 Release notes with details are in [RELEASE.md](RELEASE.md).
 
-## v0.6.0 (2026-10-29)
+## v0.7.0 (2026-10-29)
 
 CAN XL beyond SocketCAN sockets: a `canbus.Bus` carries CAN XL on an
 `XLTransport` (`Bus.SendXL`, subscriptions `WithXL`, `ReceiveXL`); the
@@ -16,6 +16,13 @@ against tcpdump/libpcap captures of the kernel and against Wireshark.
 A `WithXL` subscription keeps every kind in one queue in arrival order
 (`Subscription.ReceiveAny`).
 The pcap snap length in the file header is now 2060 (CAN XL).
+
+## v0.6.0 (2026-10-29)
+
+go-serial v0.1.8: slcan no longer loses data when the adapter's output
+buffer fills, and works when the port's file descriptor is 1024 or higher.
+Published as v0.6.0 by mistake: a release run meant for the CAN XL work
+(v0.7.0) picked this commit. It was prepared as v0.5.1.
 
 ## v0.5.0 (2026-10-28)
 
