@@ -7,9 +7,9 @@ canbusctl). Newest first within each section.
 
 | Repo | Release | Notes |
 |------|---------|-------|
-| go-canbus | v0.2.1 | ASC/BLF, ARXML, KCD writer, chaos + e2e suites, kernel ISO-TP fixes; interop vs canbus-interop v0.2.0: 145 pass / 0 fail / 4 capability skips; coverage 92.3 % |
+| go-canbus | v0.2.2 | v0.2.2: Bus WithStartOnSubscribe (no frames lost before the first Subscribe); ASC/BLF, ARXML, KCD writer, chaos + e2e suites, kernel ISO-TP fixes; interop vs canbus-interop v0.2.0: 145 pass / 0 fail / 4 capability skips; coverage 92.3 % |
 | canbus-interop | v0.2.0 | contract 1.1 (log-convert, ARXML); self-test 341 pass / 0 fail; weekly upstream pin check; ISO-TP in a microVM on amd64 |
-| canbusctl | v0.2.1 | on go-canbus v0.2.1 (deadline workarounds removed); v0.2.0: trace convert/info, ARXML, KCD output, bridge (chaos), --fc-delay; interop 63 pass / 0 fail (27 known differences); coverage 92.2 % (macOS) |
+| canbusctl | v0.2.2 | on go-canbus v0.2.2 (buses read from the first subscription on); v0.2.1: deadline workarounds removed; v0.2.0: trace convert/info, ARXML, KCD output, bridge (chaos), --fc-delay; interop 63 pass / 0 fail (27 known differences); coverage 92.2 % (macOS) |
 
 ## Decisions
 
@@ -37,6 +37,9 @@ canbusctl). Newest first within each section.
   messages); userspace receivers facing a kernel sender on vcan delay their
   flow control (FlowControlDelay), the kernel drops an FC that beats its echo.
 - Tests sharing vcan run with -p 1.
+- Bus: frames read before the first Subscribe reach nobody;
+  WithStartOnSubscribe defers the reader (canbusctl's openBus uses it).
+  Found by canbusctl e2e in slow microVMs (record kept 21/60 frames).
 - e2e process harnesses wait for the kernel's CAN receive lists
   (/proc/net/can/rcvlist_*, count entries: they carry match counters) to
   grow before sending: a fixed pause raced on a slow microVM.
