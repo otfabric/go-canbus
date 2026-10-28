@@ -6,6 +6,7 @@
 |-------|-------|---------|
 | Unit and property tests, race detector | any OS | `make test` |
 | SocketCAN, netlink, kernel ISO-TP on vcan | Linux with `vcan0` (MTU ≥ 72) | `make vcan-setup test-vcan`, `make test-admin` (root) |
+| slcan against the Linux kernel's slcan driver (a pty with the N_SLCAN line discipline) | Linux, root, `slcan` module | `make test-admin`; the microVMs require it (`CANBUS_REQUIRE_SLCAN=1`). slcan over real ptys with go-serial: `make test` (Linux, macOS) |
 | Coverage gate (90 %) | Linux with vcan0 | `make coverage-check` |
 | Fuzzing | any OS | `make fuzz FUZZTIME=30s` |
 | Golden code generation | any OS | `make generate-check` |
@@ -14,6 +15,13 @@
 | End-to-end scenarios | any OS; on Linux with vcan0 also SocketCAN, kernel ISO-TP, processes | `make e2e` |
 | Chaos monkey (random fault schedules, invariants) | any OS; Linux with vcan0 + vcan1 adds kernel ISO-TP through the chaos bridge | `make chaos CHAOS_ITERATIONS=200`; CI: 12/6/10/8 seeds on every push, Nightly chaos workflow 500 seeds on amd64 and arm64 |
 | Everything above except vcan/interop | any OS | `make check` |
+
+Without CAN hardware, slcan is tested as it runs: `Open` drives the slave
+of a pseudo-terminal through go-serial while a Conn on the master plays the
+adapter, and with root the kernel's own slcan driver is attached to a pty
+and exchanges frames with a SocketCAN socket on the slcanN interface it
+creates. python-can's slcan interface is the second, userspace oracle
+(interop, over TCP).
 
 Tests that need vcan **skip** without it, so a plain `go test ./...` passes
 on macOS and Windows. `CANBUS_REQUIRE_VCAN=1` turns those skips into
