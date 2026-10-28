@@ -5,6 +5,61 @@ it computes the version, tags it and publishes this file's section of
 that version as the release notes. Add the section, headed exactly
 `## vX.Y.Z` and closed by a line `---`, before running it.
 
+## v0.5.0
+
+**Date:** 2026-10-28
+**Previous release:** v0.4.0
+
+## Summary
+
+CAN XL on SocketCAN, in traces and against can-utils. Interoperability
+against canbus-interop v0.5.0 (contract 1.3), amd64 and arm64:
+INTEROP_SUMMARY.
+
+## Additions
+
+- **`canbus.XLFrame`**: a CAN XL frame (ISO 11898-1:2024) as Linux's
+  struct canxl_frame lays it out — 11-bit priority, VCID, flags `XLSEC` and
+  `XLRRS`, SDU type, acceptance field, 1..2048 data bytes — with
+  `Validate`, `String` and `ParseXLFrame` in can-utils notation
+  (`<vcid><prio>#<flags>:<sdt>:<af>#<data>`), and `IsXLText`.
+  `Capabilities.XL`.
+- **SocketCAN CAN XL sockets**: `socketcan.WithXL` (CAN_RAW_XL_FRAMES,
+  which implies CAN FD; the interface needs a CAN XL MTU, 76..2060) and
+  `WithVCIDFilter`; `Conn.SendXL`, `ReceiveXL` (CAN XL only) and
+  `ReceiveAny` (CAN, CAN FD or CAN XL, in arrival order). `Receive` skips
+  CAN XL frames, so a `canbus.Bus` on an XL socket keeps working. As cansend
+  and candump do, the socket passes sent VCIDs through and receives every
+  VCID (CAN_RAW_XL_VCID_OPTS, Linux ≥ 6.9; earlier kernels ignore VCIDs).
+  Kernels without CAN XL (before 6.2) and interfaces without the MTU give
+  `canbus.ErrUnsupported`.
+- **CAN XL in traces**: candump logs (lines in can-utils notation) and JSON
+  Lines (record type `"xlframe"`, schema updated) through the optional
+  `capture.XLReader` (`ReadAny`) and `capture.XLWriter` (`WriteXL`); their
+  `Read` skips CAN XL frames. `ParseCandumpXLLine`, `XLRecord`.
+- Example `examples/canxl`.
+
+## Verification
+
+- On vcan with the CAN XL MTU (`vcanxl0`, required in CI and in the
+  microVMs on kernels ≥ 6.2): 1..2048-byte frames with every flag, CAN, CAN
+  FD and CAN XL frames received in order by `ReceiveAny`, `Receive` and a
+  socket without `WithXL` seeing only CAN and CAN FD, echo, VCID
+  pass-through and `WithVCIDFilter`, errors. MicroVM kernels: 6.12 and 6.18
+  pass all; 6.6 and Ubuntu's 6.8 pass all but the VCID test, which needs
+  6.9; 6.1 has no CAN XL (the tests skip there).
+- Against can-utils v2025.01 (canbus-interop contract 1.3): go-canbus →
+  candump and cansend → go-canbus with the six frames of `xl.jsonl`
+  (priorities 0 and 0x7FF, SEC and RRS, SDT, AF, VCIDs 0x42 and 0xFF, 1 to
+  2048 bytes); candump's capture log of go-canbus's frames read back by
+  go-canbus's candump reader, with candump's text of every CAN XL frame
+  equal to `XLFrame.String`. python-can, socketcan-rs and Scapy have no CAN
+  XL (capability skips).
+- `ParseXLFrame` fuzzed (parse, format, parse is stable). Coverage 92.9 %
+  (Linux with vcan).
+
+---
+
 ## v0.4.0
 
 **Date:** 2026-10-28
