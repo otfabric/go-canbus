@@ -38,7 +38,9 @@ const DefaultQueueSize = 1024
 // whose filters it passes; Send may be called from any goroutine.
 //
 // The Bus owns the transport: Close closes it. Subscriptions can be added
-// and closed at any time, also while frames arrive.
+// and closed at any time, also while frames arrive. A frame read while no
+// subscription exists reaches nobody: to receive from the first frame on,
+// create the bus with [WithStartOnSubscribe].
 type Bus struct {
 	t       Transport
 	iface   string
@@ -55,6 +57,8 @@ type Bus struct {
 
 	state     atomic.Uint32
 	closeOnce sync.Once
+	startOnce sync.Once
+	lazy      bool // WithStartOnSubscribe
 
 	txFrames, txBytes, rxFrames, rxBytes, rxErrors, dropped, txErrors, rxFailures atomic.Uint64
 }
@@ -71,6 +75,16 @@ func WithLogger(l *slog.Logger) Option {
 // WithMetrics reports frames, drops, errors and state changes to m.
 func WithMetrics(m Metrics) Option {
 	return func(b *Bus) error { b.metrics = m; return nil }
+}
+
+// WithStartOnSubscribe defers the bus's reader until the first
+// [Bus.Subscribe] (or [Bus.Close]). Until then frames wait in the
+// transport (a SocketCAN socket's receive buffer), so the first
+// subscription sees them all; without this option the reader starts in
+// NewBus and frames that arrive before the first subscription are lost.
+// Error state ([Bus.State]) is tracked once the reader runs.
+func WithStartOnSubscribe() Option {
+	return func(b *Bus) error { b.lazy = true; return nil }
 }
 
 // WithInterfaceName sets the name reported to logs and metrics. By default
@@ -105,9 +119,13 @@ func NewBus(t Transport, opts ...Option) (*Bus, error) {
 	b.subs.Store(&empty)
 	b.ctx, b.cancel = context.WithCancel(context.Background())
 	b.setState(StateActive)
-	go b.run()
+	if !b.lazy {
+		b.start()
+	}
 	return b, nil
 }
+
+func (b *Bus) start() { b.startOnce.Do(func() { go b.run() }) }
 
 // Name returns the interface name of the bus, possibly "".
 func (b *Bus) Name() string { return b.iface }
@@ -185,6 +203,7 @@ func (b *Bus) Close() error {
 		b.mu.Unlock()
 		b.cancel()
 		err = b.t.Close()
+		b.start() // a deferred reader ends at once and closes the subscriptions
 		<-b.done
 		b.setState(StateClosed)
 	})
@@ -337,6 +356,7 @@ func (b *Bus) Subscribe(opts ...SubscribeOption) (*Subscription, error) {
 	copy(next, old)
 	next = append(next, s)
 	b.subs.Store(&next)
+	b.start()
 	return s, nil
 }
 

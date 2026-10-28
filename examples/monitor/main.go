@@ -34,7 +34,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	bus, err := canbus.NewBus(conn)
+	bus, err := canbus.NewBus(conn, canbus.WithStartOnSubscribe())
 	if err != nil {
 		log.Fatal(err)
 	}

@@ -57,8 +57,6 @@ type link struct {
 	bridge    *chaos.Bridge
 	stop      func()
 	setFaults func(chaos.Config)
-	cfg       chaos.Config
-	mu        sync.Mutex
 }
 
 // newLink joins two virtual segments with a bridge whose faults can be

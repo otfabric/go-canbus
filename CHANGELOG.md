@@ -2,6 +2,12 @@
 
 Release notes with details are in [RELEASE.md](RELEASE.md).
 
+## v0.2.2 (2026-10-28)
+
+`canbus.WithStartOnSubscribe`: a Bus that reads from its first
+subscription on, so frames arriving between NewBus and Subscribe are not
+lost.
+
 ## v0.2.1 (2026-10-28)
 
 Deadline edge cases in chaos.Bridge.Run and kernel ISO-TP sockets.

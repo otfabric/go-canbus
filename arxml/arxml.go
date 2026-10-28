@@ -65,22 +65,6 @@ func (n *node) path(names ...string) *node {
 	return cur
 }
 
-// find returns every descendant with the name.
-func (n *node) find(name string) []*node {
-	var out []*node
-	var walk func(*node)
-	walk = func(m *node) {
-		for _, c := range m.children {
-			if c.name == name {
-				out = append(out, c)
-			}
-			walk(c)
-		}
-	}
-	walk(n)
-	return out
-}
-
 func (n *node) textOf(names ...string) string {
 	if c := n.path(names...); c != nil {
 		return strings.TrimSpace(c.text)

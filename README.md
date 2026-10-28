@@ -47,7 +47,7 @@ conn, err := socketcan.Open("can0", socketcan.WithFD())
 if err != nil {
 	log.Fatal(err)
 }
-bus, _ := canbus.NewBus(conn)
+bus, _ := canbus.NewBus(conn, canbus.WithStartOnSubscribe()) // read from the first Subscribe on
 defer bus.Close()
 
 sub, _ := bus.Subscribe(canbus.WithFilters(canbus.FilterSet{
