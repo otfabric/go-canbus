@@ -14,8 +14,12 @@
 // "L" (listen only); Close sends "C". Adapter replies ("\r", "\a", "z",
 // "Z") and records that are not frames are skipped.
 //
-// The protocol has no error frames, no error state indicator and no echo
-// of sent frames; receive timestamps are taken on arrival.
+// Adapters that report their status send "e" records (bus errors, such
+// as "e1a" for an ACK error) and "s" records (controller state and error
+// counters, such as "sp130012"); a Conn turns them into error frames
+// exactly as the Linux slcan driver does, delivered when the filters'
+// ErrorMask selects them. The protocol has no error state indicator and
+// no echo of sent frames; receive timestamps are taken on arrival.
 package slcan
 
 import (
@@ -74,13 +78,19 @@ type Conn struct {
 	wmu   sync.Mutex
 	buf   []byte
 
+	filters atomic.Pointer[canbus.FilterSet]
+	smu     sync.Mutex // guards state, txErrs, rxErrs
+	state   canbus.State
+	// txErrs and rxErrs are the error counters of the last state record.
+	txErrs, rxErrs int
+
 	closeOnce sync.Once
 	readErr   error // why the reader stopped, set before ended closes
 	// polled: rw's reads time out, so Close waits for the reader before
 	// closing it (a serial port must not be closed during a read).
 	polled bool
 
-	txFrames, txBytes, rxFrames, rxBytes, dropped, txErrors, rxFailures atomic.Uint64
+	txFrames, txBytes, rxFrames, rxBytes, rxErrors, dropped, txErrors, rxFailures atomic.Uint64
 }
 
 // New starts a Conn on rw, which it owns: Close closes it. Unless
@@ -117,7 +127,9 @@ func newConn(rw io.ReadWriteCloser, cfg Config, polled bool) (*Conn, error) {
 			setup = append(setup, "O")
 		}
 	}
-	c := &Conn{rw: rw, cfg: cfg, polled: polled, ch: make(chan canbus.Frame, cfg.QueueSize), done: make(chan struct{}), ended: make(chan struct{})}
+	c := &Conn{rw: rw, cfg: cfg, polled: polled, ch: make(chan canbus.Frame, cfg.QueueSize), done: make(chan struct{}), ended: make(chan struct{}),
+		state: canbus.StateActive}
+	c.filters.Store(&canbus.FilterSet{})
 	for _, s := range setup {
 		if _, err := rw.Write([]byte(s + "\r")); err != nil {
 			_ = rw.Close()
@@ -161,7 +173,7 @@ func (c *Conn) read() {
 	for {
 		n, err := c.rw.Read(buf)
 		if n < 0 {
-			n = 0 // go-serial returns -1 with the error of a failed read
+			n = 0 // go-serial before v0.1.7 returns -1 with the error of a failed read
 		}
 		if n == 0 && err == nil {
 			// A hung-up tty (adapter unplugged) reads 0 bytes at once,
@@ -199,23 +211,71 @@ func (c *Conn) read() {
 
 func (c *Conn) line(line []byte) {
 	var f canbus.Frame
-	ok, err := ParseFrame(line, &f)
+	var ok bool
+	var err error
+	switch {
+	case len(line) > 0 && line[0] == 'e':
+		ok, err = ParseErrorRecord(line, &f)
+	case len(line) > 0 && line[0] == 's':
+		ok, err = c.stateRecord(line, &f)
+	default:
+		ok, err = ParseFrame(line, &f)
+	}
 	if err != nil {
 		c.rxFailures.Add(1)
 		return
 	}
-	if !ok {
+	if !ok || !c.filters.Load().Match(&f) {
 		return
 	}
 	f.Timestamp = time.Now()
 	f.Interface = c.cfg.Name
-	c.rxFrames.Add(1)
-	c.rxBytes.Add(uint64(len(f.Payload())))
+	if f.IsError() {
+		c.rxErrors.Add(1)
+	} else {
+		c.rxFrames.Add(1)
+		c.rxBytes.Add(uint64(len(f.Payload())))
+	}
 	select {
 	case c.ch <- f:
 	default:
 		c.dropped.Add(1)
 	}
+}
+
+// stateRecord applies an "s" record and fills f with the error frame for
+// a change of state.
+func (c *Conn) stateRecord(line []byte, f *canbus.Frame) (bool, error) {
+	st, tx, rx, ok, err := ParseStateRecord(line)
+	if !ok {
+		return false, err
+	}
+	c.smu.Lock()
+	defer c.smu.Unlock()
+	c.txErrs, c.rxErrs = tx, rx
+	g, changed := StateFrame(c.state, st, tx, rx)
+	c.state = st
+	*f = g
+	return changed, nil
+}
+
+// State returns the controller state and error counters of the last "s"
+// record (error active with zero counters until one arrives). Adapters
+// that send no state records always report error active.
+func (c *Conn) State() (st canbus.State, txErrors, rxErrors int) {
+	c.smu.Lock()
+	defer c.smu.Unlock()
+	return c.state, c.txErrs, c.rxErrs
+}
+
+// SetFilters sets the filters, applied in software as records arrive.
+// As with SocketCAN, a Conn delivers every data frame and no error
+// frames until filters are set; error frames are delivered when their
+// class is in the set's ErrorMask.
+func (c *Conn) SetFilters(fs canbus.FilterSet) error {
+	fs.Filters = append([]canbus.Filter(nil), fs.Filters...)
+	c.filters.Store(&fs)
+	return nil
 }
 
 // Send writes a frame. It returns once the record is written to the
@@ -325,15 +385,17 @@ func (c *Conn) Close() error {
 // Name returns the interface name.
 func (c *Conn) Name() string { return c.cfg.Name }
 
-// Capabilities describes slcan: CAN FD (with adapters that support it),
-// no error frames, filters, timestamps or echoes.
+// Capabilities describes slcan: CAN FD (with adapters that support it)
+// and error frames (from adapters that send "e" and "s" records); no
+// hardware filters, timestamps or echoes.
 func (c *Conn) Capabilities() canbus.Capabilities {
-	return canbus.Capabilities{FD: true, Physical: true}
+	return canbus.Capabilities{FD: true, ErrorFrames: true, Physical: true}
 }
 
-// Stats returns the counters. RxFailure counts malformed records.
+// Stats returns the counters. RxErrors counts delivered error frames,
+// RxFailure malformed records.
 func (c *Conn) Stats() canbus.Stats {
-	return canbus.Stats{TxFrames: c.txFrames.Load(), TxBytes: c.txBytes.Load(), RxFrames: c.rxFrames.Load(),
+	return canbus.Stats{TxFrames: c.txFrames.Load(), TxBytes: c.txBytes.Load(), RxFrames: c.rxFrames.Load(), RxErrors: c.rxErrors.Load(),
 		RxBytes: c.rxBytes.Load(), Dropped: c.dropped.Load(), TxErrors: c.txErrors.Load(), RxFailure: c.rxFailures.Load()}
 }
 

@@ -399,13 +399,17 @@ func (s *Subscription) deliver(f *Frame) {
 	if !s.filters.Match(f) {
 		return
 	}
+	// Count before queueing: a consumer that has the frame sees it counted.
+	s.received.Add(1)
 	switch s.overflow {
 	case Block:
 		select {
 		case s.ch <- *f:
 		case <-s.done:
+			s.received.Add(^uint64(0))
 			return
 		case <-s.bus.ctx.Done():
+			s.received.Add(^uint64(0))
 			return
 		}
 	case DropOldest:
@@ -425,12 +429,12 @@ func (s *Subscription) deliver(f *Frame) {
 		select {
 		case s.ch <- *f:
 		default:
+			s.received.Add(^uint64(0))
 			s.drop()
 			return
 		}
 	}
 queued:
-	s.received.Add(1)
 	s.bus.metrics.OnQueue(s.bus.iface, len(s.ch), s.capacity)
 }
 

@@ -122,6 +122,7 @@ fuzz: ## Run every fuzz target for FUZZTIME (default 30s)
 	@go test -run='^$$' -fuzz='^FuzzParseFrame$$' -fuzztime=$(FUZZTIME) ./capture
 	@go test -run='^$$' -fuzz='^FuzzReaders$$' -fuzztime=$(FUZZTIME) ./capture
 	@go test -run='^$$' -fuzz='^FuzzParseFrame$$' -fuzztime=$(FUZZTIME) ./slcan
+	@go test -run='^$$' -fuzz='^FuzzParseStatus$$' -fuzztime=$(FUZZTIME) ./slcan
 	@go test -run='^$$' -fuzz='^FuzzParse$$' -fuzztime=$(FUZZTIME) ./dbc
 	@go test -run='^$$' -fuzz='^FuzzParse$$' -fuzztime=$(FUZZTIME) ./kcd
 	@go test -run='^$$' -fuzz='^FuzzParse$$' -fuzztime=$(FUZZTIME) ./arxml
