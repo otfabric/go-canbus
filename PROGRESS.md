@@ -9,7 +9,7 @@ canbusctl). Newest first within each section.
 |------|---------|-------|
 | go-canbus | v0.2.1 | ASC/BLF, ARXML, KCD writer, chaos + e2e suites, kernel ISO-TP fixes; interop vs canbus-interop v0.2.0: 145 pass / 0 fail / 4 capability skips; coverage 92.3 % |
 | canbus-interop | v0.2.0 | contract 1.1 (log-convert, ARXML); self-test 341 pass / 0 fail; weekly upstream pin check; ISO-TP in a microVM on amd64 |
-| canbusctl | v0.2.0 | trace convert/info, ARXML, KCD output, bridge (chaos), --fc-delay; interop 63 pass / 0 skip; coverage 94.2 % |
+| canbusctl | v0.2.1 | on go-canbus v0.2.1 (deadline workarounds removed); v0.2.0: trace convert/info, ARXML, KCD output, bridge (chaos), --fc-delay; interop 63 pass / 0 fail (27 known differences); coverage 92.2 % (macOS) |
 
 ## Decisions
 
@@ -37,6 +37,9 @@ canbusctl). Newest first within each section.
   messages); userspace receivers facing a kernel sender on vcan delay their
   flow control (FlowControlDelay), the kernel drops an FC that beats its echo.
 - Tests sharing vcan run with -p 1.
+- e2e process harnesses wait for the kernel's CAN receive lists
+  (/proc/net/can/rcvlist_*, count entries: they carry match counters) to
+  grow before sending: a fixed pause raced on a slow microVM.
 - Known differences (not defects): cantools rejects multiplexer values that
   select no signal; canmatrix rejects payloads longer than the message and
   cannot encode extended multiplexing.
@@ -52,7 +55,6 @@ canbusctl). Newest first within each section.
 ## Next actions
 
 1. otfabric.io pages from docs/WEBSITE-INTEGRATION.md (not applied).
-2. Optional: canbusctl drops its deadline workarounds on go-canbus v0.2.1;
-   socketcan-rs and Scapy in canbusctl's interop tests.
+2. socketcan-rs and Scapy in canbusctl's interop tests.
 3. Later: TRC traces, multiplexed I-PDUs in ARXML, vendor transports,
    CANopen/J1939/UDS modules on canbus.Bus and isotp.
