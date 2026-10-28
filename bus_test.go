@@ -312,6 +312,10 @@ func TestMetricsAndErrorState(t *testing.T) {
 	if b.Stats().RxErrors != uint64(len(steps)) {
 		t.Errorf("RxErrors %d", b.Stats().RxErrors)
 	}
+	// The state changes before a frame reaches the subscriptions: wait
+	// until the last one was delivered (the queue of 1 holds the first,
+	// the others are dropped).
+	waitFor(t, func() bool { return m.drops.Load() == int64(len(steps)-1) })
 	if _, err := s.Receive(ctx); err != nil {
 		t.Fatal(err)
 	}
