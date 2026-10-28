@@ -5,6 +5,29 @@ it computes the version, tags it and publishes this file's section of
 that version as the release notes. Add the section, headed exactly
 `## vX.Y.Z` and closed by a line `---`, before running it.
 
+## v0.5.1
+
+**Date:** 2026-10-29
+**Previous release:** v0.5.0
+
+## Summary
+
+Dependency update: go-serial v0.1.8, which fixes two POSIX serial I/O bugs
+that affect the slcan transport. No API changes.
+
+## Changes
+
+### Dependencies
+
+- **go-serial v0.1.7 → v0.1.8.**
+  - `Write` no longer loses data when the tty output buffer is full. It
+    used to return a short count with a nil error (or `n == -1` with
+    `EAGAIN`); it now blocks until every byte is written.
+  - `Read` works when the port's file descriptor is 1024 or higher. It
+    used to return a spurious `io.EOF` at once.
+
+---
+
 ## v0.5.0
 
 **Date:** 2026-10-28

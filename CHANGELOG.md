@@ -2,6 +2,11 @@
 
 Release notes with details are in [RELEASE.md](RELEASE.md).
 
+## v0.5.1 (2026-10-29)
+
+go-serial v0.1.8: slcan no longer loses data when the adapter's output
+buffer fills, and works when the port's file descriptor is 1024 or higher.
+
 ## v0.5.0 (2026-10-28)
 
 CAN XL: `canbus.XLFrame` with can-utils notation; SocketCAN CAN XL sockets
