@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -299,6 +300,24 @@ func TestBusOverSlcan(t *testing.T) {
 type zeroReader struct{ net.Conn }
 
 func (zeroReader) Read([]byte) (int, error) { return 0, nil }
+
+// negReader fails like go-serial on a hung-up tty: n = -1 with an error.
+type negReader struct{ net.Conn }
+
+func (negReader) Read([]byte) (int, error) { return -1, syscall.EIO }
+
+func TestNegativeRead(t *testing.T) {
+	a, b := net.Pipe()
+	defer b.Close()
+	c, err := New(negReader{a}, Config{NoCommands: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	if err := c.Receive(ctxT(t), &canbus.Frame{}); !errors.Is(err, canbus.ErrInterfaceDown) {
+		t.Fatal(err)
+	}
+}
 
 func TestHungUp(t *testing.T) {
 	a, b := net.Pipe()

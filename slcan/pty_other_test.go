@@ -9,4 +9,6 @@ import (
 	"os"
 )
 
-func openPTY() (*os.File, string, error) { return nil, "", errors.New("no pseudo-terminals on this platform") }
+func openPTY() (*os.File, string, error) {
+	return nil, "", errors.New("no pseudo-terminals on this platform")
+}

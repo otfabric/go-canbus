@@ -160,6 +160,9 @@ func (c *Conn) read() {
 	var line []byte
 	for {
 		n, err := c.rw.Read(buf)
+		if n < 0 {
+			n = 0 // go-serial returns -1 with the error of a failed read
+		}
 		if n == 0 && err == nil {
 			// A hung-up tty (adapter unplugged) reads 0 bytes at once,
 			// forever: the end of the stream.

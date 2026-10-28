@@ -49,7 +49,7 @@ var oleEpoch = time.Date(1899, 12, 30, 0, 0, 0, 0, time.UTC)
 // (the writer writes whole milliseconds).
 func oleToTime(days float64) time.Time {
 	d := time.Duration(math.Round(days*24*float64(time.Hour)/1e3) * 1e3)
-	if ms := d.Round(time.Millisecond); (d-ms).Abs() <= 2*time.Microsecond {
+	if ms := d.Round(time.Millisecond); (d - ms).Abs() <= 2*time.Microsecond {
 		d = ms
 	}
 	wall := oleEpoch.Add(d)
