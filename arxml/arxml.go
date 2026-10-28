@@ -7,17 +7,29 @@
 // (IDENTIFIER, CAN-ADDRESSING-MODE, CAN FD frame behaviour, frame ports
 // for senders and receivers), CAN-FRAMEs with PDU-TO-FRAME-MAPPINGs at
 // byte offsets, I-SIGNAL-I-PDUs with I-SIGNAL-TO-I-PDU-MAPPINGs
-// (PACKING-BYTE-ORDER, START-POSITION), I-SIGNALs (LENGTH, INIT-VALUE,
+// (PACKING-BYTE-ORDER, START-POSITION), MULTIPLEXED-I-PDUs, I-SIGNALs (LENGTH, INIT-VALUE,
 // base type encoding for signed and IEEE 754 signals), SYSTEM-SIGNALs and
 // COMPU-METHODs of the categories IDENTICAL, LINEAR, TEXTTABLE and
 // SCALE_LINEAR_AND_TEXTTABLE, UNITs, and physical limits from DATA-CONSTRs.
 //
 // START-POSITION is taken as the DBC start bit in both byte orders, as
-// cantools and canmatrix read it (checked in the interop suite). Everything
-// else (AUTOSAR 3.x, MULTIPLEXED-I-PDUs, container and secured PDUs, signal
-// groups, end-to-end protection, other bus types) is reported as a
-// diagnostic and skipped: no ARXML compatibility beyond these elements is
-// claimed.
+// cantools and canmatrix read it (checked in the interop suite).
+//
+// A MULTIPLEXED-I-PDU becomes multiplexed signals, as cantools reads it: a
+// multiplexer switch "<frame>_selector<n>" at the SELECTOR-FIELD (n counts
+// the frame's multiplexed PDUs from 1), the signals of each
+// DYNAMIC-PART-ALTERNATIVE multiplexed by its SELECTOR-FIELD-CODE, and the
+// signals of the STATIC-PARTs always present. An alternative's own mapping
+// of the selector field is dropped (its value descriptions go to the
+// switch); the INITIAL-DYNAMIC-PART gives the switch's initial value. A
+// signal mapped identically in several alternatives is present for each of
+// their codes. SEGMENT-POSITIONS are not applied: an alternative's signals
+// keep their positions, which lie in the dynamic segment.
+//
+// Everything else (AUTOSAR 3.x, nested multiplexing, container and secured
+// PDUs, signal groups, end-to-end protection, other bus types) is reported
+// as a diagnostic and skipped: no ARXML compatibility beyond these
+// elements is claimed.
 package arxml
 
 import (
@@ -205,7 +217,6 @@ func (p *parser) ref(n *node, name string) *node {
 func shortName(n *node) string { return n.textOf("SHORT-NAME") }
 
 var unsupportedElements = map[string]string{
-	"MULTIPLEXED-I-PDU":         "multiplexed I-PDUs",
 	"CONTAINER-I-PDU":           "container I-PDUs",
 	"SECURED-I-PDU":             "secured I-PDUs",
 	"NM-PDU":                    "network management PDUs",
@@ -345,26 +356,157 @@ func (p *parser) pdu(m *candb.Message, pm *node, receivers []string) {
 	if pdu == nil {
 		return
 	}
-	if pdu.name != "I-SIGNAL-I-PDU" {
-		p.diag(candb.Warning, pm.line, "message "+m.Name, "%s %s is not supported: ignored", pdu.name, shortName(pdu))
-		return
-	}
 	offset, _ := strconv.Atoi(pm.textOf("START-POSITION"))
 	if offset%8 != 0 {
 		p.diag(candb.Error, pm.line, "message "+m.Name, "PDU at bit %d: only byte offsets are supported", offset)
 		return
 	}
+	switch pdu.name {
+	case "I-SIGNAL-I-PDU":
+		for _, s := range p.pduSignals(m, pdu, offset, receivers) {
+			p.add(m, s)
+		}
+	case "MULTIPLEXED-I-PDU":
+		p.multiplexed(m, pdu, offset, receivers)
+	default:
+		p.diag(candb.Warning, pm.line, "message "+m.Name, "%s %s is not supported: ignored", pdu.name, shortName(pdu))
+	}
+}
+
+// mapped is a signal and the line of its mapping.
+type mapped struct {
+	*candb.Signal
+	line int
+}
+
+// pduSignals reads the signals of an I-SIGNAL-I-PDU at offset bits of the
+// frame.
+func (p *parser) pduSignals(m *candb.Message, pdu *node, offset int, receivers []string) []mapped {
 	mappings := pdu.child("I-SIGNAL-TO-PDU-MAPPINGS")
 	if mappings == nil {
-		return
+		return nil
 	}
+	var out []mapped
 	for _, sm := range mappings.children {
 		if s := p.signal(m, sm, offset, receivers); s != nil {
-			if m.Signal(s.Name) != nil {
-				p.diag(candb.Error, sm.line, "message "+m.Name, "duplicate signal %s", s.Name)
+			out = append(out, mapped{s, sm.line})
+		}
+	}
+	return out
+}
+
+// add appends a signal; a second signal of the same name is an error,
+// unless both are multiplexed by the same switch with the same layout:
+// then the first is present for the second's switch values too.
+func (p *parser) add(m *candb.Message, s mapped) {
+	prev := m.Signal(s.Name)
+	if prev == nil {
+		m.Signals = append(m.Signals, s.Signal)
+		return
+	}
+	if prev.Multiplexer != "" && prev.Multiplexer == s.Multiplexer && prev.StartBit == s.StartBit &&
+		prev.Length == s.Length && prev.ByteOrder == s.ByteOrder {
+		prev.MuxValues = append(prev.MuxValues, s.MuxValues...)
+		return
+	}
+	p.diag(candb.Error, s.line, "message "+m.Name, "duplicate signal %s", s.Name)
+}
+
+// multiplexed reads a MULTIPLEXED-I-PDU at offset bits of the frame.
+func (p *parser) multiplexed(m *candb.Message, pdu *node, offset int, receivers []string) {
+	obj := "multiplexed PDU " + shortName(pdu)
+	start, err1 := strconv.Atoi(pdu.textOf("SELECTOR-FIELD-START-POSITION"))
+	length, err2 := strconv.Atoi(pdu.textOf("SELECTOR-FIELD-LENGTH"))
+	if err1 != nil || err2 != nil || length < 1 || length > 64 {
+		p.diag(candb.Error, pdu.line, obj, "bad selector field (SELECTOR-FIELD-START-POSITION %q, SELECTOR-FIELD-LENGTH %q)",
+			pdu.textOf("SELECTOR-FIELD-START-POSITION"), pdu.textOf("SELECTOR-FIELD-LENGTH"))
+		return
+	}
+	n := 1
+	for _, s := range m.Signals {
+		if s.IsMultiplexer {
+			n++
+		}
+	}
+	sel := &candb.Signal{Name: fmt.Sprintf("%s_selector%d", m.Name, n), StartBit: start + offset, Length: length,
+		Factor: 1, IsMultiplexer: true, Receivers: append([]string(nil), receivers...)}
+	switch o := pdu.textOf("SELECTOR-FIELD-BYTE-ORDER"); o {
+	case "MOST-SIGNIFICANT-BYTE-LAST", "":
+	case "MOST-SIGNIFICANT-BYTE-FIRST":
+		sel.ByteOrder = candb.BigEndian
+	default:
+		p.diag(candb.Error, pdu.line, obj, "unknown SELECTOR-FIELD-BYTE-ORDER %q", o)
+		return
+	}
+	if m.Signal(sel.Name) != nil {
+		p.diag(candb.Error, pdu.line, obj, "duplicate signal %s", sel.Name)
+		return
+	}
+	m.Signals = append(m.Signals, sel)
+	var alts []*node
+	if parts := pdu.child("DYNAMIC-PARTS"); parts != nil { // AUTOSAR 4.1 and later
+		for _, part := range parts.children {
+			if a := part.child("DYNAMIC-PART-ALTERNATIVES"); a != nil {
+				alts = append(alts, a.children...)
+			}
+		}
+	} else if a := pdu.path("DYNAMIC-PART", "DYNAMIC-PART-ALTERNATIVES"); a != nil {
+		alts = a.children
+	}
+	if len(alts) == 0 {
+		p.diag(candb.Warning, pdu.line, obj, "no dynamic part alternatives")
+	}
+	seen := map[string]bool{}
+	for _, alt := range alts {
+		code, err := strconv.ParseUint(alt.textOf("SELECTOR-FIELD-CODE"), 0, 64)
+		if err != nil || length < 64 && code >= 1<<uint(length) {
+			p.diag(candb.Error, alt.line, obj, "bad SELECTOR-FIELD-CODE %q", alt.textOf("SELECTOR-FIELD-CODE"))
+			continue
+		}
+		ipdu := p.ref(alt, "I-PDU-REF")
+		if ipdu == nil {
+			continue
+		}
+		if ipdu.name != "I-SIGNAL-I-PDU" {
+			p.diag(candb.Warning, alt.line, obj, "alternative %s is a %s: ignored", shortName(ipdu), ipdu.name)
+			continue
+		}
+		if alt.textOf("INITIAL-DYNAMIC-PART") == "true" {
+			iv := int64(code)
+			sel.Initial = &iv
+		}
+		for _, s := range p.pduSignals(m, ipdu, offset, receivers) {
+			if s.StartBit == sel.StartBit && s.Length == sel.Length {
+				// The alternative's mapping of the selector field.
+				for _, v := range s.Values {
+					if !seen[v.Description] {
+						seen[v.Description] = true
+						sel.Values = append(sel.Values, v)
+					}
+				}
 				continue
 			}
-			m.Signals = append(m.Signals, s)
+			s.Multiplexer, s.MuxValues = sel.Name, []candb.MuxRange{{Low: code, High: code}}
+			p.add(m, s)
+		}
+	}
+	var statics []*node
+	if parts := pdu.child("STATIC-PARTS"); parts != nil {
+		statics = parts.children
+	} else if part := pdu.child("STATIC-PART"); part != nil {
+		statics = []*node{part}
+	}
+	for _, part := range statics {
+		ipdu := p.ref(part, "I-PDU-REF")
+		if ipdu == nil {
+			continue
+		}
+		if ipdu.name != "I-SIGNAL-I-PDU" {
+			p.diag(candb.Warning, part.line, obj, "static part %s is a %s: ignored", shortName(ipdu), ipdu.name)
+			continue
+		}
+		for _, s := range p.pduSignals(m, ipdu, offset, receivers) {
+			p.add(m, s)
 		}
 	}
 }

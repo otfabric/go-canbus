@@ -58,6 +58,7 @@ python-can.
 | DBC | encode physical and raw values, compare bytes | | | | | | pass² | pass² |
 | KCD | canmatrix's KCD→DBC layout vs go-canbus's KCD parser, decode agreement; KCD written by go-canbus converted by canmatrix | | | | | | | pass |
 | ARXML | decode and encode 3 fixtures (byte orders, compu methods, CAN FD, extended IDs, PDU offset) | | | | | | pass² | pass² |
+| ARXML | multiplexed I-PDUs (Intel and Motorola selectors, static part, 5 alternatives): decode every selector code, encode | | | | | | pass² | known³ |
 | Logs | python-can's ASC/BLF fixtures read by go-canbus; go-canbus writes ASC/BLF/candump read back by python-can; python-can writes, go-canbus reads | | pass | | | | | |
 | slcan | go-canbus slcan transport ↔ python-can's slcan interface over TCP (pyserial `socket://`), both directions: standard, extended, remote, CAN FD + BRS, 2000-frame burst; ESI refused | | pass² | | | | | |
 | slcan | the Linux kernel's slcan driver on a pty (`make test-admin`, microVMs): standard, extended, remote frames both ways | pass | | | | | | |
@@ -66,6 +67,7 @@ python-can.
 
 ¹ The stack's adapter has no capture/replay operation (capability).
 ² With the known differences below.
+³ canmatrix 1.3.3 reads only the selector of a multiplexed I-PDU: recorded as known, checked against cantools.
 
 ## Known differences
 
@@ -73,6 +75,7 @@ python-can.
 |--------|------------|-----------------------|
 | cantools | Rejects decoding and encoding a multiplexer value that selects no multiplexed signal (for example `Mux = 3` when only 0..2 exist) | go-canbus decodes the switch and the always-present signals, as canmatrix does; a payload with an undescribed switch value is still a valid frame |
 | canmatrix | Rejects payloads longer than the message length | go-canbus, like cantools, decodes the first Length bytes: CAN FD frames are padded to the next valid FD length |
+| canmatrix | Reads only the selector of an ARXML MULTIPLEXED-I-PDU (as `Multiplexor`), none of its signals | Limitation of canmatrix 1.3.3; go-canbus's reading is checked against cantools |
 | canmatrix | Cannot encode extended multiplexing (`EncodingComplexMultiplexed`) | Limitation of canmatrix 1.3.3; go-canbus's extended-multiplexing encoding is checked against cantools |
 | cantools, canmatrix | Place an ARXML PDU mapped at a byte offset of its frame at offset 0 | go-canbus applies the PDU-TO-FRAME-MAPPING START-POSITION, as AUTOSAR defines it |
 | python-can | Sends CAN FD frames with ESI over slcan without the flag | slcan has no error state indicator: go-canbus's slcan transport refuses to send it (ErrUnsupported) rather than drop it |

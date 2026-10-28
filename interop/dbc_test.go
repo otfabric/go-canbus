@@ -44,8 +44,11 @@ var knownDifferences = []knownDifference{
 	{"canmatrix", "pdu-offset", "", "canmatrix places a PDU mapped at a byte offset of its frame at offset 0; go-canbus applies the PDU-TO-FRAME-MAPPING START-POSITION (AUTOSAR)"},
 	{"canmatrix", "extmux", "EncodingComplexMultiplexed",
 		"canmatrix 1.3.3 decodes extended multiplexing (SG_MUL_VAL_) but cannot encode it; go-canbus's encoding is checked against cantools"},
-	{"cantools", "", "but got 3",
+	{"canmatrix", "multiplexed", "", "canmatrix 1.3.3 reads only the selector of a MULTIPLEXED-I-PDU (named Multiplexor) and none of its signals; go-canbus's reading is checked against cantools"},
+	{"cantools", "", "expected multiplexer id",
 		"cantools rejects a multiplexer value that selects no multiplexed signal; go-canbus (like canmatrix) decodes the switch and the signals that are always present"},
+	{"cantools", "", "A valid value for the multiplexer selector signal",
+		"cantools rejects a multiplexer value that selects no multiplexed signal; go-canbus (like canmatrix) encodes the switch and the signals that are always present"},
 	{"canmatrix", "", "payload longer than the message",
 		"canmatrix rejects payloads longer than the message length; go-canbus (like cantools) decodes the first Length bytes, which CAN FD frames padded to a valid FD length need"},
 }

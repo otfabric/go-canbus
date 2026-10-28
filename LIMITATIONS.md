@@ -28,9 +28,11 @@
 - SocketCAN on macOS and Windows (there is none). Interface commands
   return `ErrUnsupported`.
 - ARXML beyond the CAN subset of AUTOSAR 4.x listed in the `arxml`
-  package: no AUTOSAR 3.x, multiplexed, container, secured or diagnostic
-  PDUs, signal groups, end-to-end protection, other bus types; they are
-  reported as diagnostics. A PDU at a byte offset in its frame is placed at
+  package: no AUTOSAR 3.x, container, secured or diagnostic PDUs, nested
+  multiplexing, signal groups, end-to-end protection, other bus types; they
+  are reported as diagnostics. Multiplexed PDUs are read as cantools reads
+  them (selector `<frame>_selector<n>`); their SEGMENT-POSITIONS are not
+  applied. A PDU at a byte offset in its frame is placed at
   that offset (AUTOSAR); cantools 45.1.0 and canmatrix 1.3.3 place it at 0.
 - ASC and BLF carry no Linux error class: error frames read from them are
   protocol errors. python-can reads a classical frame's DLC 9..15 in ASC as
