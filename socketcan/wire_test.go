@@ -111,3 +111,35 @@ func FuzzUnmarshal(f *testing.F) {
 		}
 	})
 }
+
+func TestWireXL(t *testing.T) {
+	f := canbus.XLFrame{Priority: 0x242, VCID: 0x7F, Flags: canbus.XLSEC, SDT: 3, AF: 0xDEADBEEF, Data: bytes.Repeat([]byte{0xA5}, 300)}
+	buf := make([]byte, canXLMTU)
+	n := marshalXL(&f, buf)
+	if n != canXLHdr+300 || buf[4] != 0x81 || binary.NativeEndian.Uint32(buf[0:4]) != 0x7F0242 || binary.NativeEndian.Uint16(buf[6:8]) != 300 {
+		t.Fatalf("% X", buf[:canXLHdr])
+	}
+	g := canbus.XLFrame{Data: make([]byte, 0, 4)}
+	if err := unmarshalXL(buf[:n], &g); err != nil {
+		t.Fatal(err)
+	}
+	if g.String() != f.String() {
+		t.Fatalf("%s, want %s", g, f)
+	}
+	// A CAN or CAN FD frame is not CAN XL; a wrong length is rejected.
+	var fd [canFDMTU]byte
+	cf, _ := canbus.NewFD(0x123, false, false, []byte{1})
+	marshal(&cf, &fd)
+	if isXL(fd[:]) || unmarshalXL(fd[:], &g) == nil {
+		t.Fatal("CAN FD frame taken for CAN XL")
+	}
+	for _, cut := range []int{n - 1, canXLHdr} {
+		if err := unmarshalXL(buf[:cut], &g); err == nil {
+			t.Fatalf("%d bytes accepted", cut)
+		}
+	}
+	binary.NativeEndian.PutUint16(buf[6:8], 0)
+	if err := unmarshalXL(buf[:canXLHdr+1], &g); err == nil {
+		t.Fatal("length 0 accepted")
+	}
+}

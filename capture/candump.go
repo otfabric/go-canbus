@@ -29,23 +29,79 @@ func NewCandumpReader(r io.Reader) *CandumpReader {
 	return &CandumpReader{s: s}
 }
 
-// Read reads the next frame.
+// Read reads the next CAN or CAN FD frame. CAN XL lines are skipped: use
+// [CandumpReader.ReadAny] to get them.
 func (r *CandumpReader) Read(f *canbus.Frame) error {
+	for {
+		xl, err := r.ReadAny(f, nil)
+		if err != nil || !xl {
+			return err
+		}
+	}
+}
+
+// ReadAny reads the next frame of any kind: a CAN or CAN FD frame into f
+// (xl false) or a CAN XL frame into x (xl true). With x nil a CAN XL line
+// is reported without being decoded.
+func (r *CandumpReader) ReadAny(f *canbus.Frame, x *canbus.XLFrame) (xl bool, err error) {
 	for r.s.Scan() {
 		r.line++
 		line := strings.TrimSpace(r.s.Text())
 		if line == "" || line[0] == '#' {
 			continue
 		}
-		if err := ParseCandumpLine(line, f); err != nil {
-			return &ParseError{Format: FormatCandump, Line: r.line, Msg: err.Error()}
+		if fields := strings.Fields(line); len(fields) >= 3 && canbus.IsXLText(fields[2]) {
+			if x == nil {
+				return true, nil
+			}
+			if err := ParseCandumpXLLine(line, x); err != nil {
+				return true, &ParseError{Format: FormatCandump, Line: r.line, Msg: err.Error()}
+			}
+			return true, nil
 		}
-		return nil
+		if err := ParseCandumpLine(line, f); err != nil {
+			return false, &ParseError{Format: FormatCandump, Line: r.line, Msg: err.Error()}
+		}
+		return false, nil
 	}
 	if err := r.s.Err(); err != nil {
+		return false, err
+	}
+	return false, io.EOF
+}
+
+// ParseCandumpXLLine parses one log line holding a CAN XL frame,
+// "(<seconds>.<fraction>) <iface> <vcid><prio>#<flags>:<sdt>:<af>#<data>",
+// into x.
+func ParseCandumpXLLine(line string, x *canbus.XLFrame) error {
+	fields := strings.Fields(line)
+	if len(fields) < 3 || len(fields) > 4 {
+		return fmt.Errorf("want \"(<time>) <interface> <frame>\", got %q", line)
+	}
+	ts := fields[0]
+	if len(ts) < 3 || ts[0] != '(' || ts[len(ts)-1] != ')' {
+		return fmt.Errorf("bad timestamp %q", ts)
+	}
+	t, err := parseTimestamp(ts[1 : len(ts)-1])
+	if err != nil {
 		return err
 	}
-	return io.EOF
+	g, err := canbus.ParseXLFrame(fields[2])
+	if err != nil {
+		return err
+	}
+	g.Timestamp, g.Interface = t, fields[1]
+	if len(fields) == 4 {
+		switch fields[3] {
+		case "T":
+			g.Echo = true
+		case "R":
+		default:
+			return fmt.Errorf("unexpected trailing field %q", fields[3])
+		}
+	}
+	*x = g
+	return nil
 }
 
 // ParseCandumpLine parses one log line "(<seconds>.<fraction>) <iface>
@@ -274,6 +330,21 @@ func (w *CandumpWriter) Write(f *canbus.Frame) error {
 		usec = int64(f.Timestamp.Nanosecond() / 1000)
 	}
 	_, err := fmt.Fprintf(w.w, "(%010d.%06d) %s %s\n", sec, usec, iface, f.String())
+	return err
+}
+
+// WriteXL writes one CAN XL line in can-utils notation.
+func (w *CandumpWriter) WriteXL(x *canbus.XLFrame) error {
+	iface := x.Interface
+	if iface == "" {
+		iface = w.iface
+	}
+	var sec, usec int64
+	if !x.Timestamp.IsZero() {
+		sec = x.Timestamp.Unix()
+		usec = int64(x.Timestamp.Nanosecond() / 1000)
+	}
+	_, err := fmt.Fprintf(w.w, "(%010d.%06d) %s %s\n", sec, usec, iface, x.String())
 	return err
 }
 

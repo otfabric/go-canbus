@@ -11,8 +11,11 @@
 
 ## Not implemented
 
-- CAN XL frames (a CAN XL MTU on the interface is accepted for CAN FD
-  sockets; XL frames themselves are not received or sent).
+- CAN XL beyond SocketCAN raw sockets: a `canbus.Bus`, the virtual bus,
+  slcan, ISO-TP and the message databases carry classical and CAN FD frames
+  only; of the trace formats, candump logs and JSON Lines carry CAN XL
+  (pcap, pcapng, ASC, BLF and TRC do not). VCID pass-through and filters
+  need Linux ≥ 6.9; earlier kernels (6.2..6.8) ignore VCIDs.
 - Hardware adapters other than SocketCAN and slcan (PEAK PCAN-Basic,
   Kvaser CANlib, Vector XL; gs_usb is covered by SocketCAN on Linux).
   Implement `canbus.Transport` to add one.

@@ -89,6 +89,22 @@ type Writer interface {
 	Close() error
 }
 
+// XLReader is implemented by readers of formats that carry CAN XL frames
+// (candump logs and JSON Lines). ReadAny returns the next frame of any
+// kind: a CAN or CAN FD frame in f (xl false) or a CAN XL frame in x (xl
+// true). Their Read skips CAN XL frames.
+type XLReader interface {
+	Reader
+	ReadAny(f *canbus.Frame, x *canbus.XLFrame) (xl bool, err error)
+}
+
+// XLWriter is implemented by writers of formats that carry CAN XL frames
+// (candump logs and JSON Lines).
+type XLWriter interface {
+	Writer
+	WriteXL(x *canbus.XLFrame) error
+}
+
 // ParseError reports a malformed record.
 type ParseError struct {
 	Format Format

@@ -28,6 +28,17 @@ func (c *Conn) Send(context.Context, *canbus.Frame) error { return canbus.ErrUns
 // Receive reports [canbus.ErrUnsupported].
 func (c *Conn) Receive(context.Context, *canbus.Frame) error { return canbus.ErrUnsupported }
 
+// SendXL reports [canbus.ErrUnsupported].
+func (c *Conn) SendXL(context.Context, *canbus.XLFrame) error { return canbus.ErrUnsupported }
+
+// ReceiveXL reports [canbus.ErrUnsupported].
+func (c *Conn) ReceiveXL(context.Context, *canbus.XLFrame) error { return canbus.ErrUnsupported }
+
+// ReceiveAny reports [canbus.ErrUnsupported].
+func (c *Conn) ReceiveAny(context.Context, *canbus.Frame, *canbus.XLFrame) (bool, error) {
+	return false, canbus.ErrUnsupported
+}
+
 // Close does nothing.
 func (c *Conn) Close() error { return nil }
 

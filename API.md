@@ -8,6 +8,7 @@ has every symbol; this is the map.
 | Symbol | Purpose |
 |--------|---------|
 | `Frame`, `ID`, `Flags` (`FlagExtended`, `FlagRemote`, `FlagFD`, `FlagBRS`, `FlagESI`, `FlagError`) | One frame as a value; `Payload`, `SetPayload`, `DLC`, `Validate`, `String` (cansend notation) |
+| `XLFrame`, `XLFlags` (`XLSEC`, `XLRRS`), `ParseXLFrame`, `IsXLText`, `MaxXLPriority`, `MinXLLen`, `MaxXLLen` | One CAN XL frame (priority, VCID, flags, SDT, acceptance field, 1..2048 bytes); `Validate`, `String` (can-utils notation `<vcid><prio>#<flags>:<sdt>:<af>#<data>`) |
 | `NewStandard`, `NewExtended`, `NewFD`, `NewRemote` | Validated constructors |
 | `DLCToLen`, `LenToDLC`, `ValidFDLen`, `RoundUpFDLen`, `PadFD` | Data length codes |
 | `Filter`, `FilterSet`, `ExactStandard`, `ExactExtended`, `ParseFilter`, `KernelID` | Identifier filters with `CAN_RAW_FILTER` semantics; `Filter.Kernel()` gives the kernel's `can_filter` |
@@ -25,11 +26,14 @@ everything with `ErrClosed`.
 
 ## socketcan (Linux)
 
-`Open(ifname, ...Option) (*Conn, error)` with `WithFD`, `WithFilters`,
+`Open(ifname, ...Option) (*Conn, error)` with `WithFD`, `WithXL`, `WithVCIDFilter`, `WithFilters`,
 `WithoutLoopback`, `WithRecvOwn`, `WithoutTimestamps`,
 `WithReceiveBuffer`, `WithSendBuffer`. `Conn` implements `Transport`,
 `Filterer` (`SetFilters`), `Statser`, `DropCounter`, `Namer`,
 `Capabilitier`. `"any"` binds to every CAN interface (receive only).
+With `WithXL` (Linux ≥ 6.2, interface MTU 76..2060): `SendXL`,
+`ReceiveXL` (CAN XL only), `ReceiveAny` (CAN, CAN FD or CAN XL);
+`Receive` skips CAN XL frames.
 `DialISOTP(ifname, isotp.Config) (*ISOTPConn, error)`: kernel ISO-TP.
 `Supported()` reports the platform.
 
@@ -77,7 +81,10 @@ DelayBy, Corrupt, DropNext})`, `FaultStats`, `SetUp`, `Inject`,
 `FormatFrame`; `NewJSONLReader`/`Writer`, `Record`, `ToRecord`;
 `NewPCAPReader`/`Writer`, `NewPCAPNGReader`; `NewASCReader`/`Writer`,
 `NewBLFReader`/`Writer`, `NewTRCReader`/`Writer`; `FormatFromPath`; `Replay(ctx, Reader,
-Sender, ReplayOptions) (ReplayStats, error)`; `RecordFrames`.
+Sender, ReplayOptions) (ReplayStats, error)`; `RecordFrames`. CAN XL:
+`XLReader` (`ReadAny`) and `XLWriter` (`WriteXL`), implemented by the
+candump and JSON Lines readers and writers (`ParseCandumpXLLine`,
+`XLRecord`, `ToXLRecord`; JSON Lines record type `"xlframe"`).
 
 ## candb, dbc, kcd, codegen
 

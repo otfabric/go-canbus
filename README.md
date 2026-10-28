@@ -99,7 +99,7 @@ simulation with faults, capture and replay, and two processes on vcan.
 | Layer | Scope |
 |-------|-------|
 | Physical interface, bit rate | Configured explicitly through `socketcan/link`; opening a socket never changes an interface |
-| Data link (ISO 11898-1 framing concepts) | Classical CAN 2.0A/B, CAN FD; not CAN XL |
+| Data link (ISO 11898-1 framing concepts) | Classical CAN 2.0A/B, CAN FD, CAN XL (SocketCAN, Linux ≥ 6.2) |
 | Transport | ISO-TP (ISO 15765-2), userspace and Linux kernel |
 | Message definitions | DBC (read/write), KCD (read/write), AUTOSAR 4.x ARXML (read, CAN subset: see [LIMITATIONS.md](LIMITATIONS.md)) |
 | Application protocols | None: CANopen, J1939, UDS, NMEA 2000, ISOBUS and DroneCAN belong in their own modules on top of `canbus.Bus` and `isotp` |

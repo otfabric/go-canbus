@@ -33,6 +33,11 @@ const (
 	rawRecvOwnMsgs = 4
 	rawFDFrames    = 5
 	rawJoinFilters = 6
+	rawXLFrames    = 7
+	rawXLVCIDOpts  = 8
+
+	vcidTxPass   = 0x02 // CAN_RAW_XL_VCID_TX_PASS
+	vcidRxFilter = 0x04 // CAN_RAW_XL_VCID_RX_FILTER
 
 	soTimestampNS = 35 // SO_TIMESTAMPNS_OLD: struct timespec of the native long size
 	soRxqOvfl     = 40
@@ -54,7 +59,9 @@ func Supported() bool { return true }
 // Conn is a SocketCAN CAN_RAW socket bound to one interface (or to all CAN
 // interfaces, for the name "any"). It implements [canbus.Transport],
 // [canbus.Filterer], [canbus.Statser], [canbus.DropCounter],
-// [canbus.Namer] and [canbus.Capabilitier].
+// [canbus.Namer] and [canbus.Capabilitier]. Opened with [WithXL] it also
+// sends and receives CAN XL frames ([Conn.SendXL], [Conn.ReceiveXL],
+// [Conn.ReceiveAny]).
 type Conn struct {
 	name    string
 	ifindex int
@@ -66,7 +73,7 @@ type Conn struct {
 	// Receive and Send state, kept here so the poller callbacks (bound
 	// once in Open) do not allocate per call.
 	rmu    sync.Mutex
-	rbuf   [canFDMTU]byte
+	rbuf   [canXLMTU]byte
 	oob    [128]byte
 	rsa    sockaddrCAN
 	riov   syscall.Iovec
@@ -78,7 +85,8 @@ type Conn struct {
 
 	wmu     sync.Mutex
 	wbuf    [canFDMTU]byte
-	wn      int
+	xbuf    []byte // CAN XL send buffer, allocated by Open with WithXL
+	wsrc    []byte // what doWrite writes
 	werr    error
 	writeFn func(fd uintptr) bool
 
@@ -103,6 +111,7 @@ func Open(ifname string, opts ...Option) (*Conn, error) {
 	for _, o := range opts {
 		o(&cfg)
 	}
+	cfg.fd = cfg.fd || cfg.xl // the kernel enables CAN FD with CAN XL
 	opErr := func(err error) error { return &canbus.OpError{Op: "open", Interface: ifname, Err: err} }
 	c := &Conn{name: ifname, cfg: cfg}
 	c.readFn = c.doRead
@@ -117,6 +126,9 @@ func Open(ifname string, opts ...Option) (*Conn, error) {
 		// MTU (2060), which carries CAN FD frames too.
 		if cfg.fd && ifi.MTU < canFDMTU {
 			return nil, opErr(fmt.Errorf("%w: interface MTU is %d, CAN FD needs %d (ip link set %s mtu 72)", canbus.ErrUnsupported, ifi.MTU, canFDMTU, ifname))
+		}
+		if cfg.xl && ifi.MTU < canXLMinMTU {
+			return nil, opErr(fmt.Errorf("%w: interface MTU is %d, CAN XL needs %d..%d (ip link set %s mtu %d)", canbus.ErrUnsupported, ifi.MTU, canXLMinMTU, canXLMTU, ifname, canXLMTU))
 		}
 	} else {
 		c.name = "any"
@@ -141,6 +153,27 @@ func Open(ifname string, opts ...Option) (*Conn, error) {
 		if err := set(solCANRaw, rawFDFrames, 1); err != nil {
 			return nil, err
 		}
+	}
+	if cfg.xl {
+		if err := syscall.SetsockoptInt(fd, solCANRaw, rawXLFrames, 1); err != nil {
+			if errors.Is(err, syscall.ENOPROTOOPT) {
+				return nil, opErr(fmt.Errorf("%w: this kernel has no CAN XL (Linux 6.2 or later)", canbus.ErrUnsupported))
+			}
+			return nil, opErr(fmt.Errorf("CAN_RAW_XL_FRAMES: %w", err))
+		}
+		// struct can_raw_vcid_options: flags, tx_vcid, rx_vcid, rx_vcid_mask.
+		opts := [4]byte{vcidTxPass | vcidRxFilter, 0, 0, 0}
+		if cfg.vcidFilter != nil {
+			opts[2], opts[3] = cfg.vcidFilter[0], cfg.vcidFilter[1]
+		}
+		if err := syscall.SetsockoptString(fd, solCANRaw, rawXLVCIDOpts, string(opts[:])); err != nil {
+			// Before Linux 6.9 there are no VCID options and VCIDs pass
+			// unfiltered; only an explicit filter needs them.
+			if !errors.Is(err, syscall.ENOPROTOOPT) || cfg.vcidFilter != nil {
+				return nil, opErr(fmt.Errorf("%w: CAN_RAW_XL_VCID_OPTS: %v (VCID filters need Linux 6.9 or later)", canbus.ErrUnsupported, err))
+			}
+		}
+		c.xbuf = make([]byte, canXLMTU)
 	}
 	if cfg.noLoopback {
 		if err := set(solCANRaw, rawLoopback, 0); err != nil {
@@ -242,7 +275,7 @@ func (c *Conn) Name() string { return c.name }
 
 // Capabilities describes the socket.
 func (c *Conn) Capabilities() canbus.Capabilities {
-	return canbus.Capabilities{FD: c.cfg.fd, ErrorFrames: true, KernelFilters: true,
+	return canbus.Capabilities{FD: c.cfg.fd, XL: c.cfg.xl, ErrorFrames: true, KernelFilters: true,
 		Timestamps: !c.cfg.noTimestamp, RecvOwn: true, Physical: true}
 }
 
@@ -325,11 +358,49 @@ func (c *Conn) Send(ctx context.Context, f *canbus.Frame) error {
 	c.wmu.Lock()
 	defer c.wmu.Unlock()
 	n := marshal(f, &c.wbuf)
+	if err := c.write(ctx, c.wbuf[:n]); err != nil {
+		return err
+	}
+	c.txFrames.Add(1)
+	c.txBytes.Add(uint64(len(f.Payload())))
+	return nil
+}
+
+// SendXL transmits a CAN XL frame on a socket opened with [WithXL]. When
+// the interface's transmit queue is full (ENOBUFS), SendXL retries until
+// ctx ends.
+func (c *Conn) SendXL(ctx context.Context, f *canbus.XLFrame) error {
+	if c.closed.Load() {
+		return canbus.ErrClosed
+	}
+	if err := f.Validate(); err != nil {
+		return err
+	}
+	if !c.cfg.xl {
+		return &canbus.OpError{Op: "send", Interface: c.name, Err: fmt.Errorf("%w: CAN XL frame on a socket opened without WithXL", canbus.ErrUnsupported)}
+	}
+	if c.ifindex == 0 {
+		return &canbus.OpError{Op: "send", Interface: c.name, Err: fmt.Errorf("%w: a socket bound to all interfaces cannot send", canbus.ErrUnsupported)}
+	}
+	c.wmu.Lock()
+	defer c.wmu.Unlock()
+	n := marshalXL(f, c.xbuf)
+	if err := c.write(ctx, c.xbuf[:n]); err != nil {
+		return err
+	}
+	c.txFrames.Add(1)
+	c.txBytes.Add(uint64(len(f.Data)))
+	return nil
+}
+
+// write writes one kernel frame, retrying while the device queue is full.
+// The caller holds wmu.
+func (c *Conn) write(ctx context.Context, b []byte) error {
 	stop := watch(ctx, c.file, false)
 	defer stop()
 	backoff := 50 * time.Microsecond
 	for {
-		c.wn = n
+		c.wsrc = b
 		err := c.rc.Write(c.writeFn)
 		werr := c.werr
 		if err == nil && werr == syscall.ENOBUFS {
@@ -354,18 +425,52 @@ func (c *Conn) Send(ctx context.Context, f *canbus.Frame) error {
 			}
 			return err
 		}
-		c.txFrames.Add(1)
-		c.txBytes.Add(uint64(len(f.Payload())))
 		return nil
 	}
 }
 
 // Receive waits for the next frame. Error frames arrive only when the
 // error mask selects them ([WithFilters]). Frames carry the kernel's
-// receive timestamp, the interface name and the Echo mark.
+// receive timestamp, the interface name and the Echo mark. On a socket
+// opened with [WithXL], Receive skips CAN XL frames: use [Conn.ReceiveAny]
+// to get both kinds.
 func (c *Conn) Receive(ctx context.Context, f *canbus.Frame) error {
+	for {
+		xl, err := c.receive(ctx, f, nil)
+		if err != nil || !xl {
+			return err
+		}
+	}
+}
+
+// ReceiveXL waits for the next CAN XL frame on a socket opened with
+// [WithXL], skipping CAN and CAN FD frames. f.Data's storage is reused.
+func (c *Conn) ReceiveXL(ctx context.Context, f *canbus.XLFrame) error {
+	if !c.cfg.xl {
+		return &canbus.OpError{Op: "receive", Interface: c.name, Err: fmt.Errorf("%w: socket opened without WithXL", canbus.ErrUnsupported)}
+	}
+	var skip canbus.Frame
+	for {
+		xl, err := c.receive(ctx, &skip, f)
+		if err != nil || xl {
+			return err
+		}
+	}
+}
+
+// ReceiveAny waits for the next frame of any kind: a CAN or CAN FD frame
+// is stored in f and reported with xl false, a CAN XL frame (on a socket
+// opened with [WithXL]) in x with xl true.
+func (c *Conn) ReceiveAny(ctx context.Context, f *canbus.Frame, x *canbus.XLFrame) (xl bool, err error) {
+	return c.receive(ctx, f, x)
+}
+
+// receive reads one kernel frame into f, or into x if it is a CAN XL
+// frame. With x nil a CAN XL frame is consumed and reported without
+// being decoded.
+func (c *Conn) receive(ctx context.Context, f *canbus.Frame, x *canbus.XLFrame) (bool, error) {
 	if c.closed.Load() {
-		return canbus.ErrClosed
+		return false, canbus.ErrClosed
 	}
 	c.rmu.Lock()
 	defer c.rmu.Unlock()
@@ -381,18 +486,30 @@ func (c *Conn) Receive(ctx context.Context, f *canbus.Frame) error {
 			if !errors.Is(err, canbus.ErrClosed) && ctx.Err() == nil {
 				c.rxFailure.Add(1)
 			}
-			return err
+			return false, err
 		}
-		if err := unmarshal(c.rbuf[:c.rn], f); err != nil {
+		buf := c.rbuf[:c.rn]
+		if isXL(buf) {
+			if x == nil {
+				return true, nil
+			}
+			if err := unmarshalXL(buf, x); err != nil {
+				c.rxFailure.Add(1)
+				continue
+			}
+			x.Echo = c.rflags&syscall.MSG_CONFIRM != 0
+			x.Timestamp = c.stamp()
+			x.Interface = c.ifName(int(c.rsa.ifindex))
+			c.rxFrames.Add(1)
+			c.rxBytes.Add(uint64(len(x.Data)))
+			return true, nil
+		}
+		if err := unmarshal(buf, f); err != nil {
 			c.rxFailure.Add(1)
 			continue // not a CAN frame we know; the socket stays usable
 		}
 		f.Echo = c.rflags&syscall.MSG_CONFIRM != 0
-		f.Timestamp = time.Time{}
-		c.parseControl(c.oob[:int(c.rmsg.Controllen)], f)
-		if f.Timestamp.IsZero() {
-			f.Timestamp = time.Now()
-		}
+		f.Timestamp = c.stamp()
 		f.Interface = c.ifName(int(c.rsa.ifindex))
 		c.rxFrames.Add(1)
 		if f.Flags&canbus.FlagError != 0 {
@@ -400,8 +517,17 @@ func (c *Conn) Receive(ctx context.Context, f *canbus.Frame) error {
 		} else {
 			c.rxBytes.Add(uint64(len(f.Payload())))
 		}
-		return nil
+		return false, nil
 	}
+}
+
+// stamp returns the kernel timestamp of the frame just read, or now.
+func (c *Conn) stamp() time.Time {
+	t := c.parseControl(c.oob[:int(c.rmsg.Controllen)])
+	if t.IsZero() {
+		t = time.Now()
+	}
+	return t
 }
 
 // doRead is the poller callback of Receive: one recvmsg(2) into the
@@ -431,13 +557,13 @@ func (c *Conn) doRead(fd uintptr) bool {
 // doWrite is the poller callback of Send. It reports false to wait for
 // writability.
 func (c *Conn) doWrite(fd uintptr) bool {
-	_, c.werr = syscall.Write(int(fd), c.wbuf[:c.wn])
+	_, c.werr = syscall.Write(int(fd), c.wsrc)
 	return c.werr != syscall.EAGAIN
 }
 
 // parseControl reads the timestamp and drop counter from the control
 // messages without allocating (syscall.ParseSocketControlMessage would).
-func (c *Conn) parseControl(oob []byte, f *canbus.Frame) {
+func (c *Conn) parseControl(oob []byte) (ts time.Time) {
 	const hdr = int(unsafe.Sizeof(syscall.Cmsghdr{}))
 	align := func(n int) int {
 		return (n + int(unsafe.Sizeof(uintptr(0))) - 1) &^ (int(unsafe.Sizeof(uintptr(0))) - 1)
@@ -446,15 +572,15 @@ func (c *Conn) parseControl(oob []byte, f *canbus.Frame) {
 		h := (*syscall.Cmsghdr)(unsafe.Pointer(&oob[0]))
 		l := int(h.Len)
 		if l < hdr || l > len(oob) {
-			return
+			return ts
 		}
 		data := oob[align(hdr):l]
 		if h.Level == syscall.SOL_SOCKET {
 			switch h.Type {
 			case soTimestampNS:
 				if len(data) >= int(unsafe.Sizeof(syscall.Timespec{})) {
-					ts := (*syscall.Timespec)(unsafe.Pointer(&data[0]))
-					f.Timestamp = time.Unix(int64(ts.Sec), int64(ts.Nsec))
+					t := (*syscall.Timespec)(unsafe.Pointer(&data[0]))
+					ts = time.Unix(int64(t.Sec), int64(t.Nsec))
 				}
 			case soRxqOvfl:
 				if len(data) >= 4 {
@@ -467,10 +593,11 @@ func (c *Conn) parseControl(oob []byte, f *canbus.Frame) {
 			}
 		}
 		if align(l) >= len(oob) {
-			return
+			return ts
 		}
 		oob = oob[align(l):]
 	}
+	return ts
 }
 
 func (c *Conn) ifName(idx int) string {

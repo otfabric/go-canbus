@@ -9,10 +9,22 @@ import (
 	"github.com/otfabric/go-canbus"
 )
 
-// Sizes of struct can_frame and struct canfd_frame (CAN_MTU, CANFD_MTU).
+// Sizes of struct can_frame and struct canfd_frame (CAN_MTU, CANFD_MTU),
+// the header of struct canxl_frame (CANXL_HDR_SIZE) and the interface
+// MTUs of CAN XL devices (CANXL_MIN_MTU .. CANXL_MTU).
 const (
-	canMTU   = 16
-	canFDMTU = 72
+	canMTU      = 16
+	canFDMTU    = 72
+	canXLHdr    = 12
+	canXLMinMTU = canXLHdr + 64
+	canXLMTU    = canXLHdr + canbus.MaxXLLen
+)
+
+// canxl_frame bits.
+const (
+	xlXLF       = 0x80
+	xlPrioMask  = 0x7FF
+	xlVCIDShift = 16
 )
 
 // can_id flag bits and canfd_frame.flags bits.
@@ -105,6 +117,46 @@ func unmarshal(buf []byte, f *canbus.Frame) error {
 	if f.Flags&canbus.FlagRemote == 0 {
 		copy(f.Data[:l], buf[8:8+int(l)])
 	}
+	return nil
+}
+
+// marshalXL writes f as a struct canxl_frame in host byte order and
+// returns its size (header and payload: the kernel requires the exact
+// length).
+func marshalXL(f *canbus.XLFrame, buf []byte) int {
+	clear(buf[:canXLHdr])
+	binary.NativeEndian.PutUint32(buf[0:4], uint32(f.Priority)&xlPrioMask|uint32(f.VCID)<<xlVCIDShift)
+	buf[4] = byte(f.Flags) | xlXLF
+	buf[5] = f.SDT
+	binary.NativeEndian.PutUint16(buf[6:8], uint16(len(f.Data)))
+	binary.NativeEndian.PutUint32(buf[8:12], f.AF)
+	return canXLHdr + copy(buf[canXLHdr:], f.Data)
+}
+
+// isXL reports whether a received buffer holds a struct canxl_frame: the
+// XL format bit is set (it sits where can_frame keeps its length, which
+// never exceeds 64) and the size is not that of a CAN or CAN FD frame.
+func isXL(buf []byte) bool {
+	return len(buf) >= canXLHdr+canbus.MinXLLen && buf[4]&xlXLF != 0
+}
+
+// unmarshalXL decodes a struct canxl_frame into f, reusing f.Data's
+// storage, and leaves f's metadata fields alone.
+func unmarshalXL(buf []byte, f *canbus.XLFrame) error {
+	if !isXL(buf) {
+		return fmt.Errorf("%w: kernel frame of %d bytes is not CAN XL", canbus.ErrInvalidFrame, len(buf))
+	}
+	l := int(binary.NativeEndian.Uint16(buf[6:8]))
+	if l < canbus.MinXLLen || l > canbus.MaxXLLen || canXLHdr+l != len(buf) {
+		return fmt.Errorf("%w: CAN XL length %d in a %d-byte frame", canbus.ErrInvalidFrame, l, len(buf))
+	}
+	prio := binary.NativeEndian.Uint32(buf[0:4])
+	f.Priority = uint16(prio & xlPrioMask)
+	f.VCID = uint8(prio >> xlVCIDShift)
+	f.Flags = canbus.XLFlags(buf[4] &^ xlXLF)
+	f.SDT = buf[5]
+	f.AF = binary.NativeEndian.Uint32(buf[8:12])
+	f.Data = append(f.Data[:0], buf[canXLHdr:]...)
 	return nil
 }
 
