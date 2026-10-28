@@ -5,6 +5,49 @@ it computes the version, tags it and publishes this file's section of
 that version as the release notes. Add the section, headed exactly
 `## vX.Y.Z` and closed by a line `---`, before running it.
 
+## v0.3.0
+
+**Date:** 2026-10-28
+**Previous release:** v0.2.2
+
+## Summary
+
+Serial-line CAN adapters on every operating system, and PEAK TRC traces.
+Interoperability against canbus-interop v0.3.0 (contract 1.2): 163 passed,
+0 failed, 4 skipped (capabilities the reference stacks lack).
+
+## Additions
+
+- Package `slcan`: a `canbus.Transport` for serial-line CAN (LAWICEL ASCII)
+  adapters such as the CANable, CANtact, USBtin and LAWICEL CANUSB, without
+  the Linux slcan driver: `slcan.Open(device, baud, cfg)` over a serial port
+  (through [go-serial](https://github.com/otfabric/go-serial), pure Go, the
+  module's one dependency) on Linux, macOS, Windows and the BSDs, or
+  `slcan.New` over any byte stream (a pty, a TCP serial server). Bit rates
+  (`S0`–`S9`), CAN FD data rates (`Y2`/`Y5`, CANable 2.0), listen-only, CAN
+  FD records `d`/`D`/`b`/`B`, drop accounting; a lost device is
+  `canbus.ErrInterfaceDown`. The record codec (`AppendFrame`, `ParseFrame`)
+  is fuzzed. Example: `examples/slcan`.
+- PEAK TRC traces in `capture`: versions 1.0, 1.1, 1.2, 1.3, 2.0 and 2.1
+  read, 2.1 written, with classical, CAN FD (`FD`, `FB`, `FE`, `BI`), remote
+  and error frames; detected by `NewReader`, chosen by `.trc`.
+
+## Verification
+
+- slcan against the Linux kernel's own slcan driver: the N_SLCAN line
+  discipline on a pseudo-terminal creates an slcanN interface whose frames
+  are exchanged both ways with a go-canbus Conn on the other end
+  (`make test-admin`; required in the Kernels microVMs). Over real ptys
+  with go-serial on Linux and macOS. Against python-can 4.6.1's slcan
+  interface over TCP (interop, both directions, CAN FD, 2000-frame burst).
+- TRC against python-can 4.6.1 both ways and on records of TRC 1.0, 1.1,
+  1.3 and 2.0 read alike by both. Recorded known differences: python-can
+  reads FE as bit-rate switched, skips ER records and does not write
+  remote, CAN FD or error frames; TRC 1.2 has no independent reader.
+- Coverage 92.8 % (Linux with vcan); `slcan` 97.7 %.
+
+---
+
 ## v0.2.2
 
 **Date:** 2026-10-28

@@ -39,7 +39,11 @@ difference (v0.1.0). Against canbus-interop v0.2.0 (contract 1.1, 2026-10-28,
 published images pinned by digest): **145 passed, 0 failed, 4 skipped**,
 76 known-difference frames; the additions are ASC, BLF and candump logs
 both ways with python-can, ARXML decode and encode with cantools and
-canmatrix, and KCD written by go-canbus read back by canmatrix.
+canmatrix, and KCD written by go-canbus read back by canmatrix. Against
+canbus-interop v0.3.0 (contract 1.2, 2026-10-28): **163 passed, 0 failed,
+4 skipped**, 78 known-difference records; the additions are slcan with
+python-can (both directions, CAN FD, 2000-frame burst) and PEAK TRC with
+python-can.
 
 | Area | Scenario | can-utils / kernel | python-can | socketcan-rs | Scapy | python-can-isotp | cantools | canmatrix |
 |------|----------|---|---|---|---|---|---|---|
