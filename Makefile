@@ -79,6 +79,8 @@ test-vcan: ## Run the tests on Linux, failing instead of skipping when vcan0 is 
 test-admin: ## Run the netlink administration tests (Linux, needs sudo)
 	@go test -c -o $(BIN_DIR)/link.test ./socketcan/link
 	@sudo CANBUS_TEST_ADMIN=1 $(BIN_DIR)/link.test -test.v -test.run TestAdmin
+	@go test -c -o $(BIN_DIR)/slcan.test ./slcan
+	@cd slcan && sudo CANBUS_TEST_ADMIN=1 $(CURDIR)/$(BIN_DIR)/slcan.test -test.v -test.run TestKernelSlcan
 
 vcan-setup: ## Create vcan0 and vcan1 (CAN FD MTU) and load the CAN modules (Linux, sudo)
 	@sudo modprobe vcan; sudo modprobe can-isotp || true
@@ -119,6 +121,7 @@ fuzz: ## Run every fuzz target for FUZZTIME (default 30s)
 	@go test -run='^$$' -fuzz='^FuzzParseLink$$' -fuzztime=$(FUZZTIME) ./socketcan/link
 	@go test -run='^$$' -fuzz='^FuzzParseFrame$$' -fuzztime=$(FUZZTIME) ./capture
 	@go test -run='^$$' -fuzz='^FuzzReaders$$' -fuzztime=$(FUZZTIME) ./capture
+	@go test -run='^$$' -fuzz='^FuzzParseFrame$$' -fuzztime=$(FUZZTIME) ./slcan
 	@go test -run='^$$' -fuzz='^FuzzParse$$' -fuzztime=$(FUZZTIME) ./dbc
 	@go test -run='^$$' -fuzz='^FuzzParse$$' -fuzztime=$(FUZZTIME) ./kcd
 	@go test -run='^$$' -fuzz='^FuzzParse$$' -fuzztime=$(FUZZTIME) ./arxml

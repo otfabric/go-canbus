@@ -21,6 +21,7 @@ if ! sudo modprobe -a can can-raw vcan 2>/dev/null; then
 fi
 echo "can, can-raw, vcan loaded on ${kernel}"
 sudo modprobe vxcan 2>/dev/null || echo "::warning::vxcan is not available on ${kernel}"
+sudo modprobe slcan 2>/dev/null || echo "::warning::slcan is not available on ${kernel}: the kernel slcan test will be skipped"
 
 if sudo modprobe can-isotp 2>/dev/null; then
     echo "can-isotp loaded"
