@@ -83,7 +83,7 @@ func vehicle(t *testing.T, net network, isotpServer func(t *testing.T) isotp.End
 	sub, _ := gw.Subscribe(canbus.WithFilters(canbus.FilterSet{Filters: ids}), canbus.WithQueueSize(4096))
 
 	// Recorders for every writable format.
-	formats := []capture.Format{capture.FormatCandump, capture.FormatJSONL, capture.FormatPCAP, capture.FormatASC, capture.FormatBLF}
+	formats := []capture.Format{capture.FormatCandump, capture.FormatJSONL, capture.FormatPCAP, capture.FormatASC, capture.FormatBLF, capture.FormatTRC}
 	bufs := map[capture.Format]*bytes.Buffer{}
 	writers := map[capture.Format]capture.Writer{}
 	for _, f := range formats {

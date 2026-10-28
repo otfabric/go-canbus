@@ -523,6 +523,15 @@ func FuzzReaders(f *testing.F) {
 	}
 	_ = bw.Close()
 	f.Add(blf.Bytes())
+	var trc bytes.Buffer
+	tw := NewTRCWriter(&trc)
+	for _, fr := range frames(f) {
+		_ = tw.Write(&fr)
+	}
+	_ = tw.Close()
+	f.Add(trc.Bytes())
+	f.Add([]byte(";$FILEVERSION=1.3\n;$STARTTIME=46322.3\n 1) 1.0 1 Rx 0001 - 2 00 11\n 2) 2.0 1 Rx 0002 - 1 RTR\n"))
+	f.Add([]byte(";$FILEVERSION=2.0\n 1 1.0 FB 0001 Rx 12 00 01 02 03 04 05 06 07 08 09 0a 0b\n"))
 	f.Fuzz(func(t *testing.T, data []byte) {
 		r, _, err := NewReader(bytes.NewReader(data))
 		if err != nil {

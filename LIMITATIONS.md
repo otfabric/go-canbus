@@ -27,6 +27,13 @@
   protocol errors. python-can reads a classical frame's DLC 9..15 in ASC as
   a length and a 0-byte CAN FD frame as remote; go-canbus follows Vector's
   meaning.
+- TRC: error frames keep only a protocol violation (bit, form, stuff,
+  other), its direction and the error counters; other Linux error classes
+  are lost. Status, error-counter and event records (ST, EC, EV, ...) are
+  skipped. TRC 1.2 has no independent reader to check against (python-can
+  reads 1.0, 1.1, 1.3, 2.0 and 2.1). python-can 4.6.1 reads FE records
+  (CAN FD with ESI) as bit-rate switched, skips ER records and does not
+  write remote, CAN FD or error frames.
 - DBC: environment variables, signal types, relation attributes,
   categories and filters are skipped with a warning diagnostic. Value
   descriptions of environment variables likewise.

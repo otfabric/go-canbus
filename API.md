@@ -65,7 +65,7 @@ DelayBy, Corrupt, DropNext})`, `FaultStats`, `SetUp`, `Inject`,
 `NewCandumpReader`/`Writer`, `ParseCandumpLine`, `ParseFrame`,
 `FormatFrame`; `NewJSONLReader`/`Writer`, `Record`, `ToRecord`;
 `NewPCAPReader`/`Writer`, `NewPCAPNGReader`; `NewASCReader`/`Writer`,
-`NewBLFReader`/`Writer`; `FormatFromPath`; `Replay(ctx, Reader,
+`NewBLFReader`/`Writer`, `NewTRCReader`/`Writer`; `FormatFromPath`; `Replay(ctx, Reader,
 Sender, ReplayOptions) (ReplayStats, error)`; `RecordFrames`.
 
 ## candb, dbc, kcd, codegen

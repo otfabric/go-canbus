@@ -19,6 +19,9 @@
 //     error class (error frames are read as protocol errors). Their times
 //     are local wall-clock times without a zone: they are read and written
 //     in time.Local (set TZ to read a file from another zone).
+//   - PEAK TRC ([FormatTRC]), the trace format of PCAN-View and
+//     PCAN-Explorer: versions 1.0 to 2.1 read, 2.1 written (classical, CAN
+//     FD, remote and error frames). Times are local like ASC and BLF.
 //
 // Readers and writers stream: a trace of any size is processed frame by
 // frame. [Replay] sends a trace with its original, scaled or no timing.
@@ -47,10 +50,11 @@ const (
 	FormatPCAPNG  Format = "pcapng"
 	FormatASC     Format = "asc"
 	FormatBLF     Format = "blf"
+	FormatTRC     Format = "trc"
 )
 
 // FormatFromPath returns the format of a file name's extension: .log
-// (candump), .jsonl/.json, .pcap, .pcapng, .asc, .blf; "" otherwise.
+// (candump), .jsonl/.json, .pcap, .pcapng, .asc, .blf, .trc; "" otherwise.
 func FormatFromPath(path string) Format {
 	ext := strings.ToLower(filepath.Ext(path))
 	switch ext {
@@ -66,6 +70,8 @@ func FormatFromPath(path string) Format {
 		return FormatASC
 	case ".blf":
 		return FormatBLF
+	case ".trc":
+		return FormatTRC
 	}
 	return ""
 }
@@ -129,6 +135,8 @@ func NewReader(r io.Reader) (Reader, Format, error) {
 			return NewCandumpReader(br), FormatCandump, nil
 		case '{':
 			return NewJSONLReader(br), FormatJSONL, nil
+		case ';':
+			return NewTRCReader(br), FormatTRC, nil
 		case 'd', 'D', 'b', 'B':
 			// ASC starts with its "date" or "base" header.
 			if w, _ := br.Peek(i + 4); len(w) == i+4 {
@@ -155,6 +163,8 @@ func NewWriter(w io.Writer, format Format) (Writer, error) {
 		return NewASCWriter(w), nil
 	case FormatBLF:
 		return NewBLFWriter(w)
+	case FormatTRC:
+		return NewTRCWriter(w), nil
 	default:
 	}
 	return nil, fmt.Errorf("%w: cannot write %q", ErrUnknownFormat, format)

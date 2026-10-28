@@ -55,6 +55,7 @@ canmatrix, and KCD written by go-canbus read back by canmatrix.
 | KCD | canmatrix's KCD→DBC layout vs go-canbus's KCD parser, decode agreement; KCD written by go-canbus converted by canmatrix | | | | | | | pass |
 | ARXML | decode and encode 3 fixtures (byte orders, compu methods, CAN FD, extended IDs, PDU offset) | | | | | | pass² | pass² |
 | Logs | python-can's ASC/BLF fixtures read by go-canbus; go-canbus writes ASC/BLF/candump read back by python-can; python-can writes, go-canbus reads | | pass | | | | | |
+| Logs | PEAK TRC: python-can's fixture and files read by go-canbus; TRC 2.1 written by go-canbus read by python-can; TRC 1.0, 1.1, 1.3, 2.0 records read alike by both | | pass² | | | | | |
 
 ¹ The stack's adapter has no capture/replay operation (capability).
 ² With the known differences below.
@@ -67,6 +68,8 @@ canmatrix, and KCD written by go-canbus read back by canmatrix.
 | canmatrix | Rejects payloads longer than the message length | go-canbus, like cantools, decodes the first Length bytes: CAN FD frames are padded to the next valid FD length |
 | canmatrix | Cannot encode extended multiplexing (`EncodingComplexMultiplexed`) | Limitation of canmatrix 1.3.3; go-canbus's extended-multiplexing encoding is checked against cantools |
 | cantools, canmatrix | Place an ARXML PDU mapped at a byte offset of its frame at offset 0 | go-canbus applies the PDU-TO-FRAME-MAPPING START-POSITION, as AUTOSAR defines it |
+| python-can | Reads TRC FE records (CAN FD with error state indicator) as bit-rate switched | PEAK's format: FD plain, FB bit rate switch, FE error state indicator, BI both |
+| python-can | Skips TRC ER (error frame) records; its TRC writer skips remote, CAN FD and error frames | Limitations of python-can 4.6.1; go-canbus reads and writes them |
 
 ## Test choices
 
