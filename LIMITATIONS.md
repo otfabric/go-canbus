@@ -20,7 +20,9 @@
 - A `canbus.Subscription` opened `WithXL` has no `Frames()` channel (its
   queue holds every kind): read it with `ReceiveAny`.
 - pcap and pcapng do not keep the echo mark (`Echo`); pcap keeps no
-  interface name.
+  interface name. Wireshark dissects CAN XL from 4.4 on: 4.2 (Ubuntu
+  24.04's) shows CAN XL frames, libpcap's own captures included, as
+  malformed CAN frames.
 - Hardware adapters other than SocketCAN and slcan (PEAK PCAN-Basic,
   Kvaser CANlib, Vector XL; gs_usb is covered by SocketCAN on Linux).
   Implement `canbus.Transport` to add one.

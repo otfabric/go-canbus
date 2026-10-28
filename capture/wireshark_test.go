@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,16 +18,33 @@ import (
 	"github.com/otfabric/go-canbus"
 )
 
-// tshark returns the path of Wireshark's tshark. Without it the Wireshark
-// tests skip, unless CANBUS_REQUIRE_TSHARK=1, where they fail.
+// tshark returns the path of Wireshark's tshark, 4.4 or later (earlier
+// versions do not dissect CAN XL: Wireshark 4.2 shows libpcap's own
+// capture of CAN XL frames as malformed CAN frames). Without it the
+// Wireshark tests skip, unless CANBUS_REQUIRE_TSHARK=1, where they fail.
 func tshark(t *testing.T) string {
 	t.Helper()
+	need := func(msg string) {
+		t.Helper()
+		if os.Getenv("CANBUS_REQUIRE_TSHARK") == "1" {
+			t.Fatal(msg)
+		}
+		t.Skip(msg + " (CANBUS_REQUIRE_TSHARK=1 makes this a failure)")
+	}
 	p, err := exec.LookPath("tshark")
 	if err != nil {
-		if os.Getenv("CANBUS_REQUIRE_TSHARK") == "1" {
-			t.Fatal("tshark not found")
-		}
-		t.Skip("tshark not found (install Wireshark; CANBUS_REQUIRE_TSHARK=1 makes this a failure)")
+		need("tshark not found: install Wireshark 4.4 or later")
+	}
+	out, err := exec.Command(p, "--version").Output()
+	if err != nil {
+		need("tshark --version: " + err.Error())
+	}
+	var major, minor int
+	if i := strings.Index(string(out), "TShark (Wireshark) "); i >= 0 {
+		_, _ = fmt.Sscanf(string(out[i+len("TShark (Wireshark) "):]), "%d.%d", &major, &minor)
+	}
+	if major < 4 || major == 4 && minor < 4 {
+		need(fmt.Sprintf("tshark %d.%d does not dissect CAN XL: Wireshark 4.4 or later needed", major, minor))
 	}
 	return p
 }
