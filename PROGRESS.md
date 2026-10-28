@@ -3,13 +3,13 @@
 Durable state of the CAN bus ecosystem work (go-canbus, canbus-interop,
 canbusctl). Newest first within each section.
 
-## Status (2026-10-28): v0.5 in release
+## Status (2026-10-28): v0.5 released
 
 | Repo | Release | Notes |
 |------|---------|-------|
 | go-canbus | v0.5.0 | v0.5.0: CAN XL (XLFrame, SocketCAN XL sockets, candump/JSONL traces), interop vs canbus-interop v0.5.0: 170 pass / 0 fail / 13 skip / 132 known; coverage 92.9 %. v0.4.0: slcan adapter status records as error frames (kernel-identical), multiplexed ARXML I-PDUs, go-serial v0.1.7, Subscription.Received fix; interop vs canbus-interop v0.4.0: 167 pass / 0 fail / 4 capability skips / 132 known. v0.3.0: slcan transport (any OS, go-serial), PEAK TRC; interop vs canbus-interop v0.3.0: 163 pass / 0 fail / 4 capability skips; coverage 92.8 %. v0.2.2: Bus WithStartOnSubscribe (no frames lost before the first Subscribe); ASC/BLF, ARXML, KCD writer, chaos + e2e suites, kernel ISO-TP fixes; interop vs canbus-interop v0.2.0: 145 pass / 0 fail / 4 capability skips; coverage 92.3 % |
 | canbus-interop | v0.5.0 | v0.5.0: contract 1.3 (CAN XL: canutils, Linux ≥ 6.9), xl.jsonl, suite xl; canutils counts accepted frames (candump -L). v0.4.0: multiplexed.arxml fixture, cantools probe (canmatrix known); contract 1.2 (pythoncan slcan interfaces, pyserial 3.5; ISO-TP adapter 1 MiB rcvbuf); v0.2.0: contract 1.1 (log-convert, ARXML); self-test 341 pass / 0 fail; weekly upstream pin check; ISO-TP in a microVM on amd64 |
-| canbusctl | v0.4.0 | v0.4.0: --errors delivers error frames (monitor, record), slcan status records, multiplexed ARXML; interop vs canbus-interop v0.4.0: 86 pass / 76 known / 0 skip; coverage 94.4 % (Linux, vcan). v0.3.0: slcan adapters (-i slcan:<device> or slcan:tcp://), listen-only passive commands, TRC; kernel-slcan e2e in microVMs; interop 84 pass / 27 known / 0 skip; coverage 92.4 %. v0.2.2: on go-canbus v0.2.2 (buses read from the first subscription on); v0.2.1: deadline workarounds removed; v0.2.0: trace convert/info, ARXML, KCD output, bridge (chaos), --fc-delay; interop 63 pass / 0 fail (27 known differences); coverage 92.2 % (macOS) |
+| canbusctl | v0.5.0 | v0.5.0: xl send, xl monitor (CAN XL on SocketCAN; candump/JSONL output); interop vs canbus-interop v0.5.0: 88 pass / 6 skip / 76 known; coverage 94.1 %. v0.4.0: --errors delivers error frames (monitor, record), slcan status records, multiplexed ARXML; interop vs canbus-interop v0.4.0: 86 pass / 76 known / 0 skip; coverage 94.4 % (Linux, vcan). v0.3.0: slcan adapters (-i slcan:<device> or slcan:tcp://), listen-only passive commands, TRC; kernel-slcan e2e in microVMs; interop 84 pass / 27 known / 0 skip; coverage 92.4 %. v0.2.2: on go-canbus v0.2.2 (buses read from the first subscription on); v0.2.1: deadline workarounds removed; v0.2.0: trace convert/info, ARXML, KCD output, bridge (chaos), --fc-delay; interop 63 pass / 0 fail (27 known differences); coverage 92.2 % (macOS) |
 
 ## Decisions
 
@@ -57,6 +57,8 @@ canbusctl). Newest first within each section.
   the alternatives' own selector mapping dropped); canmatrix 1.3.3 reads
   only the selector, so cantools is the only oracle (canbus-interop v0.4.0
   probes it against hand-worked frames).
+- Release workflow does not rename CHANGELOG "Unreleased": rename it to
+  the version in the release PR (missed for v0.4.0 and v0.5.0, fixed after).
 - Merging: list every check (`gh pr checks N`) and look at each non-pass,
   including codecov/patch, before merging; never chain a merge after a
   summary in the same command.

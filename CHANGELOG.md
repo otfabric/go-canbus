@@ -2,7 +2,7 @@
 
 Release notes with details are in [RELEASE.md](RELEASE.md).
 
-## Unreleased
+## v0.5.0 (2026-10-28)
 
 CAN XL: `canbus.XLFrame` with can-utils notation; SocketCAN CAN XL sockets
 (`socketcan.WithXL`, `WithVCIDFilter`, `Conn.SendXL`, `ReceiveXL`,
