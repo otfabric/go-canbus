@@ -40,9 +40,12 @@ jobs:
           if lsmod | grep -q can_isotp; then echo "isotp=1" >> "$GITHUB_OUTPUT"; fi
           sudo ip link add vcan0 type vcan
           sudo ip link set vcan0 mtu 72 up
+          sudo ip link add vcanxl0 type vcan
+          sudo ip link set vcanxl0 mtu 2060 up
       - name: Interop suite
         env:
           CANBUS_REQUIRE_ISOTP: ${{ steps.modules.outputs.isotp }}
+          CANBUS_REQUIRE_XL: "1"
         run: make interop
       - name: Summary
         if: always()

@@ -82,9 +82,10 @@ test-admin: ## Run the netlink administration tests (Linux, needs sudo)
 	@go test -c -o $(BIN_DIR)/slcan.test ./slcan
 	@cd slcan && sudo CANBUS_TEST_ADMIN=1 $(CURDIR)/$(BIN_DIR)/slcan.test -test.v -test.run TestKernelSlcan
 
-vcan-setup: ## Create vcan0 and vcan1 (CAN FD MTU) and load the CAN modules (Linux, sudo)
+vcan-setup: ## Create vcan0 and vcan1 (CAN FD MTU) and vcanxl0 (CAN XL MTU, Linux ≥ 6.2); load the CAN modules (Linux, sudo)
 	@sudo modprobe vcan; sudo modprobe can-isotp || true
 	@for i in vcan0 vcan1; do ip link show $$i >/dev/null 2>&1 || sudo ip link add $$i type vcan; sudo ip link set $$i mtu 72 up; done
+	@ip link show vcanxl0 >/dev/null 2>&1 || sudo ip link add vcanxl0 type vcan; sudo ip link set vcanxl0 mtu 2060 up || echo "no CAN XL (Linux < 6.2): CAN XL tests skip"
 
 KERNEL ?= v6.12
 microvm: ## Run the SocketCAN tests in a microVM with a mainline kernel (Linux with KVM, virtme-ng; KERNEL=v6.12)
@@ -117,6 +118,7 @@ bench: ## Run the benchmarks
 FUZZTIME ?= 30s
 fuzz: ## Run every fuzz target for FUZZTIME (default 30s)
 	@go test -run='^$$' -fuzz='^FuzzFilter$$' -fuzztime=$(FUZZTIME) .
+	@go test -run='^$$' -fuzz='^FuzzParseXLFrame$$' -fuzztime=$(FUZZTIME) .
 	@go test -run='^$$' -fuzz='^FuzzUnmarshal$$' -fuzztime=$(FUZZTIME) ./socketcan
 	@go test -run='^$$' -fuzz='^FuzzParseLink$$' -fuzztime=$(FUZZTIME) ./socketcan/link
 	@go test -run='^$$' -fuzz='^FuzzParseFrame$$' -fuzztime=$(FUZZTIME) ./capture

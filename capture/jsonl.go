@@ -87,6 +87,64 @@ func (r *Record) Frame(f *canbus.Frame) error {
 	return f.Validate()
 }
 
+// XLRecord is one CAN XL line of a JSON Lines capture (type "xlframe").
+type XLRecord struct {
+	Type      string `json:"type"` // "xlframe"
+	Timestamp string `json:"timestamp,omitempty"`
+	Interface string `json:"interface,omitempty"`
+	Priority  uint16 `json:"priority"`
+	VCID      uint8  `json:"vcid,omitempty"`
+	SEC       bool   `json:"sec,omitempty"`
+	RRS       bool   `json:"rrs,omitempty"`
+	SDT       uint8  `json:"sdt"`
+	AF        uint32 `json:"af"`
+	Len       int    `json:"len"`
+	Data      string `json:"data"` // lower-case hex of the payload
+	Echo      bool   `json:"echo,omitempty"`
+}
+
+// ToXLRecord converts a CAN XL frame.
+func ToXLRecord(x *canbus.XLFrame) XLRecord {
+	r := XLRecord{Type: "xlframe", Interface: x.Interface, Priority: x.Priority, VCID: x.VCID,
+		SEC: x.Flags&canbus.XLSEC != 0, RRS: x.Flags&canbus.XLRRS != 0, SDT: x.SDT, AF: x.AF,
+		Len: len(x.Data), Data: hex.EncodeToString(x.Data), Echo: x.Echo}
+	if !x.Timestamp.IsZero() {
+		r.Timestamp = fmt.Sprintf("%d.%09d", x.Timestamp.Unix(), x.Timestamp.Nanosecond())
+	}
+	return r
+}
+
+// XLFrame converts a record back to a CAN XL frame and validates it.
+func (r *XLRecord) XLFrame(x *canbus.XLFrame) error {
+	g := canbus.XLFrame{Priority: r.Priority, VCID: r.VCID, SDT: r.SDT, AF: r.AF, Interface: r.Interface, Echo: r.Echo}
+	if r.SEC {
+		g.Flags |= canbus.XLSEC
+	}
+	if r.RRS {
+		g.Flags |= canbus.XLRRS
+	}
+	if r.Timestamp != "" {
+		t, err := parseTimestamp(r.Timestamp)
+		if err != nil {
+			return err
+		}
+		g.Timestamp = t
+	}
+	data, err := hex.DecodeString(r.Data)
+	if err != nil {
+		return fmt.Errorf("bad data: %v", err)
+	}
+	if len(data) != r.Len {
+		return fmt.Errorf("data has %d bytes, len says %d", len(data), r.Len)
+	}
+	g.Data = data
+	if err := g.Validate(); err != nil {
+		return err
+	}
+	*x = g
+	return nil
+}
+
 // JSONLReader reads JSON Lines captures.
 type JSONLReader struct {
 	s    *bufio.Scanner
@@ -100,39 +158,74 @@ func NewJSONLReader(r io.Reader) *JSONLReader {
 	return &JSONLReader{s: s}
 }
 
-// Read reads the next frame, skipping blank lines and the header.
+// Read reads the next CAN or CAN FD frame, skipping blank lines, the
+// header and CAN XL records (use [JSONLReader.ReadAny] for those).
 func (r *JSONLReader) Read(f *canbus.Frame) error {
+	for {
+		xl, err := r.ReadAny(f, nil)
+		if err != nil || !xl {
+			return err
+		}
+	}
+}
+
+// ReadAny reads the next frame of any kind: a "frame" record into f (xl
+// false) or an "xlframe" record into x (xl true). With x nil a CAN XL
+// record is reported without being decoded.
+func (r *JSONLReader) ReadAny(f *canbus.Frame, x *canbus.XLFrame) (xl bool, err error) {
 	for r.s.Scan() {
 		r.line++
 		line := strings.TrimSpace(r.s.Text())
 		if line == "" {
 			continue
 		}
+		perr := func(msg string) error { return &ParseError{Format: FormatJSONL, Line: r.line, Msg: msg} }
+		var kind struct {
+			Type string `json:"type"`
+		}
+		if err := json.Unmarshal([]byte(line), &kind); err != nil {
+			return false, perr(err.Error())
+		}
+		if kind.Type == "xlframe" {
+			if x == nil {
+				return true, nil
+			}
+			var rec XLRecord
+			dec := json.NewDecoder(strings.NewReader(line))
+			dec.DisallowUnknownFields()
+			if err := dec.Decode(&rec); err != nil {
+				return true, perr(err.Error())
+			}
+			if err := rec.XLFrame(x); err != nil {
+				return true, perr(err.Error())
+			}
+			return true, nil
+		}
 		var rec Record
 		dec := json.NewDecoder(strings.NewReader(line))
 		dec.DisallowUnknownFields()
 		if err := dec.Decode(&rec); err != nil {
-			return &ParseError{Format: FormatJSONL, Line: r.line, Msg: err.Error()}
+			return false, perr(err.Error())
 		}
 		switch rec.Type {
 		case "header":
 			if rec.Version != SchemaVersion {
-				return &ParseError{Format: FormatJSONL, Line: r.line, Msg: fmt.Sprintf("unsupported version %d", rec.Version)}
+				return false, perr(fmt.Sprintf("unsupported version %d", rec.Version))
 			}
 			continue
 		case "frame":
 		default:
-			return &ParseError{Format: FormatJSONL, Line: r.line, Msg: fmt.Sprintf("unknown record type %q", rec.Type)}
+			return false, perr(fmt.Sprintf("unknown record type %q", rec.Type))
 		}
 		if err := rec.Frame(f); err != nil {
-			return &ParseError{Format: FormatJSONL, Line: r.line, Msg: err.Error()}
+			return false, perr(err.Error())
 		}
-		return nil
+		return false, nil
 	}
 	if err := r.s.Err(); err != nil {
-		return err
+		return false, err
 	}
-	return io.EOF
+	return false, io.EOF
 }
 
 // JSONLWriter writes JSON Lines captures, starting with a header line.
@@ -150,17 +243,30 @@ func NewJSONLWriter(w io.Writer) *JSONLWriter {
 
 // Write writes one frame record.
 func (w *JSONLWriter) Write(f *canbus.Frame) error {
-	if !w.header {
-		w.header = true
-		hdr := struct {
-			Type    string `json:"type"`
-			Version int    `json:"version"`
-		}{"header", SchemaVersion}
-		if err := w.enc.Encode(hdr); err != nil {
-			return err
-		}
+	if err := w.writeHeader(); err != nil {
+		return err
 	}
 	return w.enc.Encode(ToRecord(f))
+}
+
+// WriteXL writes one CAN XL record.
+func (w *JSONLWriter) WriteXL(x *canbus.XLFrame) error {
+	if err := w.writeHeader(); err != nil {
+		return err
+	}
+	return w.enc.Encode(ToXLRecord(x))
+}
+
+func (w *JSONLWriter) writeHeader() error {
+	if w.header {
+		return nil
+	}
+	w.header = true
+	hdr := struct {
+		Type    string `json:"type"`
+		Version int    `json:"version"`
+	}{"header", SchemaVersion}
+	return w.enc.Encode(hdr)
 }
 
 // Close flushes the output.

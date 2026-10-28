@@ -23,7 +23,13 @@ modprobe -a can can-raw vcan vxcan can-isotp can-gw slcan
 # userspace ISO-TP receiver at STmin 0).
 sysctl -qw net.core.rmem_max=4194304
 for i in vcan0 vcan1; do ip link add \$i type vcan && ip link set \$i mtu 72 up; done
-cd $PWD/socketcan && CANBUS_REQUIRE_VCAN=1 CANBUS_REQUIRE_ISOTP=1 $out/socketcan.test -test.count=1
+# CAN XL exists from Linux 6.2 on: required there, absent before.
+xl=0
+if [ "\$(printf '%s\n6.2\n' "\$(uname -r | cut -d- -f1)" | sort -V | head -1)" = 6.2 ]; then
+  ip link add vcanxl0 type vcan && ip link set vcanxl0 mtu 2060 up && xl=1
+fi
+cd $PWD/socketcan && CANBUS_REQUIRE_VCAN=1 CANBUS_REQUIRE_ISOTP=1 CANBUS_REQUIRE_XL=\$xl $out/socketcan.test -test.count=1
+cd $PWD/socketcan && $out/socketcan.test -test.count=1 -test.v -test.run XL | grep -E '^(--- |ok|PASS|FAIL)' 
 cd $PWD/socketcan/link && CANBUS_REQUIRE_VCAN=1 CANBUS_TEST_ADMIN=1 $out/link.test -test.count=1
 cd $PWD/slcan && CANBUS_TEST_ADMIN=1 CANBUS_REQUIRE_SLCAN=1 $out/slcan.test -test.count=1
 cd $PWD/chaos && CANBUS_REQUIRE_VCAN=1 CANBUS_REQUIRE_ISOTP=1 $out/chaos.test -test.count=1 -test.run MonkeyKernel

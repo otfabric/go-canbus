@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/otfabric/go-canbus/schemas/capture-v1.schema.json",
   "title": "go-canbus JSON Lines capture record, version 1",
-  "description": "One JSON object per line. An optional first line is a header; every other line is a frame. Lossless representation of github.com/otfabric/go-canbus Frame values.",
+  "description": "One JSON object per line. An optional first line is a header; every other line is a frame (CAN, CAN FD) or an xlframe (CAN XL). Lossless representation of github.com/otfabric/go-canbus Frame and XLFrame values.",
   "oneOf": [
     {
       "type": "object",
@@ -32,6 +32,25 @@
         "len8dlc": {"type": "integer", "minimum": 0, "maximum": 15, "description": "Raw DLC 9..15 of a classical frame with 8 bytes."},
         "data": {"type": "string", "pattern": "^([0-9a-f]{2}){0,64}$"},
         "echo": {"type": "boolean", "description": "The frame was the recording socket's own transmission."}
+      }
+    },
+    {
+      "type": "object",
+      "required": ["type", "priority", "sdt", "af", "len", "data"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {"const": "xlframe"},
+        "timestamp": {"type": "string", "pattern": "^[0-9]+(\\.[0-9]{1,9})?$", "description": "Seconds since the Unix epoch; written with 9 fractional digits."},
+        "interface": {"type": "string"},
+        "priority": {"type": "integer", "minimum": 0, "maximum": 2047, "description": "11-bit CAN XL priority."},
+        "vcid": {"type": "integer", "minimum": 0, "maximum": 255, "description": "Virtual CAN network identifier (0 = none)."},
+        "sec": {"type": "boolean", "description": "Simple extended content flag."},
+        "rrs": {"type": "boolean", "description": "Remote request substitution flag."},
+        "sdt": {"type": "integer", "minimum": 0, "maximum": 255, "description": "SDU type."},
+        "af": {"type": "integer", "minimum": 0, "maximum": 4294967295, "description": "Acceptance field."},
+        "len": {"type": "integer", "minimum": 1, "maximum": 2048},
+        "data": {"type": "string", "pattern": "^([0-9a-f]{2}){1,2048}$", "description": "Lower-case hex of the payload."},
+        "echo": {"type": "boolean"}
       }
     }
   ]

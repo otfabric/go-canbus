@@ -54,16 +54,19 @@ jobs:
           scripts/ci-can-modules.sh
           if lsmod | grep -q can_isotp; then echo "isotp=1" >> "$GITHUB_OUTPUT"; fi
           for i in vcan0 vcan1; do sudo ip link add $i type vcan; sudo ip link set $i mtu 72 up; done
+          sudo ip link add vcanxl0 type vcan && sudo ip link set vcanxl0 mtu 2060 up
           ip -d link show vcan0
       - name: Tests with the race detector
         env:
           CANBUS_REQUIRE_ISOTP: ${{ steps.modules.outputs.isotp }}
+          CANBUS_REQUIRE_XL: "1"
         run: make test-vcan
       - name: Netlink administration tests (root)
         run: make test-admin
       - name: Coverage (minimum 90 %)
         env:
           CANBUS_REQUIRE_ISOTP: ${{ steps.modules.outputs.isotp }}
+          CANBUS_REQUIRE_XL: "1"
         run: make coverage-check
       - name: Upload to Codecov
         if: matrix.arch == 'amd64'

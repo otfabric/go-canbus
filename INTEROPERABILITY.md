@@ -47,7 +47,10 @@ python-can. Against canbus-interop v0.4.0 (contract 1.2, 2026-10-28): **167 pass
 0 failed, 4 skipped**, 132 known-difference records; the addition is
 multiplexed ARXML PDUs with cantools (canmatrix 1.3.3 reads only their
 selector: recorded as known, as are cantools' rejections of undescribed
-selector values).
+selector values). Against canbus-interop v0.5.0 (contract 1.3, 2026-10-28):
+**170 passed, 0 failed, 13 skipped**, 132 known-difference records; the
+additions are CAN XL with can-utils (both directions and a candump
+capture); the 9 new skips are the stacks without CAN XL.
 
 | Area | Scenario | can-utils / kernel | python-can | socketcan-rs | Scapy | python-can-isotp | cantools | canmatrix |
 |------|----------|---|---|---|---|---|---|---|
@@ -55,6 +58,8 @@ selector values).
 | Raw CAN | stack → go: the same plus error frames | pass | pass | pass | pass | | | |
 | Raw CAN | 2000-frame burst both ways, order and loss | pass | pass | pass | pass | | | |
 | Raw CAN | multiple consumers at once (all stacks + 2 Bus subscriptions) | pass | pass | pass | pass | | | |
+| CAN XL | go → stack and stack → go: priorities 0 and 0x7FF, SEC and RRS, SDT, AF, VCIDs 0x42 and 0xFF, 1..2048 bytes (contract 1.3, `vcanxl0`) | pass | skip⁴ | skip⁴ | skip⁴ | | | |
+| CAN XL | stack captures go-canbus's CAN XL and CAN frames to a candump log; go-canbus reads it back, and candump's text of each frame equals `XLFrame.String` | pass | skip⁴ | skip⁴ | skip⁴ | | | |
 | Capture | stack candump log → go reader; go writer → stack replay | pass | pass | skip¹ | skip¹ | | | |
 | ISO-TP | go → stack and stack → go, 1..4095 bytes: normal, 29-bit, extended addressing, mixed addressing, padding, BS/STmin, CAN FD (TX_DL 64 and 16) | pass (16) | | | | pass (16) | | |
 | ISO-TP | go receiver answers OVERFLOW, stack sender fails | pass | | | | pass | | |
@@ -71,6 +76,7 @@ selector values).
 
 ¹ The stack's adapter has no capture/replay operation (capability).
 ² With the known differences below.
+⁴ No CAN XL in the stack (python-can 4.6.1, socketcan-rs, Scapy): capability `xl` absent.
 ³ canmatrix 1.3.3 reads only the selector of a multiplexed I-PDU: recorded as known, checked against cantools.
 
 ## Known differences

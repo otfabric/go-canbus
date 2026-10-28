@@ -52,6 +52,7 @@ type Capabilitier interface {
 // Capabilities describes what a transport supports.
 type Capabilities struct {
 	FD            bool // sends and receives CAN FD frames
+	XL            bool // sends and receives CAN XL frames ([XLFrame])
 	ErrorFrames   bool // can deliver error frames
 	KernelFilters bool // filters before delivery (Filterer)
 	Timestamps    bool // frames carry receive timestamps

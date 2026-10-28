@@ -4,6 +4,16 @@ Release notes with details are in [RELEASE.md](RELEASE.md).
 
 ## Unreleased
 
+CAN XL: `canbus.XLFrame` with can-utils notation; SocketCAN CAN XL sockets
+(`socketcan.WithXL`, `WithVCIDFilter`, `Conn.SendXL`, `ReceiveXL`,
+`ReceiveAny`; Linux ≥ 6.2, VCIDs ≥ 6.9); CAN XL in candump logs and JSON
+Lines captures (`capture.XLReader`, `XLWriter`); `Capabilities.XL`.
+Checked against the Linux kernel on vcan and against can-utils (cansend,
+candump) through canbus-interop v0.5.0 (contract 1.3). Example
+`examples/canxl`.
+
+## v0.4.0 (2026-10-28)
+
 ARXML MULTIPLEXED-I-PDUs (static and dynamic parts, Intel and Motorola
 selectors), read as cantools reads them; checked against cantools with
 canbus-interop's multiplexed.arxml fixture.

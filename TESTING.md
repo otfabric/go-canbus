@@ -7,6 +7,7 @@
 | Unit and property tests, race detector | any OS | `make test` |
 | SocketCAN, netlink, kernel ISO-TP on vcan | Linux with `vcan0` (MTU ≥ 72) | `make vcan-setup test-vcan`, `make test-admin` (root) |
 | slcan against the Linux kernel's slcan driver (a pty with the N_SLCAN line discipline) | Linux, root, `slcan` module | `make test-admin`; the microVMs require it (`CANBUS_REQUIRE_SLCAN=1`). slcan over real ptys with go-serial: `make test` (Linux, macOS) |
+| CAN XL on vcan: send, receive, mixed CAN/CAN FD/CAN XL order, echo, VCID pass-through and filter | Linux ≥ 6.2 with `vcanxl0` (MTU 2060; VCIDs need ≥ 6.9) | `make vcan-setup test-vcan`; CI and the microVMs on kernels ≥ 6.2 require it (`CANBUS_REQUIRE_XL=1`) |
 | Coverage gate (90 %) | Linux with vcan0 | `make coverage-check` |
 | Fuzzing | any OS | `make fuzz FUZZTIME=30s` |
 | Golden code generation | any OS | `make generate-check` |

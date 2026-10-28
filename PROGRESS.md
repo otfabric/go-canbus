@@ -3,12 +3,12 @@
 Durable state of the CAN bus ecosystem work (go-canbus, canbus-interop,
 canbusctl). Newest first within each section.
 
-## Status (2026-10-28): v0.4 released
+## Status (2026-10-28): v0.5 in release
 
 | Repo | Release | Notes |
 |------|---------|-------|
-| go-canbus | v0.4.0 | v0.4.0: slcan adapter status records as error frames (kernel-identical), multiplexed ARXML I-PDUs, go-serial v0.1.7, Subscription.Received fix; interop vs canbus-interop v0.4.0: 167 pass / 0 fail / 4 capability skips / 132 known. v0.3.0: slcan transport (any OS, go-serial), PEAK TRC; interop vs canbus-interop v0.3.0: 163 pass / 0 fail / 4 capability skips; coverage 92.8 %. v0.2.2: Bus WithStartOnSubscribe (no frames lost before the first Subscribe); ASC/BLF, ARXML, KCD writer, chaos + e2e suites, kernel ISO-TP fixes; interop vs canbus-interop v0.2.0: 145 pass / 0 fail / 4 capability skips; coverage 92.3 % |
-| canbus-interop | v0.4.0 | v0.4.0: multiplexed.arxml fixture, cantools probe (canmatrix known); contract 1.2 (pythoncan slcan interfaces, pyserial 3.5; ISO-TP adapter 1 MiB rcvbuf); v0.2.0: contract 1.1 (log-convert, ARXML); self-test 341 pass / 0 fail; weekly upstream pin check; ISO-TP in a microVM on amd64 |
+| go-canbus | v0.5.0 | v0.5.0: CAN XL (XLFrame, SocketCAN XL sockets, candump/JSONL traces), interop vs canbus-interop v0.5.0: 170 pass / 0 fail / 13 skip / 132 known; coverage 92.9 %. v0.4.0: slcan adapter status records as error frames (kernel-identical), multiplexed ARXML I-PDUs, go-serial v0.1.7, Subscription.Received fix; interop vs canbus-interop v0.4.0: 167 pass / 0 fail / 4 capability skips / 132 known. v0.3.0: slcan transport (any OS, go-serial), PEAK TRC; interop vs canbus-interop v0.3.0: 163 pass / 0 fail / 4 capability skips; coverage 92.8 %. v0.2.2: Bus WithStartOnSubscribe (no frames lost before the first Subscribe); ASC/BLF, ARXML, KCD writer, chaos + e2e suites, kernel ISO-TP fixes; interop vs canbus-interop v0.2.0: 145 pass / 0 fail / 4 capability skips; coverage 92.3 % |
+| canbus-interop | v0.5.0 | v0.5.0: contract 1.3 (CAN XL: canutils, Linux ≥ 6.9), xl.jsonl, suite xl; canutils counts accepted frames (candump -L). v0.4.0: multiplexed.arxml fixture, cantools probe (canmatrix known); contract 1.2 (pythoncan slcan interfaces, pyserial 3.5; ISO-TP adapter 1 MiB rcvbuf); v0.2.0: contract 1.1 (log-convert, ARXML); self-test 341 pass / 0 fail; weekly upstream pin check; ISO-TP in a microVM on amd64 |
 | canbusctl | v0.4.0 | v0.4.0: --errors delivers error frames (monitor, record), slcan status records, multiplexed ARXML; interop vs canbus-interop v0.4.0: 86 pass / 76 known / 0 skip; coverage 94.4 % (Linux, vcan). v0.3.0: slcan adapters (-i slcan:<device> or slcan:tcp://), listen-only passive commands, TRC; kernel-slcan e2e in microVMs; interop 84 pass / 27 known / 0 skip; coverage 92.4 %. v0.2.2: on go-canbus v0.2.2 (buses read from the first subscription on); v0.2.1: deadline workarounds removed; v0.2.0: trace convert/info, ARXML, KCD output, bridge (chaos), --fc-delay; interop 63 pass / 0 fail (27 known differences); coverage 92.2 % (macOS) |
 
 ## Decisions
@@ -60,6 +60,12 @@ canbusctl). Newest first within each section.
 - Merging: list every check (`gh pr checks N`) and look at each non-pass,
   including codecov/patch, before merging; never chain a merge after a
   summary in the same command.
+- CAN XL: XLFrame is separate from Frame (2048-byte payload as a slice;
+  Frame stays an allocation-free value). Kernel: CAN_RAW_XL_FRAMES implies
+  FD, frame size must be 12 + len, VCID-tagged frames are dropped unless
+  CAN_RAW_XL_VCID_OPTS (6.9+) says otherwise; go-canbus sets TX_PASS and an
+  all-VCID RX filter like cansend/candump. can-utils v2025.01 cansend fails
+  on any XL-MTU interface before 6.9. A new vcan has MTU 2060 since 6.2.
 - Known differences (not defects): cantools rejects multiplexer values that
   select no signal; canmatrix rejects payloads longer than the message and
   cannot encode extended multiplexing.
@@ -77,7 +83,7 @@ canbusctl). Newest first within each section.
 1. go-serial v0.1.7 is tagged (the fix is on main) but has no GitHub
    release entry yet: publishing it needs the owner (the release workflow
    computes its own tag).
-2. Next phase: CAN XL (frames, SocketCAN XL sockets, vcan with XL MTU),
-   vendor transports (PEAK, Kvaser), CANopen/J1939/UDS modules on
-   canbus.Bus and isotp.
+2. Next phase: CAN XL beyond raw sockets (pcapng/Wireshark traces, the
+   virtual bus, a Bus for CAN XL), vendor transports (PEAK, Kvaser),
+   CANopen/J1939/UDS modules on canbus.Bus and isotp.
 3. otfabric.io: the owner's, after approval (docs/WEBSITE-INTEGRATION.md).
