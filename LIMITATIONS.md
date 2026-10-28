@@ -11,11 +11,21 @@
 
 ## Not implemented
 
-- CAN XL beyond SocketCAN raw sockets: a `canbus.Bus`, the virtual bus,
-  slcan, ISO-TP and the message databases carry classical and CAN FD frames
-  only; of the trace formats, candump logs and JSON Lines carry CAN XL
-  (pcap, pcapng, ASC, BLF and TRC do not). VCID pass-through and filters
-  need Linux ≥ 6.9; earlier kernels (6.2..6.8) ignore VCIDs.
+- CAN XL on slcan, ISO-TP and in the message databases (DBC, KCD, ARXML):
+  they carry classical and CAN FD frames only. Of the trace formats,
+  candump logs, JSON Lines, pcap and pcapng carry CAN XL; ASC, BLF and TRC
+  do not. SocketCAN, the virtual bus, `canbus.Bus`, replay and the chaos
+  bridge carry it. VCID pass-through and filters need Linux ≥ 6.9; earlier
+  kernels (6.2..6.8) ignore VCIDs.
+- A `canbus.Subscription` opened `WithXL` has no `Frames()` channel (its
+  queue holds every kind): read it with `ReceiveAny`.
+- pcap and pcapng do not keep the echo mark (`Echo`); pcap keeps no
+  interface name. Wireshark dissects CAN XL from 4.4 on: 4.2 (Ubuntu
+  24.04's) shows CAN XL frames, libpcap's own captures included, as
+  malformed CAN frames. libpcap before 1.10.6 alters CAN FD and CAN XL
+  captures on Linux: 1.10.4 (Ubuntu 24.04's tcpdump) writes the CAN FD
+  flags as 0 (BRS and ESI lost) and clears bit 2 of a CAN XL frame's SDT
+  type. Such files read as captured; the bits are not recoverable.
 - Hardware adapters other than SocketCAN and slcan (PEAK PCAN-Basic,
   Kvaser CANlib, Vector XL; gs_usb is covered by SocketCAN on Linux).
   Implement `canbus.Transport` to add one.

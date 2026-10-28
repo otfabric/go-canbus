@@ -41,11 +41,16 @@ const DefaultQueueSize = 1024
 // and closed at any time, also while frames arrive. A frame read while no
 // subscription exists reaches nobody: to receive from the first frame on,
 // create the bus with [WithStartOnSubscribe].
+//
+// On an [XLTransport] the bus also carries CAN XL frames: [Bus.SendXL]
+// sends them and subscriptions opened [WithXL] receive them.
 type Bus struct {
-	t       Transport
-	iface   string
-	log     *slog.Logger
-	metrics Metrics
+	t         Transport
+	xt        XLTransport // t, when it carries CAN XL
+	iface     string
+	log       *slog.Logger
+	metrics   Metrics
+	xlMetrics XLMetrics // metrics, when it observes CAN XL
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -115,6 +120,8 @@ func NewBus(t Transport, opts ...Option) (*Bus, error) {
 	if b.metrics == nil {
 		b.metrics = NopMetrics{}
 	}
+	b.xlMetrics, _ = b.metrics.(XLMetrics)
+	b.xt, _ = t.(XLTransport)
 	empty := []*Subscription{}
 	b.subs.Store(&empty)
 	b.ctx, b.cancel = context.WithCancel(context.Background())
@@ -155,6 +162,36 @@ func (b *Bus) Send(ctx context.Context, f *Frame) error {
 	b.txFrames.Add(1)
 	b.txBytes.Add(uint64(len(f.Payload())))
 	b.metrics.OnFrameSent(b.iface, f)
+	return nil
+}
+
+// SendXL validates a CAN XL frame and transmits it. It fails with
+// [ErrUnsupported] when the transport does not carry CAN XL (is not an
+// [XLTransport]). It is safe for concurrent use.
+func (b *Bus) SendXL(ctx context.Context, x *XLFrame) error {
+	if err := x.Validate(); err != nil {
+		return err
+	}
+	if b.xt == nil {
+		return fmt.Errorf("%w: the transport does not carry CAN XL frames", ErrUnsupported)
+	}
+	select {
+	case <-b.ctx.Done():
+		return ErrClosed
+	default:
+	}
+	if err := b.xt.SendXL(ctx, x); err != nil {
+		if ctx.Err() == nil || !errors.Is(err, ctx.Err()) {
+			b.txErrors.Add(1)
+			b.metrics.OnError(b.iface, "send", err)
+		}
+		return err
+	}
+	b.txFrames.Add(1)
+	b.txBytes.Add(uint64(len(x.Data)))
+	if b.xlMetrics != nil {
+		b.xlMetrics.OnXLFrameSent(b.iface, x)
+	}
 	return nil
 }
 
@@ -214,11 +251,18 @@ func (b *Bus) run() {
 	defer close(b.done)
 	defer b.closeSubs()
 	var f Frame
+	var x XLFrame
 	var lastDrops uint64
 	dc, hasDrops := b.t.(DropCounter)
 	backoff := time.Duration(0)
 	for {
-		err := b.t.Receive(b.ctx, &f)
+		var xl bool
+		var err error
+		if b.xt != nil {
+			xl, err = b.xt.ReceiveAny(b.ctx, &f, &x)
+		} else {
+			err = b.t.Receive(b.ctx, &f)
+		}
 		if hasDrops {
 			if n, reason := dc.Drops(); n > lastDrops {
 				d := n - lastDrops
@@ -259,6 +303,16 @@ func (b *Bus) run() {
 			b.setState(StateActive)
 		}
 		b.rxFrames.Add(1)
+		if xl {
+			b.rxBytes.Add(uint64(len(x.Data)))
+			if b.xlMetrics != nil {
+				b.xlMetrics.OnXLFrameReceived(b.iface, &x)
+			}
+			for _, s := range *b.subs.Load() {
+				s.deliverXL(&x)
+			}
+			continue
+		}
 		if f.Flags&FlagError != 0 {
 			b.rxErrors.Add(1)
 			b.trackErrorState(&f)
@@ -317,6 +371,17 @@ func WithFilters(fs FilterSet) SubscribeOption {
 	}
 }
 
+// WithXL makes the subscription receive CAN XL frames too: CAN, CAN FD
+// and CAN XL frames share its queue in arrival order and are read with
+// [Subscription.ReceiveAny] ([Subscription.Receive] and
+// [Subscription.ReceiveXL] skip the other kind; [Subscription.Frames] is
+// nil). The subscription's filters select CAN XL frames as Linux's
+// CAN_RAW_FILTER does ([FilterSet.MatchXL]). Without it, CAN XL frames are
+// not delivered, as to a SocketCAN socket without CAN_RAW_XL_FRAMES.
+func WithXL() SubscribeOption {
+	return func(s *Subscription) { s.xl = true }
+}
+
 // WithQueueSize sets the queue capacity (default [DefaultQueueSize]).
 func WithQueueSize(n int) SubscribeOption {
 	return func(s *Subscription) {
@@ -345,7 +410,11 @@ func (b *Bus) Subscribe(opts ...SubscribeOption) (*Subscription, error) {
 	for _, o := range opts {
 		o(s)
 	}
-	s.ch = make(chan Frame, s.capacity)
+	if s.xl {
+		s.ach = make(chan anyFrame, s.capacity)
+	} else {
+		s.ch = make(chan Frame, s.capacity)
+	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.err != nil {
@@ -374,16 +443,18 @@ func (b *Bus) unsubscribe(s *Subscription) {
 }
 
 // Subscription receives the frames of a [Bus] that pass its filters,
-// through a bounded queue. Receive and Frames may be used from one
-// goroutine at a time; Close and the counters from any.
+// through a bounded queue. Its receive methods and Frames may be used
+// from one goroutine at a time; Close and the counters from any.
 type Subscription struct {
 	bus      *Bus
 	filters  FilterSet
 	capacity int
 	overflow Overflow
 	noEcho   bool
+	xl       bool
 
-	ch       chan Frame
+	ch       chan Frame    // without WithXL
+	ach      chan anyFrame // WithXL: every kind, in arrival order
 	done     chan struct{}
 	endOnce  sync.Once
 	errMu    sync.Mutex
@@ -401,41 +472,73 @@ func (s *Subscription) deliver(f *Frame) {
 	}
 	// Count before queueing: a consumer that has the frame sees it counted.
 	s.received.Add(1)
+	var ok bool
+	if s.xl {
+		ok = enqueue(s, s.ach, anyFrame{f: *f})
+	} else {
+		ok = enqueue(s, s.ch, *f)
+	}
+	if !ok {
+		s.received.Add(^uint64(0))
+		return
+	}
+	s.bus.metrics.OnQueue(s.bus.iface, len(s.ch)+len(s.ach), s.capacity)
+}
+
+// anyFrame is a queued frame of a subscription opened WithXL: f, or the
+// CAN XL frame x (with its own payload).
+type anyFrame struct {
+	f  Frame
+	x  XLFrame
+	xl bool
+}
+
+func (s *Subscription) deliverXL(x *XLFrame) {
+	if !s.xl || (s.noEcho && x.Echo) || !s.filters.MatchXL(x) {
+		return
+	}
+	s.received.Add(1)
+	if !enqueue(s, s.ach, anyFrame{x: x.Clone(), xl: true}) { // the bus reader reuses x.Data
+		s.received.Add(^uint64(0))
+		return
+	}
+	s.bus.metrics.OnQueue(s.bus.iface, len(s.ach), s.capacity)
+}
+
+// enqueue queues v following the subscription's overflow policy. It
+// reports false when v was not queued.
+func enqueue[T any](s *Subscription, ch chan T, v T) bool {
 	switch s.overflow {
 	case Block:
 		select {
-		case s.ch <- *f:
+		case ch <- v:
+			return true
 		case <-s.done:
-			s.received.Add(^uint64(0))
-			return
 		case <-s.bus.ctx.Done():
-			s.received.Add(^uint64(0))
-			return
 		}
+		return false
 	case DropOldest:
 		for {
 			select {
-			case s.ch <- *f:
-				goto queued
+			case ch <- v:
+				return true
 			default:
 			}
 			select {
-			case <-s.ch:
+			case <-ch:
 				s.drop()
 			default:
 			}
 		}
 	default:
 		select {
-		case s.ch <- *f:
+		case ch <- v:
+			return true
 		default:
-			s.received.Add(^uint64(0))
 			s.drop()
-			return
+			return false
 		}
 	}
-queued:
-	s.bus.metrics.OnQueue(s.bus.iface, len(s.ch), s.capacity)
 }
 
 func (s *Subscription) drop() {
@@ -444,32 +547,85 @@ func (s *Subscription) drop() {
 	s.bus.metrics.OnDrop(s.bus.iface, DropQueueFull, 1)
 }
 
-// Receive returns the next frame. It returns the context's error when ctx
-// ends first, and, once the queue is empty, [ErrClosed] after Close or
-// the error that stopped the bus.
-func (s *Subscription) Receive(ctx context.Context) (Frame, error) {
+// receive takes the next value of a queue, like [Subscription.Receive].
+func receive[T any](ctx context.Context, s *Subscription, ch chan T) (T, error) {
+	var zero T
 	select {
-	case f := <-s.ch:
-		return f, nil
+	case v := <-ch:
+		return v, nil
 	default:
 	}
 	select {
-	case f := <-s.ch:
-		return f, nil
+	case v := <-ch:
+		return v, nil
 	case <-s.done:
 		select {
-		case f := <-s.ch:
-			return f, nil
+		case v := <-ch:
+			return v, nil
 		default:
-			return Frame{}, s.Err()
+			return zero, s.Err()
 		}
 	case <-ctx.Done():
-		return Frame{}, ctx.Err()
+		return zero, ctx.Err()
 	}
 }
 
+// Receive returns the next frame. It returns the context's error when ctx
+// ends first, and, once the queue is empty, [ErrClosed] after Close or
+// the error that stopped the bus. On a subscription opened [WithXL] it
+// skips CAN XL frames: use [Subscription.ReceiveAny].
+func (s *Subscription) Receive(ctx context.Context) (Frame, error) {
+	if !s.xl {
+		return receive(ctx, s, s.ch)
+	}
+	for {
+		a, err := receive(ctx, s, s.ach)
+		if err != nil || !a.xl {
+			return a.f, err
+		}
+	}
+}
+
+// ReceiveXL returns the next CAN XL frame of a subscription opened
+// [WithXL], like [Subscription.Receive], skipping CAN and CAN FD frames.
+// Without WithXL it returns [ErrUnsupported].
+func (s *Subscription) ReceiveXL(ctx context.Context) (XLFrame, error) {
+	if !s.xl {
+		return XLFrame{}, fmt.Errorf("%w: subscription opened without WithXL", ErrUnsupported)
+	}
+	for {
+		a, err := receive(ctx, s, s.ach)
+		if err != nil || a.xl {
+			return a.x, err
+		}
+	}
+}
+
+// ReceiveAny returns the next frame of any kind, in the order the bus
+// received them: a CAN or CAN FD frame in f (xl false) or a CAN XL frame
+// in x (xl true; x.Data is the subscription's copy, owned by the caller
+// afterwards). Without [WithXL] it is [Subscription.Receive] into f.
+func (s *Subscription) ReceiveAny(ctx context.Context, f *Frame, x *XLFrame) (xl bool, err error) {
+	if !s.xl {
+		*f, err = receive(ctx, s, s.ch)
+		return false, err
+	}
+	a, err := receive(ctx, s, s.ach)
+	if err != nil {
+		return false, err
+	}
+	if a.xl {
+		*x = a.x
+	} else {
+		*f = a.f
+	}
+	return a.xl, nil
+}
+
 // Frames returns the queue as a channel, for use in select statements
-// together with [Subscription.Done]. The channel is never closed.
+// together with [Subscription.Done]. The channel is never closed. A
+// subscription opened [WithXL] has none (nil): use
+// [Subscription.ReceiveAny].
 func (s *Subscription) Frames() <-chan Frame { return s.ch }
 
 // Done returns a channel closed when the subscription ends.

@@ -39,7 +39,7 @@ Status column: **done** = implemented and tested (test named), **partial**,
 | F-TP-5 | Kernel CAN_ISOTP adapter with the same configuration | done (TestKernelVersusUserspace) |
 | F-CA-1 | candump log read/write (classical, FD, RTR, error) | done (TestParseFrame, interop capture/replay) |
 | F-CA-2 | Lossless JSONL capture, versioned schema | done (TestRoundTrips) |
-| F-CA-3 | pcap LINKTYPE_CAN_SOCKETCAN read/write | done (TestPCAPVariants, TestPCAPNG) |
+| F-CA-3 | pcap LINKTYPE_CAN_SOCKETCAN read/write, pcapng read/write, CAN XL in both | done (TestPCAPVariants, TestPCAPNG, TestXLRoundTrip, TestRealCapture*, TestWireshark*, TestTcpdumpCapturesXL) |
 | F-CA-4 | Replay: original, scaled, maximum speed; filters, limits, rate limiting; streaming | done (TestReplay) |
 | F-DB-1 | Canonical model independent of DBC syntax | done |
 | F-DB-2 | DBC: messages, signals, Intel/Motorola, signed, scaling, units, limits, value tables, comments, attributes and defaults, senders/receivers, cycle time, float signals, CAN FD lengths, multiplexing and extended multiplexing | done (TestParseModel, interop DBC) |

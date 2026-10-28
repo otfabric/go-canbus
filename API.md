@@ -14,9 +14,11 @@ has every symbol; this is the map.
 | `Filter`, `FilterSet`, `ExactStandard`, `ExactExtended`, `ParseFilter`, `KernelID` | Identifier filters with `CAN_RAW_FILTER` semantics; `Filter.Kernel()` gives the kernel's `can_filter` |
 | `ErrorInfo`, `ParseError`, `NewErrorFrame`, `ErrorClass`, `ControllerStatus`, `ProtocolViolation` | Error frames |
 | `Transport` (+ optional `Filterer`, `Statser`, `DropCounter`, `Namer`, `Capabilitier`) | The transport contract |
+| `XLTransport` (`SendXL`, `ReceiveAny`), `XLKernelID`, `Filter.MatchXL`, `FilterSet.MatchXL`, `XLFrame.Clone` | CAN XL transports; filters select CAN XL frames as Linux's CAN_RAW_FILTER does (on VCID<<16 \| priority, as a standard identifier) |
 | `Bus`, `NewBus`, `WithLogger`, `WithMetrics`, `WithInterfaceName`, `WithStartOnSubscribe` | One transport shared by many users |
 | `Subscription`, `WithFilters`, `WithQueueSize`, `WithOverflow` (`DropNewest`, `DropOldest`, `Block`), `WithoutEcho` | Filtered, bounded receive queues |
-| `Metrics`, `NopMetrics`, `DropReason`, `State`, `Stats` | Observability |
+| `Bus.SendXL`, `WithXL`, `Subscription.ReceiveAny`, `ReceiveXL` | CAN XL through a bus on an `XLTransport`; a `WithXL` subscription has one queue of every kind in arrival order |
+| `Metrics`, `NopMetrics`, `XLMetrics`, `DropReason`, `State`, `Stats` | Observability |
 | Errors | see [ERRORS.md](ERRORS.md) |
 
 Concurrency: `Bus.Send` from any goroutine; one `Subscription.Receive`
@@ -59,10 +61,11 @@ DataBitrate, DataSamplePoint, Set, Clear, RestartMs})`, `Restart`,
 ## virtual
 
 `New(Config{Name, Seed, QueueSize, Clock})` → `*Bus` with `Open(...PortOption)`
-(`WithFD`, `WithRecvOwn`, `WithoutLoopback`, `WithQueueSize`,
-`WithBlocking`, `WithFilters`), `SetFaults(Faults{Drop, Duplicate, Delay,
-DelayBy, Corrupt, DropNext})`, `FaultStats`, `SetUp`, `Inject`,
-`InjectRaw`, `InjectError`, `Close`.
+(`WithFD`, `WithXL`, `WithVCIDFilter`, `WithRecvOwn`, `WithoutLoopback`,
+`WithQueueSize`, `WithBlocking`, `WithFilters`), `SetFaults(Faults{Drop,
+Duplicate, Delay, DelayBy, Corrupt, DropNext})`, `FaultStats`, `SetUp`,
+`Inject`, `InjectXL`, `InjectRaw`, `InjectError`, `Close`. Ports opened
+`WithXL` are `canbus.XLTransport`s (`SendXL`, `ReceiveXL`, `ReceiveAny`).
 
 ## isotp
 
@@ -79,12 +82,14 @@ DelayBy, Corrupt, DropNext})`, `FaultStats`, `SetUp`, `Inject`,
 `Reader`, `Writer`, `NewReader` (format detection), `NewWriter`;
 `NewCandumpReader`/`Writer`, `ParseCandumpLine`, `ParseFrame`,
 `FormatFrame`; `NewJSONLReader`/`Writer`, `Record`, `ToRecord`;
-`NewPCAPReader`/`Writer`, `NewPCAPNGReader`; `NewASCReader`/`Writer`,
+`NewPCAPReader`/`Writer`, `NewPCAPNGReader`/`Writer`; `NewASCReader`/`Writer`,
 `NewBLFReader`/`Writer`, `NewTRCReader`/`Writer`; `FormatFromPath`; `Replay(ctx, Reader,
 Sender, ReplayOptions) (ReplayStats, error)`; `RecordFrames`. CAN XL:
 `XLReader` (`ReadAny`) and `XLWriter` (`WriteXL`), implemented by the
-candump and JSON Lines readers and writers (`ParseCandumpXLLine`,
-`XLRecord`, `ToXLRecord`; JSON Lines record type `"xlframe"`).
+candump, JSON Lines, pcap and pcapng readers and writers
+(`ParseCandumpXLLine`, `XLRecord`, `ToXLRecord`; JSON Lines record type
+`"xlframe"`); `Replay` sends CAN XL frames through an `XLSender`
+(`ReplayStats.SkippedXL`, `ReplayOptions.OnXLFrame`); `RecordAll`.
 
 ## candb, dbc, kcd, codegen
 
@@ -112,4 +117,5 @@ physical value given as decimal text (exact for 64-bit identity signals).
 
 `New(Config{Seed, Drop, Duplicate, Delay, DelayBy, Reorder, Corrupt,
 Filter})` → `*Bridge`; `Run(ctx, src, dst)` forwards one direction,
-`Both(ctx, x, y)` both; `Stats()`.
+`Both(ctx, x, y)` both, CAN XL frames too between `canbus.XLTransport`s;
+`Stats()` (`SkippedXL`).

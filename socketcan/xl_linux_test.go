@@ -9,6 +9,7 @@ import (
 	"errors"
 	"net"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -211,5 +212,111 @@ func TestXLErrors(t *testing.T) {
 		if _, err := Open("vcan0", WithXL()); !errors.Is(err, canbus.ErrUnsupported) {
 			t.Fatalf("WithXL on vcan0 (mtu %d): %v", ifi.MTU, err)
 		}
+	}
+}
+
+// TestXLKernelFilterParity checks that FilterSet.MatchXL decides as the
+// kernel's CAN_RAW_FILTER does on CAN XL frames: every filter set is
+// installed on a socket, and the frames it receives are compared with the
+// software decision. VCIDs are included where the kernel passes them
+// (Linux ≥ 6.9).
+func TestXLKernelFilterParity(t *testing.T) {
+	ifc := xlIface(t)
+	vcids := []uint8{0}
+	if c, err := Open(ifc, WithVCIDFilter(0, 0)); err == nil {
+		c.Close()
+		vcids = append(vcids, 5)
+	}
+	var frames []canbus.XLFrame
+	for _, v := range vcids {
+		for _, p := range []uint16{0x5A2, 0x5A3} {
+			x := xlFrame(p, 2)
+			x.VCID = v
+			frames = append(frames, x)
+		}
+	}
+	sets := []canbus.FilterSet{
+		{Filters: []canbus.Filter{canbus.ExactStandard(0x5A2)}},
+		{Filters: []canbus.Filter{{ID: 0x5A2, Mask: 0x7FF}}},
+		{Filters: []canbus.Filter{{ID: 0x5A2, Mask: 0x7FE}}},
+		{Filters: []canbus.Filter{{ID: 0x5A2, Mask: 0x7FF, Invert: true}, {ID: 0x5A0, Mask: 0x7F0}}, Join: true},
+		{Filters: []canbus.Filter{{ID: 0x505A2, Mask: 0xFF07FF}}},
+		{Filters: []canbus.Filter{{ID: 0x5A2, Mask: 0x7FF, Format: canbus.FormatExtended}, {ID: 0x5A3, Mask: 0x7FF}}},
+		{Filters: []canbus.Filter{{ID: 0x5A2, Mask: 0x7FF, Remote: canbus.RemoteOnly}, {ID: 0x5A2, Mask: 0x7FF, Remote: canbus.RemoteDataOnly}}},
+	}
+	txOpts := []Option{WithXL()}
+	if len(vcids) > 1 {
+		txOpts = append(txOpts, WithVCIDFilter(0, 0)) // pass VCIDs through
+	}
+	tx := open(t, ifc, txOpts...)
+	for i, fs := range sets {
+		opts := []Option{WithXL(), WithFilters(fs)}
+		if len(vcids) > 1 {
+			opts = append(opts, WithVCIDFilter(0, 0))
+		}
+		rx := open(t, ifc, opts...)
+		ctx := ctxT(t, 5*time.Second)
+		for j := range frames {
+			if err := tx.SendXL(ctx, &frames[j]); err != nil {
+				t.Fatal(err)
+			}
+		}
+		// Frames of other users of the interface are ignored by priority.
+		var want []string
+		for j := range frames {
+			if fs.MatchXL(&frames[j]) {
+				want = append(want, frames[j].String())
+			}
+		}
+		var got []string
+		for {
+			short := ctxT(t, 300*time.Millisecond)
+			var g canbus.XLFrame
+			if err := rx.ReceiveXL(short, &g); err != nil {
+				break
+			}
+			if g.Priority&0x7F0 == 0x5A0 {
+				got = append(got, g.String())
+			}
+		}
+		if strings.Join(got, " ") != strings.Join(want, " ") {
+			t.Errorf("set %d %v: kernel delivered %v, MatchXL selects %v", i, fs, got, want)
+		}
+		rx.Close()
+	}
+}
+
+// TestXLBus runs a canbus.Bus on CAN XL sockets: ReceiveAny feeds the
+// subscriptions.
+func TestXLBus(t *testing.T) {
+	leak.Check(t)
+	ifc := xlIface(t)
+	tx, err := canbus.NewBus(open(t, ifc, WithXL()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Close()
+	rx, _ := canbus.NewBus(open(t, ifc, WithXL()))
+	defer rx.Close()
+	s, _ := rx.Subscribe(canbus.WithXL(), canbus.WithFilters(canbus.FilterSet{Filters: []canbus.Filter{{ID: 0x5B0, Mask: 0x7F0}}}))
+	ctx := ctxT(t, 5*time.Second)
+	want := []canbus.XLFrame{xlFrame(0x5B1, 2048), xlFrame(0x5B2, 1)}
+	for i := range want {
+		if err := tx.SendXL(ctx, &want[i]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fd, _ := canbus.NewFD(0x5B3, false, true, []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12})
+	if err := tx.Send(ctx, &fd); err != nil {
+		t.Fatal(err)
+	}
+	for i := range want {
+		g, err := s.ReceiveXL(ctx)
+		if err != nil || !sameXL(&g, &want[i]) || g.Interface != ifc || g.Timestamp.IsZero() {
+			t.Fatalf("frame %d: %v %v", i, g, err)
+		}
+	}
+	if g, err := s.Receive(ctx); err != nil || g.String() != fd.String() {
+		t.Fatalf("CAN FD frame: %v %v", g, err)
 	}
 }

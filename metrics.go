@@ -97,3 +97,22 @@ func (NopMetrics) OnQueue(string, int, int) {}
 
 // OnStateChange does nothing.
 func (NopMetrics) OnStateChange(string, State, State) {}
+
+// XLMetrics is implemented by [Metrics] that also observe CAN XL frames.
+// A Bus calls these instead of OnFrameSent and OnFrameReceived for CAN XL
+// frames; Metrics without them see CAN XL frames only in the counters of
+// [Bus.Stats]. [NopMetrics] implements it.
+type XLMetrics interface {
+	// OnXLFrameSent is called after a CAN XL frame was handed to the
+	// transport.
+	OnXLFrameSent(iface string, x *XLFrame)
+	// OnXLFrameReceived is called for every CAN XL frame read from the
+	// transport, before filtering by subscriptions.
+	OnXLFrameReceived(iface string, x *XLFrame)
+}
+
+// OnXLFrameSent does nothing.
+func (NopMetrics) OnXLFrameSent(string, *XLFrame) {}
+
+// OnXLFrameReceived does nothing.
+func (NopMetrics) OnXLFrameReceived(string, *XLFrame) {}

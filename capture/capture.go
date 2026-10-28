@@ -12,8 +12,10 @@
 //   - JSON Lines ([FormatJSONL]): the lossless format of this package,
 //     one JSON object per frame with every [canbus.Frame] field and
 //     nanosecond timestamps. Schema: schemas/capture-v1.schema.json.
-//   - pcap ([FormatPCAP]) with LINKTYPE_CAN_SOCKETCAN, as written by
-//     tcpdump and read by Wireshark; pcapng ([FormatPCAPNG]) is read.
+//   - pcap ([FormatPCAP]) and pcapng ([FormatPCAPNG]) with
+//     LINKTYPE_CAN_SOCKETCAN, as written by tcpdump and dumpcap and read
+//     by Wireshark: classical, CAN FD, remote, error and CAN XL frames.
+//     pcapng keeps interface names.
 //   - Vector ASC ([FormatASC]) and BLF ([FormatBLF]), the trace formats of
 //     CANoe/CANalyzer, read and written. Lossy: ASC and BLF carry no Linux
 //     error class (error frames are read as protocol errors). Their times
@@ -90,16 +92,16 @@ type Writer interface {
 }
 
 // XLReader is implemented by readers of formats that carry CAN XL frames
-// (candump logs and JSON Lines). ReadAny returns the next frame of any
-// kind: a CAN or CAN FD frame in f (xl false) or a CAN XL frame in x (xl
-// true). Their Read skips CAN XL frames.
+// (candump logs, JSON Lines, pcap and pcapng). ReadAny returns the next
+// frame of any kind: a CAN or CAN FD frame in f (xl false) or a CAN XL
+// frame in x (xl true). Their Read skips CAN XL frames.
 type XLReader interface {
 	Reader
 	ReadAny(f *canbus.Frame, x *canbus.XLFrame) (xl bool, err error)
 }
 
 // XLWriter is implemented by writers of formats that carry CAN XL frames
-// (candump logs and JSON Lines).
+// (candump logs, JSON Lines, pcap and pcapng).
 type XLWriter interface {
 	Writer
 	WriteXL(x *canbus.XLFrame) error
@@ -175,6 +177,8 @@ func NewWriter(w io.Writer, format Format) (Writer, error) {
 		return NewJSONLWriter(w), nil
 	case FormatPCAP:
 		return NewPCAPWriter(w)
+	case FormatPCAPNG:
+		return NewPCAPNGWriter(w)
 	case FormatASC:
 		return NewASCWriter(w), nil
 	case FormatBLF:

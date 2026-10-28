@@ -13,6 +13,17 @@ canbusctl). Newest first within each section.
 
 ## Decisions
 
+- CAN XL in a Bus: a `WithXL` subscription has one queue of every kind,
+  read with `ReceiveAny` (no `Frames()` channel). A first design with a
+  second queue merged by timestamp reordered frames on Windows, whose
+  clock gives many frames the same timestamp: order must not depend on
+  clocks.
+- CAN XL filters: the kernel's CAN_RAW_FILTER matches VCID<<16 | priority
+  as a standard data identifier (probed on Linux 7.0; TestXLKernelFilterParity
+  compares on the CI kernels). FilterSet.MatchXL mirrors it.
+- pcap CAN XL layout as libpcap writes it on Linux: priority/VCID word
+  big-endian, length and acceptance field little-endian (tcpdump capture
+  on Linux 7.0 in capture/testdata; our packets byte-identical).
 - Frame is a value type with a [64]byte payload; `Len8DLC` keeps raw DLC
   9..15; error frames keep the Linux class in ID.
 - Filters reproduce CAN_RAW_FILTER exactly (fuzzed against the kernel
@@ -77,15 +88,14 @@ canbusctl). Newest first within each section.
 - Docker Desktop's kernel has no CAN modules. The Lima VM `canvm` does
   (`limactl shell canvm`); the Mac home is mounted read-only there: use
   `GOFLAGS=-buildvcs=false`, write to /tmp, and `sg docker -c` for Docker.
+- `canvm` has tcpdump 4.99.6/libpcap 1.10.6 and tshark/dumpcap 4.6.4 (CAN XL
+  oracles); run tcpdump with `-Z root` when tshark (as root) reads the file.
 - Local interop images: `ghcr.io/otfabric/canbus-interop-<a>:dev` (tagged in
   the VM; built by canbus-interop's `make images`).
 
 ## Next actions
 
-1. go-serial v0.1.7 is tagged (the fix is on main) but has no GitHub
-   release entry yet: publishing it needs the owner (the release workflow
-   computes its own tag).
-2. Next phase: CAN XL beyond raw sockets (pcapng/Wireshark traces, the
-   virtual bus, a Bus for CAN XL), vendor transports (PEAK, Kvaser),
-   CANopen/J1939/UDS modules on canbus.Bus and isotp.
-3. otfabric.io: the owner's, after approval (docs/WEBSITE-INTEGRATION.md).
+1. Next phase candidates: vendor transports (PEAK, Kvaser),
+   CANopen/J1939/UDS modules on canbus.Bus and isotp; CAN XL in ISO-TP
+   once Linux supports it.
+2. otfabric.io: the owner's, after approval (docs/WEBSITE-INTEGRATION.md).

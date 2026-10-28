@@ -9,7 +9,8 @@
 // rules: a frame goes to every other port while the sending port has
 // loopback on (the default) and back to the sender only with
 // receive-own-messages; a port opened without CAN FD neither sends nor
-// receives CAN FD frames.
+// receives CAN FD frames, and a port opened without CAN XL ([WithXL])
+// neither sends nor receives CAN XL frames.
 //
 // Faults are injected with a seeded pseudo-random generator, so a run is
 // reproducible for a given seed and order of sends: dropped, duplicated,
@@ -86,8 +87,17 @@ type Bus struct {
 
 type item struct {
 	f     canbus.Frame
-	from  *Port // nil for injected frames
+	x     *canbus.XLFrame // a CAN XL frame instead of f; the bus's own copy
+	from  *Port           // nil for injected frames
 	delay time.Duration
+}
+
+// entry is one frame in a port's receive queue: f, or the CAN XL frame x
+// (shared by every port it was delivered to, and never modified).
+type entry struct {
+	f    canbus.Frame
+	x    *canbus.XLFrame
+	echo bool
 }
 
 // New returns a running bus.
@@ -183,29 +193,41 @@ func (b *Bus) Inject(ctx context.Context, f canbus.Frame) error {
 	if err := f.Validate(); err != nil {
 		return err
 	}
-	return b.enqueue(ctx, f, nil)
+	return b.enqueue(ctx, item{f: f})
+}
+
+// InjectXL delivers a CAN XL frame to every port opened [WithXL], as if a
+// node outside this process had sent it. The frame is validated. Faults
+// apply.
+func (b *Bus) InjectXL(ctx context.Context, x canbus.XLFrame) error {
+	if err := x.Validate(); err != nil {
+		return err
+	}
+	c := x.Clone()
+	return b.enqueue(ctx, item{x: &c})
 }
 
 // InjectRaw delivers a frame without validating it, to test how receivers
 // handle frames a conforming transport never produces (a classical frame
 // with 9 bytes, an unknown flag, garbage beyond Len).
 func (b *Bus) InjectRaw(ctx context.Context, f canbus.Frame) error {
-	return b.enqueue(ctx, f, nil)
+	return b.enqueue(ctx, item{f: f})
 }
 
 // InjectError delivers an error frame to every port whose error mask
 // selects it.
 func (b *Bus) InjectError(ctx context.Context, info canbus.ErrorInfo) error {
-	return b.enqueue(ctx, canbus.NewErrorFrame(info), nil)
+	return b.enqueue(ctx, item{f: canbus.NewErrorFrame(info)})
 }
 
-func (b *Bus) enqueue(ctx context.Context, f canbus.Frame, from *Port) error {
+// enqueue applies the faults to it and queues it. A CAN XL frame (it.x)
+// must be the bus's own copy: corruption modifies it.
+func (b *Bus) enqueue(ctx context.Context, it item) error {
 	if err := b.usable(); err != nil {
 		return err
 	}
 	b.sendMu.Lock()
 	defer b.sendMu.Unlock()
-	it := item{f: f, from: from}
 	fl := &b.faults
 	if fl.DropNext > 0 {
 		fl.DropNext--
@@ -224,7 +246,12 @@ func (b *Bus) enqueue(ctx context.Context, f canbus.Frame, from *Port) error {
 		it.delay = fl.DelayBy
 		b.delayed.Add(1)
 	}
-	if pCorrupt < fl.Corrupt && it.f.Flags&(canbus.FlagRemote|canbus.FlagError) == 0 && it.f.Len > 0 {
+	if pCorrupt < fl.Corrupt && it.x != nil {
+		// A CAN XL payload has up to 16384 bits: one more draw picks one.
+		bit = b.rng.Intn(len(it.x.Data) * 8)
+		it.x.Data[bit/8] ^= 1 << (bit % 8)
+		b.corrupted.Add(1)
+	} else if pCorrupt < fl.Corrupt && it.f.Flags&(canbus.FlagRemote|canbus.FlagError) == 0 && it.f.Len > 0 {
 		bit %= int(it.f.Len) * 8
 		it.f.Data[bit/8] ^= 1 << (bit % 8)
 		b.corrupted.Add(1)
@@ -276,23 +303,28 @@ func (b *Bus) deliver(it *item) {
 	}
 	ports := append([]*Port(nil), b.ports...)
 	b.mu.Unlock()
-	it.f.Timestamp = b.clock()
-	it.f.Interface = b.name
+	now := b.clock()
+	if it.x != nil {
+		// Ports share this copy: the duplicate of a duplicated frame gets
+		// its own, as its timestamp differs.
+		x := *it.x
+		x.Timestamp, x.Interface = now, b.name
+		it.x = &x
+	} else {
+		it.f.Timestamp, it.f.Interface = now, b.name
+	}
 	b.delivered.Add(1)
 	for _, p := range ports {
-		f := it.f
+		e := entry{f: it.f, x: it.x}
 		if p == it.from {
 			if !p.recvOwn {
 				continue
 			}
-			f.Echo = true
-		} else {
-			f.Echo = false
-			if it.from != nil && !it.from.loopback {
-				continue
-			}
+			e.echo = true
+		} else if it.from != nil && !it.from.loopback {
+			continue
 		}
-		p.offer(&f)
+		p.offer(&e)
 	}
 }
 
@@ -317,6 +349,21 @@ type PortOption func(*Port)
 
 // WithFD opens the port for CAN FD frames.
 func WithFD() PortOption { return func(p *Port) { p.fd = true } }
+
+// WithXL opens the port for CAN XL frames ([Port.SendXL],
+// [Port.ReceiveXL], [Port.ReceiveAny]) and, as Linux's CAN_RAW_XL_FRAMES,
+// for CAN FD frames too. It receives CAN XL frames of every VCID.
+func WithXL() PortOption { return func(p *Port) { p.xl, p.fd = true, true } }
+
+// WithVCIDFilter opens the port for CAN XL frames ([WithXL]) and receives
+// only those whose VCID matches vcid in the bits of mask, as SocketCAN's
+// CAN_RAW_XL_VCID_OPTS receive filter.
+func WithVCIDFilter(vcid, mask uint8) PortOption {
+	return func(p *Port) {
+		p.xl, p.fd = true, true
+		p.vcid, p.vcidMask = vcid, mask
+	}
+}
 
 // WithRecvOwn delivers the port's own transmissions back to it, marked
 // with [canbus.Frame.Echo].
@@ -354,7 +401,7 @@ func (b *Bus) Open(opts ...PortOption) (*Port, error) {
 	for _, o := range opts {
 		o(p)
 	}
-	p.rx = make(chan canbus.Frame, p.capacity)
+	p.rx = make(chan entry, p.capacity)
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.closed {
@@ -377,17 +424,21 @@ func (b *Bus) remove(p *Port) {
 
 // Port is one endpoint on a virtual bus. It implements [canbus.Transport],
 // [canbus.Filterer], [canbus.Statser], [canbus.DropCounter],
-// [canbus.Namer] and [canbus.Capabilitier].
+// [canbus.Namer] and [canbus.Capabilitier]; opened [WithXL], also
+// [canbus.XLTransport].
 type Port struct {
 	bus      *Bus
 	fd       bool
+	xl       bool
+	vcid     uint8 // WithVCIDFilter
+	vcidMask uint8
 	recvOwn  bool
 	loopback bool
 	block    bool
 	capacity int
 	filters  atomic.Pointer[canbus.FilterSet]
 
-	rx       chan canbus.Frame
+	rx       chan entry
 	errs     chan error
 	closed   chan struct{}
 	closeErr sync.Once
@@ -406,23 +457,24 @@ func (p *Port) SetFilters(fs canbus.FilterSet) error {
 	return nil
 }
 
-func (p *Port) offer(f *canbus.Frame) {
-	if f.Flags&canbus.FlagFD != 0 && !p.fd {
-		return
-	}
-	if !p.filters.Load().Match(f) {
+func (p *Port) offer(e *entry) {
+	if x := e.x; x != nil {
+		if !p.xl || x.VCID&p.vcidMask != p.vcid&p.vcidMask || !p.filters.Load().MatchXL(x) {
+			return
+		}
+	} else if e.f.Flags&canbus.FlagFD != 0 && !p.fd || !p.filters.Load().Match(&e.f) {
 		return
 	}
 	if p.block {
 		select {
-		case p.rx <- *f:
+		case p.rx <- *e:
 		case <-p.closed:
 		case <-p.bus.stop:
 		}
 		return
 	}
 	select {
-	case p.rx <- *f:
+	case p.rx <- *e:
 	default:
 		p.drops.Add(1)
 	}
@@ -433,7 +485,7 @@ func (p *Port) Name() string { return p.bus.name }
 
 // Capabilities describes the port.
 func (p *Port) Capabilities() canbus.Capabilities {
-	return canbus.Capabilities{FD: p.fd, ErrorFrames: true, Timestamps: true, RecvOwn: true}
+	return canbus.Capabilities{FD: p.fd, XL: p.xl, ErrorFrames: true, Timestamps: true, RecvOwn: true}
 }
 
 // Send queues a frame for delivery. A CAN FD frame on a port opened
@@ -453,7 +505,7 @@ func (p *Port) Send(ctx context.Context, f *canbus.Frame) error {
 	if f.Flags&canbus.FlagFD != 0 && !p.fd {
 		return fmt.Errorf("%w: CAN FD frame on a classical port", canbus.ErrUnsupported)
 	}
-	if err := p.bus.enqueue(ctx, *f, p); err != nil {
+	if err := p.bus.enqueue(ctx, item{f: *f, from: p}); err != nil {
 		return err
 	}
 	p.txFrames.Add(1)
@@ -461,20 +513,86 @@ func (p *Port) Send(ctx context.Context, f *canbus.Frame) error {
 	return nil
 }
 
-// Receive waits for the next frame.
-func (p *Port) Receive(ctx context.Context, f *canbus.Frame) error {
+// SendXL queues a CAN XL frame for delivery, with a copy of its payload.
+// On a port opened without [WithXL] it fails with
+// [canbus.ErrUnsupported].
+func (p *Port) SendXL(ctx context.Context, x *canbus.XLFrame) error {
 	select {
-	case err := <-p.errs:
-		return err
-	case *f = <-p.rx:
 	case <-p.closed:
 		return canbus.ErrClosed
+	default:
+	}
+	if err := x.Validate(); err != nil {
+		return err
+	}
+	if !p.xl {
+		return fmt.Errorf("%w: CAN XL frame on a port opened without WithXL", canbus.ErrUnsupported)
+	}
+	c := x.Clone()
+	c.Echo = false
+	if err := p.bus.enqueue(ctx, item{x: &c, from: p}); err != nil {
+		return err
+	}
+	p.txFrames.Add(1)
+	p.txBytes.Add(uint64(len(x.Data)))
+	return nil
+}
+
+// Receive waits for the next CAN or CAN FD frame; CAN XL frames are
+// skipped (use [Port.ReceiveAny]).
+func (p *Port) Receive(ctx context.Context, f *canbus.Frame) error {
+	for {
+		xl, err := p.ReceiveAny(ctx, f, nil)
+		if err != nil || !xl {
+			return err
+		}
+	}
+}
+
+// ReceiveXL waits for the next CAN XL frame on a port opened [WithXL],
+// skipping other frames. x.Data's storage is reused.
+func (p *Port) ReceiveXL(ctx context.Context, x *canbus.XLFrame) error {
+	if !p.xl {
+		return fmt.Errorf("%w: port opened without WithXL", canbus.ErrUnsupported)
+	}
+	var skip canbus.Frame
+	for {
+		xl, err := p.ReceiveAny(ctx, &skip, x)
+		if err != nil || xl {
+			return err
+		}
+	}
+}
+
+// ReceiveAny waits for the next frame of any kind: a CAN or CAN FD frame
+// in f (xl false) or a CAN XL frame in x (xl true), reusing x.Data's
+// storage. With x nil a CAN XL frame is consumed and reported without
+// being copied.
+func (p *Port) ReceiveAny(ctx context.Context, f *canbus.Frame, x *canbus.XLFrame) (xl bool, err error) {
+	var e entry
+	select {
+	case err := <-p.errs:
+		return false, err
+	case e = <-p.rx:
+	case <-p.closed:
+		return false, canbus.ErrClosed
 	case <-ctx.Done():
-		return ctx.Err()
+		return false, ctx.Err()
 	}
 	p.rxFrames.Add(1)
+	if e.x != nil {
+		p.rxBytes.Add(uint64(len(e.x.Data)))
+		if x != nil {
+			data := append(x.Data[:0], e.x.Data...)
+			*x = *e.x
+			x.Data, x.Echo = data, e.echo
+		}
+		return true, nil
+	}
+	*f = e.f
+	f.Echo = e.echo
 	p.rxBytes.Add(uint64(len(f.Payload())))
-	return nil
+	return false, nil
 }
 
 // Close detaches the port from the bus; blocked calls return
