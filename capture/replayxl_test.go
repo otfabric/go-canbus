@@ -114,7 +114,7 @@ func TestRecordAll(t *testing.T) {
 		if _, err := Replay(ctx, NewCandumpReader(strings.NewReader(mixedLog)), tx, ReplayOptions{}); err != nil {
 			t.Fatal(err)
 		}
-		for len(sub.Frames()) < 2 || len(sub.XLFrames()) < 2 {
+		for sub.Received() < uint64(4*(round+1)) {
 			time.Sleep(time.Millisecond)
 		}
 		var b strings.Builder
@@ -137,7 +137,7 @@ func TestRecordAll(t *testing.T) {
 	// The end of the subscription ends the recording after the queue
 	// drained; ctx ending returns no error.
 	_ = tx.SendXL(ctx, &canbus.XLFrame{Data: []byte{1}})
-	for len(sub.XLFrames()) == 0 {
+	for sub.Received() < 81 {
 		time.Sleep(time.Millisecond)
 	}
 	_ = sub.Close()

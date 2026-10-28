@@ -130,12 +130,13 @@ func dissected(t *testing.T, layers map[string]json.RawMessage) string {
 	default:
 		f, _ = canbus.NewStandard(canbus.ID(num(c, "can.id")), data[:n])
 	}
-	if _, ok := c["can.len8dlc"]; !ok && n == 8 {
+	if _, ok := c["can.len8dlc"]; !ok {
 		// Older Wireshark (4.2) does not dissect the DLC 9..15 of a
 		// classical frame: mark it unknown for sameFrames.
-		return ifc + " " + f.String() + noDLC
-	}
-	if d := num(c, "can.len8dlc"); d != 0 {
+		if n == 8 {
+			return ifc + " " + f.String() + noDLC
+		}
+	} else if d := num(c, "can.len8dlc"); d != 0 {
 		f.Len8DLC = uint8(d)
 	}
 	return ifc + " " + f.String()

@@ -17,7 +17,7 @@ has every symbol; this is the map.
 | `XLTransport` (`SendXL`, `ReceiveAny`), `XLKernelID`, `Filter.MatchXL`, `FilterSet.MatchXL`, `XLFrame.Clone` | CAN XL transports; filters select CAN XL frames as Linux's CAN_RAW_FILTER does (on VCID<<16 \| priority, as a standard identifier) |
 | `Bus`, `NewBus`, `WithLogger`, `WithMetrics`, `WithInterfaceName`, `WithStartOnSubscribe` | One transport shared by many users |
 | `Subscription`, `WithFilters`, `WithQueueSize`, `WithOverflow` (`DropNewest`, `DropOldest`, `Block`), `WithoutEcho` | Filtered, bounded receive queues |
-| `Bus.SendXL`, `WithXL`, `Subscription.ReceiveXL`, `XLFrames` | CAN XL through a bus on an `XLTransport` (a second queue per subscription) |
+| `Bus.SendXL`, `WithXL`, `Subscription.ReceiveAny`, `ReceiveXL` | CAN XL through a bus on an `XLTransport`; a `WithXL` subscription has one queue of every kind in arrival order |
 | `Metrics`, `NopMetrics`, `XLMetrics`, `DropReason`, `State`, `Stats` | Observability |
 | Errors | see [ERRORS.md](ERRORS.md) |
 

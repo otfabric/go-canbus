@@ -86,8 +86,8 @@ func TestBusXL(t *testing.T) {
 	if _, err := classic.ReceiveXL(ctx); !errors.Is(err, canbus.ErrUnsupported) {
 		t.Fatalf("ReceiveXL without WithXL: %v", err)
 	}
-	if classic.XLFrames() != nil || all.XLFrames() == nil {
-		t.Fatal("XLFrames channels")
+	if classic.Frames() == nil || all.Frames() != nil {
+		t.Fatal("Frames channels")
 	}
 	waitFor(t, func() bool { return b.Stats().RxFrames == 4 })
 	if st := b.Stats(); st.RxBytes != 5+1+1+1 {
@@ -248,6 +248,54 @@ func TestBusXLBlocking(t *testing.T) {
 	x := canbus.XLFrame{Data: []byte{1}}
 	_ = a.SendXL(ctx, &x)
 	_ = a.SendXL(ctx, &x)
-	waitFor(t, func() bool { return len(s.XLFrames()) == 1 })
+	waitFor(t, func() bool { return s.Received() >= n+1 })
 	_ = s.Close()
+}
+
+// TestBusXLOrder: a WithXL subscription returns CAN, CAN FD and CAN XL
+// frames in arrival order through ReceiveAny, whatever their timestamps
+// (a coarse clock gives many frames the same one).
+func TestBusXLOrder(t *testing.T) {
+	leak.Check(t)
+	ctx := ctxT(t)
+	same := time.Unix(1800000000, 0)
+	vb := virtual.New(virtual.Config{Clock: func() time.Time { return same }})
+	defer vb.Close()
+	tx, _ := vb.Open(virtual.WithXL())
+	p, _ := vb.Open(virtual.WithXL())
+	b, _ := canbus.NewBus(p, canbus.WithStartOnSubscribe())
+	defer b.Close()
+	s, _ := b.Subscribe(canbus.WithXL())
+	const n = 300
+	for i := 0; i < n; i++ {
+		if i%3 == 0 {
+			f, _ := canbus.NewStandard(canbus.ID(i%0x800), []byte{byte(i)})
+			_ = tx.Send(ctx, &f)
+		} else {
+			_ = tx.SendXL(ctx, &canbus.XLFrame{Priority: uint16(i % 0x800), Data: []byte{byte(i)}})
+		}
+	}
+	var f canbus.Frame
+	var x canbus.XLFrame
+	for i := 0; i < n; i++ {
+		isXL, err := s.ReceiveAny(ctx, &f, &x)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if isXL != (i%3 != 0) || isXL && x.Data[0] != byte(i) || !isXL && f.Data[0] != byte(i) {
+			t.Fatalf("frame %d out of order (xl %v)", i, isXL)
+		}
+	}
+	// Receive skips CAN XL frames; ReceiveAny without WithXL is Receive.
+	f0, _ := canbus.NewStandard(1, []byte{1})
+	_ = tx.SendXL(ctx, &canbus.XLFrame{Data: []byte{9}})
+	_ = tx.Send(ctx, &f0)
+	if g, err := s.Receive(ctx); err != nil || g.ID != 1 {
+		t.Fatalf("Receive: %v %v", g, err)
+	}
+	c, _ := b.Subscribe()
+	_ = tx.Send(ctx, &f0)
+	if isXL, err := c.ReceiveAny(ctx, &f, &x); err != nil || isXL || f.ID != 1 {
+		t.Fatalf("ReceiveAny without WithXL: %v %v", isXL, err)
+	}
 }

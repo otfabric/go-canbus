@@ -240,61 +240,24 @@ func RecordFrames(ctx context.Context, sub *canbus.Subscription, w Writer, count
 }
 
 // RecordAll is [RecordFrames] for a subscription opened with
-// [canbus.WithXL] and a writer of CAN XL frames: it records the frames of
-// both queues in the order the bus received them. The bus fills the
-// queues in arrival order, so a frame taken from one queue is preceded
-// only by frames already queued in the other: of two queued frames the
-// earlier (by timestamp) is written first. When count ends the recording,
-// a frame read ahead from the other queue is left unwritten.
+// [canbus.WithXL] and a writer of CAN XL frames: it records CAN, CAN FD
+// and CAN XL frames in the order the bus received them.
 func RecordAll(ctx context.Context, sub *canbus.Subscription, w XLWriter, count int) (int, error) {
-	var (
-		f        canbus.Frame
-		x        canbus.XLFrame
-		hasF     bool
-		hasX     bool
-		n        int
-		finished bool // the subscription ended: drain, then stop
-	)
-	poll := func() {
-		if !hasF {
-			select {
-			case f = <-sub.Frames():
-				hasF = true
-			default:
-			}
-		}
-		if !hasX {
-			select {
-			case x = <-sub.XLFrames():
-				hasX = true
-			default:
-			}
-		}
-	}
+	n := 0
+	var f canbus.Frame
+	var x canbus.XLFrame
 	for count <= 0 || n < count {
-		poll()
-		if !hasF && !hasX {
-			if finished {
-				return n, sub.Err()
+		xl, err := sub.ReceiveAny(ctx, &f, &x)
+		if err != nil {
+			if ctx.Err() != nil {
+				return n, nil //nolint:nilerr // the end of ctx ends a recording normally
 			}
-			select {
-			case f = <-sub.Frames():
-				hasF = true
-			case x = <-sub.XLFrames():
-				hasX = true
-			case <-sub.Done():
-				finished = true
-				continue
-			case <-ctx.Done():
-				return n, nil
-			}
-			poll() // a frame of the other queue may precede it
+			return n, err
 		}
-		var err error
-		if hasF && (!hasX || !x.Timestamp.Before(f.Timestamp)) {
-			err, hasF = w.Write(&f), false
+		if xl {
+			err = w.WriteXL(&x)
 		} else {
-			err, hasX = w.WriteXL(&x), false
+			err = w.Write(&f)
 		}
 		if err != nil {
 			return n, err
