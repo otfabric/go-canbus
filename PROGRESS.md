@@ -9,7 +9,7 @@ canbusctl). Newest first within each section.
 |------|---------|-------|
 | go-canbus | v0.3.0 | v0.3.0: slcan transport (any OS, go-serial), PEAK TRC; interop vs canbus-interop v0.3.0: 163 pass / 0 fail / 4 capability skips; coverage 92.8 %. v0.2.2: Bus WithStartOnSubscribe (no frames lost before the first Subscribe); ASC/BLF, ARXML, KCD writer, chaos + e2e suites, kernel ISO-TP fixes; interop vs canbus-interop v0.2.0: 145 pass / 0 fail / 4 capability skips; coverage 92.3 % |
 | canbus-interop | v0.3.0 | contract 1.2 (pythoncan slcan interfaces, pyserial 3.5; ISO-TP adapter 1 MiB rcvbuf); v0.2.0: contract 1.1 (log-convert, ARXML); self-test 341 pass / 0 fail; weekly upstream pin check; ISO-TP in a microVM on amd64 |
-| canbusctl | v0.2.2 | on go-canbus v0.2.2 (buses read from the first subscription on); v0.2.1: deadline workarounds removed; v0.2.0: trace convert/info, ARXML, KCD output, bridge (chaos), --fc-delay; interop 63 pass / 0 fail (27 known differences); coverage 92.2 % (macOS) |
+| canbusctl | v0.3.0 | v0.3.0: slcan adapters (-i slcan:<device> or slcan:tcp://), listen-only passive commands, TRC; kernel-slcan e2e in microVMs; interop 84 pass / 27 known / 0 skip; coverage 92.4 %. v0.2.2: on go-canbus v0.2.2 (buses read from the first subscription on); v0.2.1: deadline workarounds removed; v0.2.0: trace convert/info, ARXML, KCD output, bridge (chaos), --fc-delay; interop 63 pass / 0 fail (27 known differences); coverage 92.2 % (macOS) |
 
 ## Decisions
 
@@ -64,6 +64,8 @@ canbusctl). Newest first within each section.
 ## Next actions
 
 1. otfabric.io pages from docs/WEBSITE-INTEGRATION.md (not applied).
-2. Later: multiplexed I-PDUs in ARXML, CAN XL, vendor transports (PEAK,
+2. go-serial: Read returns n = -1 with an error (io.Reader contract);
+   slcan guards against it since v0.3.0.
+3. Later: multiplexed I-PDUs in ARXML, CAN XL, vendor transports (PEAK,
    Kvaser), slcan error/status records, CANopen/J1939/UDS modules on
    canbus.Bus and isotp.
