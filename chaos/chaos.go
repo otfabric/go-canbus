@@ -103,14 +103,19 @@ func (b *Bridge) draw() (drop, dup, delay, reorder, corrupt bool, bit int) {
 // Run forwards frames from src to dst until ctx ends or src fails; it
 // returns nil when ctx ended. Error frames and src's own echoes are not
 // forwarded. Run may be started once per direction.
-func (b *Bridge) Run(ctx context.Context, src, dst canbus.Transport) error {
+func (b *Bridge) Run(ctx context.Context, src, dst canbus.Transport) (err error) {
+	defer func() {
+		if errors.Is(err, errEnded) {
+			err = nil // ctx ended during a send
+		}
+	}()
 	var held *canbus.Frame // a frame waiting to be reordered
 	sendCtx := func(ctx context.Context, f *canbus.Frame) error {
 		out := *f
 		out.Timestamp, out.Interface, out.Echo = time.Time{}, "", false
 		if err := dst.Send(ctx, &out); err != nil {
-			if ctx.Err() != nil {
-				return ctx.Err()
+			if ended(ctx, err) {
+				return errEnded
 			}
 			return err
 		}
@@ -121,7 +126,7 @@ func (b *Bridge) Run(ctx context.Context, src, dst canbus.Transport) error {
 	var f canbus.Frame
 	for {
 		if err := src.Receive(ctx, &f); err != nil {
-			if ctx.Err() != nil || errors.Is(err, canbus.ErrClosed) {
+			if ended(ctx, err) || errors.Is(err, canbus.ErrClosed) {
 				if held != nil { // flush the reordered frame with a fresh deadline
 					fctx, cancel := context.WithTimeout(context.Background(), time.Second)
 					_ = sendCtx(fctx, held)
@@ -199,4 +204,19 @@ func (b *Bridge) Both(ctx context.Context, x, y canbus.Transport) error {
 		err = err2
 	}
 	return err
+}
+
+var errEnded = errors.New("chaos: ended")
+
+// ended reports that ctx is done, or that err is the deadline of ctx
+// seen by a transport a moment before the context's own timer fires.
+func ended(ctx context.Context, err error) bool {
+	if ctx.Err() != nil {
+		return true
+	}
+	if !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, canbus.ErrTimeout) {
+		return false
+	}
+	dl, ok := ctx.Deadline()
+	return ok && !time.Now().Before(dl.Add(-time.Millisecond))
 }

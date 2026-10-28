@@ -3,13 +3,13 @@
 Durable state of the CAN bus ecosystem work (go-canbus, canbus-interop,
 canbusctl). Newest first within each section.
 
-## Status (2026-10-27): released
+## Status (2026-10-28): v0.2 released
 
 | Repo | Release | Notes |
 |------|---------|-------|
-| go-canbus | v0.1.0 | CI, Interop (canbus-interop v0.1.0 by digest, amd64+arm64: 120 pass / 0 fail / 4 capability skips) and Kernels (microVMs: Ubuntu 6.8, mainline 6.1–6.18) green |
-| canbus-interop | v0.1.0 | 7 public multi-arch GHCR images; self-test 326 pass / 4 known / 9 skip |
-| canbusctl | v0.1.0 | 7 binaries; on go-canbus v0.1.0; 94.5 % coverage |
+| go-canbus | v0.2.1 | ASC/BLF, ARXML, KCD writer, chaos + e2e suites, kernel ISO-TP fixes; interop vs canbus-interop v0.2.0: 145 pass / 0 fail / 4 capability skips; coverage 92.3 % |
+| canbus-interop | v0.2.0 | contract 1.1 (log-convert, ARXML); self-test 341 pass / 0 fail; weekly upstream pin check; ISO-TP in a microVM on amd64 |
+| canbusctl | v0.2.0 | trace convert/info, ARXML, KCD output, bridge (chaos), --fc-delay; interop 63 pass / 0 skip; coverage 94.2 % |
 
 ## Decisions
 
@@ -32,6 +32,11 @@ canbusctl). Newest first within each section.
   arm64 runners have no /dev/kvm. Found that a userspace ISO-TP receiver at
   STmin 0 can overflow its socket (Ubuntu 6.8 guest): tests use a 1 MiB
   receive buffer; LIMITATIONS.md says so.
+- Kernel ISO-TP: CAN_ISOTP_WAIT_TX_DONE sendmsg is written with all
+  signals blocked on a locked thread (SIGURG preemption + SA_RESTART resent
+  messages); userspace receivers facing a kernel sender on vcan delay their
+  flow control (FlowControlDelay), the kernel drops an FC that beats its echo.
+- Tests sharing vcan run with -p 1.
 - Known differences (not defects): cantools rejects multiplexer values that
   select no signal; canmatrix rejects payloads longer than the message and
   cannot encode extended multiplexing.
@@ -46,8 +51,8 @@ canbusctl). Newest first within each section.
 
 ## Next actions
 
-1. Apply the microVM pattern to canbusctl and canbus-interop (replace the
-   out-of-tree can-isotp build), and to PROFINET/EtherNet/IP L2 tests.
-2. otfabric.io pages from docs/WEBSITE-INTEGRATION.md (not applied).
-3. ARXML via pinned canmatrix conversion; vendor transports; CANopen,
-   J1939 and UDS modules on canbus.Bus and isotp.
+1. otfabric.io pages from docs/WEBSITE-INTEGRATION.md (not applied).
+2. Optional: canbusctl drops its deadline workarounds on go-canbus v0.2.1;
+   socketcan-rs and Scapy in canbusctl's interop tests.
+3. Later: TRC traces, multiplexed I-PDUs in ARXML, vendor transports,
+   CANopen/J1939/UDS modules on canbus.Bus and isotp.

@@ -158,8 +158,16 @@ func DialISOTP(ifname string, cfg isotp.Config) (*ISOTPConn, error) {
 }
 
 func (c *ISOTPConn) finish(ctx context.Context, op string, err error) error {
-	if errors.Is(err, os.ErrDeadlineExceeded) && ctx.Err() != nil {
-		return ctx.Err()
+	if errors.Is(err, os.ErrDeadlineExceeded) {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		// The file deadline can expire a moment before the context's
+		// timer fires.
+		if dl, ok := ctx.Deadline(); ok && !time.Now().Before(dl) {
+			return context.DeadlineExceeded
+		}
+		return canbus.ErrTimeout
 	}
 	if errors.Is(err, os.ErrClosed) || c.closed.Load() {
 		return canbus.ErrClosed
