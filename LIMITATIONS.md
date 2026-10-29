@@ -1,5 +1,8 @@
 # Limitations
 
+Grouped into gaps and follow-ups, with what is not verified:
+[ROADMAP.md](ROADMAP.md).
+
 ## Standards and conformance
 
 - ISO 11898-1 and ISO 15765-2 are not public. The implementation follows
