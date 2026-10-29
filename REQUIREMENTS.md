@@ -13,9 +13,10 @@ Status column: **done** = implemented and tested (test named), **partial**,
 | Linux SocketCAN (`Documentation/networking/can.rst`, `linux/can.h`, `can/raw.h`, `can/isotp.h`, `can/netlink.h`, `can/error.h`) | Yes (GPL-2.0 WITH Linux-syscall-note headers) | Socket ABI, constants | Constants re-declared in Go; no header code copied. |
 | DBC format | No formal public spec | Parser | Vector's "DBC File Format Documentation" circulates informally; behaviour cross-checked against cantools and canmatrix. |
 | KCD (Kayak) | Yes (LGPL-3.0 schema, Kayak project) | Parser | Schema semantics only; no schema file vendored. |
-| AUTOSAR ARXML | Yes (AUTOSAR, registration) | Not implemented | Planned via a pinned build-time canmatrix conversion; see LIMITATIONS.md. |
+| AUTOSAR ARXML | Yes (AUTOSAR, registration) | `arxml` reader (CAN subset of AUTOSAR 4.x) | No writer; unsupported constructs are diagnostics. See LIMITATIONS.md. |
 | candump log format | Yes (can-utils, `lib.c`) | capture | |
-| pcap `LINKTYPE_CAN_SOCKETCAN` (227) | Yes (tcpdump.org) | capture | |
+| pcap `LINKTYPE_CAN_SOCKETCAN` (227) | Yes (tcpdump.org) | capture | CAN XL as libpcap writes it on Linux |
+| Linux CAN XL (`struct canxl_frame`, `CAN_RAW_XL_FRAMES`, `CAN_RAW_XL_VCID_OPTS`) | Yes (Linux headers) | `XLFrame`, socketcan, traces | Linux ≥ 6.2; VCIDs ≥ 6.9 |
 
 ## Functional requirements
 
@@ -62,8 +63,10 @@ Status column: **done** = implemented and tested (test named), **partial**,
 | N-6 | Every interoperability claim backed by an automated test against an independent implementation |
 | N-7 | Compiles on linux/{amd64,arm64,arm}, darwin/{amd64,arm64}, windows/{amd64,arm64} |
 
-## Out of scope (initial)
+## Out of scope
 
-CANopen, SAE J1939, UDS (ISO 14229), NMEA 2000, ISOBUS, DroneCAN/Cyphal,
-CAN XL production support, hardware vendor drivers (PEAK, Kvaser, Vector,
-slcan) — the Transport interface is the extension point for them.
+CANopen, SAE J1939, UDS (ISO 14229), NMEA 2000, ISOBUS, DroneCAN/Cyphal and
+hardware vendor drivers (PEAK, Kvaser, Vector): the `Transport` interface,
+`canbus.Bus` and `isotp` are the extension points for them. CAN XL (since
+v0.5.0) and slcan adapters (since v0.3.0), out of scope at first, are
+implemented. Gaps and follow-ups: [ROADMAP.md](ROADMAP.md).
