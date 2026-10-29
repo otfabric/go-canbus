@@ -17,6 +17,11 @@ A `WithXL` subscription keeps every kind in one queue in arrival order
 (`Subscription.ReceiveAny`).
 The pcap snap length in the file header is now 2060 (CAN XL).
 
+## v0.6.1 (2026-10-29)
+
+The same commit as v0.6.0, tagged as the patch release the go-serial
+v0.1.8 update was prepared as; no code differs.
+
 ## v0.6.0 (2026-10-29)
 
 go-serial v0.1.8: slcan no longer loses data when the adapter's output
