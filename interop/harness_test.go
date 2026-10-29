@@ -5,7 +5,6 @@
 package interop
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"crypto/rand"
@@ -212,13 +211,73 @@ func workDir(t *testing.T) string {
 	return dir
 }
 
-func dockerArgs(adapter, work string, args []string) []string {
-	a := append(dockerCmd(), "run", "--rm", "-i", "--network", "host")
+// The program's output does not go through Docker. Under load, Docker
+// loses the output of a container that exits soon after it wrote it, with
+// the right exit code and nothing on stderr; go-modbus's interop suite
+// lost reference client results that way (otfabric/go-modbus#9), from the
+// attached streams and from the container log alike. So the image's
+// entrypoint runs under /bin/sh with stdout and stderr redirected to files
+// in a host directory mounted at /out, written by the program itself.
+// Every canbus-interop image has /bin/sh.
+const redirect = `exec "$@" >/out/stdout 2>/out/stderr`
+
+var entrypoints sync.Map // image -> []string
+
+// entrypoint returns the entrypoint of an adapter's image.
+func entrypoint(t *testing.T, adapter string) []string {
+	t.Helper()
+	img := image(adapter)
+	if v, ok := entrypoints.Load(img); ok {
+		return v.([]string)
+	}
+	inspect := func() ([]byte, error) {
+		a := append(dockerCmd(), "image", "inspect", "--format", "{{json .Config.Entrypoint}}", img)
+		return exec.Command(a[0], a[1:]...).Output()
+	}
+	out, err := inspect()
+	if err != nil {
+		// "docker run" would pull it; so does this.
+		a := append(dockerCmd(), "pull", "-q", img)
+		if pullOut, pullErr := exec.Command(a[0], a[1:]...).CombinedOutput(); pullErr == nil {
+			out, err = inspect()
+		} else {
+			err = fmt.Errorf("%v: %s", pullErr, bytes.TrimSpace(pullOut))
+		}
+	}
+	if err != nil {
+		if os.Getenv("CANBUS_REQUIRE_INTEROP") == "1" {
+			t.Fatalf("%s: image %s unusable: %v", adapter, img, err)
+		}
+		skipf(t, "image %s not available", img)
+	}
+	var ep []string
+	if err := json.Unmarshal(bytes.TrimSpace(out), &ep); err != nil || len(ep) == 0 {
+		t.Fatalf("image %s has no entrypoint (%s)", img, bytes.TrimSpace(out))
+	}
+	entrypoints.Store(img, ep)
+	return ep
+}
+
+// dockerArgs returns the docker command line for a container that runs the
+// adapter's program with args, and the host directory its stdout and stderr
+// files are written to.
+func dockerArgs(t *testing.T, adapter, work string, args []string) (argv []string, outDir string) {
+	t.Helper()
+	ep := entrypoint(t, adapter)
+	outDir = workDir(t)
+	a := append(dockerCmd(), "run", "--rm", "-i", "--network", "host", "-v", outDir+":/out")
 	if work != "" {
 		a = append(a, "-v", work+":/work")
 	}
-	a = append(a, "--name", "canbus-interop-test-"+randHex(6), image(adapter))
-	return append(a, args...)
+	a = append(a, "--name", "canbus-interop-test-"+randHex(6), "--entrypoint", "/bin/sh", image(adapter), "-c", redirect, "sh")
+	a = append(a, ep...)
+	return append(a, args...), outDir
+}
+
+// programStderr returns what the program wrote to stderr.
+func programStderr(outDir string) string {
+	b, _ := os.ReadFile(filepath.Join(outDir, "stderr"))
+	return strings.TrimSpace(string(b))
 }
 
 func randHex(n int) string {
@@ -230,26 +289,28 @@ func randHex(n int) string {
 // run runs a container to completion and returns stdout and the exit code.
 func run(t *testing.T, adapter string, stdin []byte, work string, args ...string) ([]byte, int) {
 	t.Helper()
-	argv := dockerArgs(adapter, work, args)
+	argv, outDir := dockerArgs(t, adapter, work, args)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	if stdin != nil {
 		cmd.Stdin = bytes.NewReader(stdin)
 	}
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
+	var dockerErr bytes.Buffer
+	cmd.Stderr = &dockerErr
+	err := cmd.Run()
 	code := 0
 	if err != nil {
 		code = -1
 		if ee, ok := err.(*exec.ExitError); ok {
 			code = ee.ExitCode()
 		}
-		if stderr.Len() > 0 {
-			t.Logf("%s stderr: %s", adapter, strings.TrimSpace(stderr.String()))
+		if msg := strings.TrimSpace(programStderr(outDir) + "\n" + dockerErr.String()); msg != "" {
+			t.Logf("%s stderr: %s", adapter, msg)
 		}
 	}
+	// The container has exited: what the program wrote is in the file.
+	out, _ := os.ReadFile(filepath.Join(outDir, "stdout"))
 	return out, code
 }
 
@@ -301,15 +362,11 @@ type proc struct {
 // start starts a container and waits for its "ready" event.
 func start(t *testing.T, adapter, work string, args ...string) *proc {
 	t.Helper()
-	argv := dockerArgs(adapter, work, args)
+	argv, outDir := dockerArgs(t, adapter, work, args)
 	name := argv[indexOf(argv, "--name")+1]
 	p := &proc{adapter: adapter, ready: make(chan struct{}), done: make(chan struct{})}
 	p.cmd = exec.Command(argv[0], argv[1:]...)
 	p.cmd.Stderr = &p.stderr
-	stdout, err := p.cmd.StdoutPipe()
-	if err != nil {
-		t.Fatal(err)
-	}
 	if err := p.cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -322,12 +379,20 @@ func start(t *testing.T, adapter, work string, args ...string) *proc {
 			<-p.done
 		}
 	})
+	exited := make(chan struct{})
 	go func() {
-		sc := bufio.NewScanner(stdout)
-		sc.Buffer(make([]byte, 0, 1<<16), 1<<24)
+		err := p.cmd.Wait()
+		p.mu.Lock()
+		p.code = 0
+		if ee, ok := err.(*exec.ExitError); ok {
+			p.code = ee.ExitCode()
+		}
+		p.mu.Unlock()
+		close(exited)
+	}()
+	go func() {
 		once := sync.Once{}
-		for sc.Scan() {
-			line := sc.Text()
+		tailLines(filepath.Join(outDir, "stdout"), exited, func(line string) {
 			var e event
 			if json.Unmarshal([]byte(line), &e) == nil {
 				e.raw = line
@@ -341,12 +406,15 @@ func start(t *testing.T, adapter, work string, args ...string) *proc {
 			p.mu.Lock()
 			p.lines = append(p.lines, line)
 			p.mu.Unlock()
+		})
+		p.mu.Lock()
+		if msg := programStderr(outDir); msg != "" {
+			if p.stderr.Len() > 0 {
+				p.stderr.WriteString("\n")
+			}
+			p.stderr.WriteString(msg)
 		}
-		err := p.cmd.Wait()
-		p.code = 0
-		if ee, ok := err.(*exec.ExitError); ok {
-			p.code = ee.ExitCode()
-		}
+		p.mu.Unlock()
 		close(p.done)
 	}()
 	select {
@@ -368,6 +436,61 @@ func indexOf(s []string, v string) int {
 		}
 	}
 	return -1
+}
+
+// tailLines calls line for every complete line written to the file at path,
+// as it is written, until exited is closed; then it reads what is left. The
+// file may not exist yet when it starts.
+func tailLines(path string, exited <-chan struct{}, line func(string)) {
+	var (
+		f       *os.File
+		pending []byte
+		buf     = make([]byte, 64<<10)
+	)
+	defer func() {
+		if f != nil {
+			_ = f.Close()
+		}
+	}()
+	emit := func(final bool) {
+		for {
+			i := bytes.IndexByte(pending, '\n')
+			if i < 0 {
+				break
+			}
+			line(string(pending[:i]))
+			pending = pending[i+1:]
+		}
+		if final && len(pending) > 0 {
+			line(string(pending))
+			pending = nil
+		}
+	}
+	for {
+		finished := false
+		select {
+		case <-exited:
+			finished = true
+		default:
+		}
+		if f == nil {
+			f, _ = os.Open(path)
+		}
+		if f != nil {
+			for {
+				n, err := f.Read(buf)
+				pending = append(pending, buf[:n]...)
+				if n == 0 || err != nil {
+					break
+				}
+			}
+			emit(finished)
+		}
+		if finished {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 // wait waits for the container to exit and returns its events and code.
