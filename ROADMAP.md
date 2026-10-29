@@ -91,11 +91,11 @@ TRC/slcan ESI readings.
 
 ## Housekeeping
 
-- go-canbus **v0.6.0** contains only the go-serial v0.1.8 update. It was
-  published by a release run meant for the CAN XL work, which became
-  v0.7.0; its notes say so. **v0.6.1** is a second tag on the same commit,
-  with empty release notes.
-- docs/WEBSITE-INTEGRATION.md (the brief for otfabric.io) still says "no
-  CAN XL; no ARXML yet": refresh it when the site is updated.
+- go-canbus **v0.6.0** and **v0.6.1** are the same commit: the go-serial
+  v0.1.8 update. v0.6.0 was published by a release run meant for the CAN
+  XL work, which became v0.7.0; both releases' notes say so.
+- [docs/WEBSITE-INTEGRATION.md](docs/WEBSITE-INTEGRATION.md), the proposal
+  for otfabric.io, is current as of v0.7.0; nothing from it has been
+  applied to the site.
 - canbusctl gaps: [canbusctl ROADMAP.md](https://github.com/otfabric/canbusctl/blob/main/ROADMAP.md).
   canbus-interop gaps: [canbus-interop LIMITATIONS.md](https://github.com/otfabric/canbus-interop/blob/main/LIMITATIONS.md).
