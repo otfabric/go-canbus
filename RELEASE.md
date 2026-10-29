@@ -78,6 +78,20 @@ arm64: 170 passed, 0 failed, 13 skipped, 132 known-difference records
 
 ---
 
+## v0.6.1
+
+**Date:** 2026-10-29
+**Previous release:** v0.6.0
+
+## Summary
+
+The same commit as v0.6.0: go-serial v0.1.8, which fixes two POSIX serial
+I/O bugs that affect the slcan transport (see v0.6.0). Tagged as the
+patch release that update was prepared as; no code differs from v0.6.0.
+CAN XL beyond SocketCAN sockets is in v0.7.0.
+
+---
+
 ## v0.6.0
 
 **Date:** 2026-10-29
