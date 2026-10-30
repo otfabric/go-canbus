@@ -17,8 +17,10 @@ jobs:
   # code is not exercised there: coverage is measured and uploaded by the
   # vcan job instead (run-codecov: false here).
   ci:
-    uses: otfabric/.github/.github/workflows/go-ci.yml@v2
+    uses: otfabric/.github/.github/workflows/go-ci.yml@v2.1.0
     with:
+      run-govulncheck: true
+      fuzz-time: 10s
       codecov-name: go-canbus
       run-codecov: false
       coverpkg: >-
@@ -47,12 +49,10 @@ jobs:
           go-version-file: go.mod
       - name: Load the CAN modules and create vcan0
         # can-isotp is built from the kernel's own source where the runner
-        # kernel lacks it (scripts/ci-can-modules.sh); the step output says
-        # whether the kernel ISO-TP tests can run.
-        id: modules
+        # kernel lacks it (scripts/ci-can-modules.sh). CANBUS_REQUIRE_ISOTP
+        # below is unconditional: a failed build is a failure, never a skip.
         run: |
           scripts/ci-can-modules.sh
-          if lsmod | grep -q can_isotp; then echo "isotp=1" >> "$GITHUB_OUTPUT"; fi
           for i in vcan0 vcan1; do sudo ip link add $i type vcan; sudo ip link set $i mtu 72 up; done
           sudo ip link add vcanxl0 type vcan && sudo ip link set vcanxl0 mtu 2060 up
           ip -d link show vcan0
@@ -68,7 +68,7 @@ jobs:
           tshark --version | head -1
       - name: Tests with the race detector
         env:
-          CANBUS_REQUIRE_ISOTP: ${{ steps.modules.outputs.isotp }}
+          CANBUS_REQUIRE_ISOTP: "1"
           CANBUS_REQUIRE_XL: "1"
           CANBUS_REQUIRE_TSHARK: "1"
         run: make test-vcan
@@ -79,7 +79,7 @@ jobs:
         run: make test-admin
       - name: Coverage (minimum 90 %)
         env:
-          CANBUS_REQUIRE_ISOTP: ${{ steps.modules.outputs.isotp }}
+          CANBUS_REQUIRE_ISOTP: "1"
           CANBUS_REQUIRE_XL: "1"
           CANBUS_REQUIRE_TSHARK: "1"
         run: make coverage-check
@@ -142,20 +142,3 @@ jobs:
       - run: go test -count=1 ./...
         env:
           GOWORK: "off"
-
-  fuzz:
-    name: Fuzz
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
-        with:
-          go-version: "1.23.x"
-      - run: make fuzz FUZZTIME=15s
-      - name: Upload the failing inputs
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: fuzz-failures
-          path: "**/testdata/fuzz/"
-          if-no-files-found: warn

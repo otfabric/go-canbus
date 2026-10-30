@@ -44,5 +44,5 @@ build() {
 if build; then
     echo "can-isotp built from Linux source and loaded"
 else
-    echo "::warning::could not provide can-isotp on ${kernel}: the kernel ISO-TP tests will be skipped"
+    echo "::warning::could not provide can-isotp on ${kernel}: the kernel ISO-TP tests cannot run"
 fi

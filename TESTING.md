@@ -29,11 +29,12 @@ creates. python-can's slcan interface is the second, userspace oracle
 Tests that need vcan **skip** without it, so a plain `go test ./...` passes
 on macOS and Windows. `CANBUS_REQUIRE_VCAN=1` turns those skips into
 failures, and CI sets it: a skipped SocketCAN test is never a pass.
-Kernel ISO-TP tests also need the `can-isotp` module; GitHub's hosted
-runner kernels (Azure) do not ship it, so there they skip with a CI
-warning, and `CANBUS_REQUIRE_ISOTP=1` makes them required (set it where
-the module exists, as in the Lima VM used for development: Ubuntu, kernel
-7.0 generic).
+Kernel ISO-TP tests also need the `can-isotp` module; `CANBUS_REQUIRE_ISOTP=1`
+makes them required. GitHub's hosted runner kernels (Azure) do not ship the
+module, so CI's vcan job builds it from the kernel's source
+(`scripts/ci-can-modules.sh`) and sets the variable unconditionally: a module
+that cannot be provided fails the job. Elsewhere set it where the module
+exists, as in the Lima VM used for development (Ubuntu, kernel 7.0 generic).
 
 ## Coverage policy
 
