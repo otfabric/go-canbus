@@ -7,6 +7,7 @@
 [![Interop](https://github.com/otfabric/go-canbus/actions/workflows/interop.yml/badge.svg)](https://github.com/otfabric/go-canbus/actions/workflows/interop.yml)
 [![Kernels](https://github.com/otfabric/go-canbus/actions/workflows/kernels.yml/badge.svg)](https://github.com/otfabric/go-canbus/actions/workflows/kernels.yml)
 [![Code Coverage](https://codecov.io/gh/otfabric/go-canbus/graph/badge.svg)](https://codecov.io/gh/otfabric/go-canbus)
+[![Latest Release](https://img.shields.io/github/v/release/otfabric/go-canbus?label=release)](https://github.com/otfabric/go-canbus/releases)
 
 A pure Go library for Controller Area Network: classical CAN, CAN FD and
 CAN XL frames, Linux SocketCAN, serial-line (slcan) adapters on every OS, a
