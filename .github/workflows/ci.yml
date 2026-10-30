@@ -17,7 +17,7 @@ jobs:
   # code is not exercised there: coverage is measured and uploaded by the
   # vcan job instead (run-codecov: false here).
   ci:
-    uses: otfabric/.github/.github/workflows/go-ci.yml@v2.1.0
+    uses: otfabric/.github/.github/workflows/go-ci.yml@v2.1.0.1.1
     with:
       run-govulncheck: true
       fuzz-time: 10s
