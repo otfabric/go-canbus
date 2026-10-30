@@ -5,6 +5,17 @@ it computes the version, tags it and publishes this file's section of
 that version as the release notes. Add the section, headed exactly
 `## vX.Y.Z` and closed by a line `---`, before running it.
 
+## v0.7.1
+
+**Date:** 2026-10-30
+**Previous release:** v0.7.0
+
+### Dependencies
+
+- `go-serial` → v0.2.0: on macOS and BSD the baud constant no longer ends up in `Cflag`, where it set parity and stop-bit flags on the port.
+
+---
+
 ## v0.7.0
 
 **Date:** 2026-10-29
