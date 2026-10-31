@@ -4,7 +4,7 @@
 
 .DEFAULT_GOAL := help
 
-.PHONY: chaos e2e microvm interop-images help all build examples fmt fmt-check lint lint-ci vet vuln test test-vcan test-admin coverage coverage-check cover bench fuzz check clean generate generate-check coverpkg-check cross interop vcan-setup
+.PHONY: chaos e2e microvm interop-images help all build examples fmt fmt-check lint lint-ci vet vuln test test-vcan test-admin coverage coverage-check cover bench fuzz check clean generate generate-check coverpkg-check cross interop vcan-setup coverage-pkg-check
 
 help: ## This help
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z0-9_-]+:.*?## / {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -24,6 +24,9 @@ TEST_PKGS := $(shell go list ./... | grep -v '/examples')
 # differential test) and the leak-check test helper.
 COVER_PKGS := $(shell go list ./... | grep -v '/examples' | grep -v '/internal/cmd' | grep -v '/internal/golden' | grep -v '/internal/leak' | grep -v '/e2e' | paste -sd, -)
 COVER_MIN := 90
+# Per-package floor (TEST-012), checked by coverage-pkg-check. Measured with
+# the coverage of the CI job that has the prerequisites; see TESTING.md.
+COVER_PKG_MIN := 100
 
 # vcan interface the SocketCAN and kernel ISO-TP tests use (Linux).
 CANBUS_TEST_IFACE ?= vcan0
@@ -111,6 +114,11 @@ coverage-check: coverage ## Fail when total coverage is below COVER_MIN (meaning
 	echo "total $$total% (minimum $(COVER_MIN)%)"; \
 	awk -v t=$$total -v m=$(COVER_MIN) 'BEGIN { exit (t+0 < m+0) }'
 
+coverage-pkg-check: coverage ## Fail when a package is below COVER_PKG_MIN (reads coverage.out)
+	@awk -v m="$(COVER_PKG_MIN)" 'NR > 1 { n[$$1] = $$2; if ($$3 > 0) h[$$1] = 1 } \
+	END { for (k in n) { p = k; sub(/\/[^\/]*$$/, "", p); s[p] += n[k]; if (k in h) c[p] += n[k] } \
+	for (p in s) { v = 100 * c[p] / s[p]; printf "%s %.1f%%\n", p, v; if (v < m) { printf "  below COVER_PKG_MIN: %s: %.1f%% < %s%%\n", p, v, m; bad = 1 } } exit bad }' coverage.out
+
 cover: coverage ## Open the coverage report in a browser
 	@go tool cover -html=coverage.out
 
@@ -161,7 +169,7 @@ interop: ## Run the interop suite against the canbus-interop images (Linux, Dock
 	@CANBUS_REQUIRE_VCAN=1 CANBUS_REQUIRE_INTEROP=1 CANBUS_INTEROP_REPORT=$(CURDIR)/$(BIN_DIR)/interop-report.json \
 		go test -tags=interop -count=1 -timeout=60m ./interop/...
 
-check: generate-check fmt-check lint lint-ci vet vuln test coverage examples cross ## Everything CI checks except the vcan and interop jobs
+check: generate-check fmt-check lint lint-ci vet vuln test coverage-check coverage-pkg-check examples cross ## Everything CI checks except the vcan and interop jobs
 
 clean: ## Remove binaries and coverage files
 	@rm -rf $(BIN_DIR) coverage.out coverage.html
