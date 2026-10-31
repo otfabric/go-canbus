@@ -265,7 +265,15 @@ func (p *parser) uinteger() uint64 {
 	if t.kind != tNumber {
 		p.fail(t, "expected an unsigned integer")
 	}
-	u, err := strconv.ParseUint(t.text, 0, 64)
+	// Decimal, or 0x: base 0 would read a leading zero as octal, unlike
+	// integer and the DBC tools.
+	var u uint64
+	var err error
+	if strings.HasPrefix(t.text, "0x") || strings.HasPrefix(t.text, "0X") {
+		u, err = strconv.ParseUint(t.text[2:], 16, 64)
+	} else {
+		u, err = strconv.ParseUint(t.text, 10, 64)
+	}
 	if err != nil {
 		p.fail(t, "bad unsigned integer")
 	}
