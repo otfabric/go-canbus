@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/otfabric/go-canbus"
-	"github.com/otfabric/go-canbus/internal/leak"
+	"github.com/otfabric/go-canbus/internal/leakcheck"
 )
 
 var _ canbus.XLTransport = (*Port)(nil)
@@ -45,7 +45,7 @@ func recvAny(t *testing.T, p *Port, d time.Duration) string {
 }
 
 func TestXLDeliveryRules(t *testing.T) {
-	leak.Check(t)
+	leakcheck.Check(t)
 	ctx := ctxT(t)
 	b := New(Config{Name: "vxl"})
 	defer b.Close()
@@ -113,7 +113,7 @@ func TestXLDeliveryRules(t *testing.T) {
 }
 
 func TestXLPayloadIsCopied(t *testing.T) {
-	leak.Check(t)
+	leakcheck.Check(t)
 	ctx := ctxT(t)
 	b := New(Config{})
 	defer b.Close()
@@ -146,7 +146,7 @@ func TestXLPayloadIsCopied(t *testing.T) {
 }
 
 func TestXLUnsupportedAndInvalid(t *testing.T) {
-	leak.Check(t)
+	leakcheck.Check(t)
 	ctx := ctxT(t)
 	b := New(Config{})
 	defer b.Close()
@@ -175,7 +175,7 @@ func TestXLUnsupportedAndInvalid(t *testing.T) {
 }
 
 func TestXLInjectAndFaults(t *testing.T) {
-	leak.Check(t)
+	leakcheck.Check(t)
 	ctx := ctxT(t)
 	b := New(Config{Seed: 7})
 	defer b.Close()
@@ -229,7 +229,7 @@ func TestXLInjectAndFaults(t *testing.T) {
 }
 
 func TestXLWithoutLoopbackAndBlocking(t *testing.T) {
-	leak.Check(t)
+	leakcheck.Check(t)
 	ctx := ctxT(t)
 	b := New(Config{})
 	defer b.Close()

@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/otfabric/go-canbus"
-	"github.com/otfabric/go-canbus/internal/leak"
+	"github.com/otfabric/go-canbus/internal/leakcheck"
 	"github.com/otfabric/go-canbus/virtual"
 )
 
@@ -60,7 +60,7 @@ func waitFor(t *testing.T, cond func() bool) {
 }
 
 func TestBusFanOutAndFilters(t *testing.T) {
-	leak.Check(t)
+	leakcheck.Check(t)
 	ctx := ctxT(t)
 	_, a, b := newPair(t)
 	all, _ := b.Subscribe()
@@ -164,7 +164,7 @@ func TestBusBlockingSubscriberLosesNothing(t *testing.T) {
 }
 
 func TestBusCloseSemantics(t *testing.T) {
-	leak.Check(t)
+	leakcheck.Check(t)
 	ctx := ctxT(t)
 	vb := virtual.New(virtual.Config{})
 	defer vb.Close()
@@ -401,7 +401,7 @@ func (f *failingTransport) Drops() (uint64, canbus.DropReason) {
 }
 
 func TestBusTransportFailures(t *testing.T) {
-	leak.Check(t)
+	leakcheck.Check(t)
 	ft := &failingTransport{closed: make(chan struct{})}
 	m := &countingMetrics{}
 	b, _ := canbus.NewBus(ft, canbus.WithMetrics(m))
@@ -426,7 +426,7 @@ func TestBusTransportFailures(t *testing.T) {
 // TestBusStress runs concurrent senders, consumers and subscription churn
 // and checks that no frame is lost or reordered per sender. Run with -race.
 func TestBusStress(t *testing.T) {
-	leak.Check(t)
+	leakcheck.Check(t)
 	ctx := ctxT(t)
 	vb := virtual.New(virtual.Config{})
 	defer vb.Close()
@@ -495,7 +495,7 @@ func TestBusStress(t *testing.T) {
 }
 
 func TestBusStartOnSubscribe(t *testing.T) {
-	leak.Check(t)
+	leakcheck.Check(t)
 	ctx := ctxT(t)
 	vb := virtual.New(virtual.Config{Name: "vtest"})
 	defer vb.Close()
@@ -528,7 +528,7 @@ func TestBusStartOnSubscribe(t *testing.T) {
 }
 
 func TestBusStartOnSubscribeCloseUnstarted(t *testing.T) {
-	leak.Check(t)
+	leakcheck.Check(t)
 	vb := virtual.New(virtual.Config{Name: "vtest"})
 	defer vb.Close()
 	p, _ := vb.Open()

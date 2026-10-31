@@ -15,7 +15,7 @@ import (
 	"time"
 
 	"github.com/otfabric/go-canbus"
-	"github.com/otfabric/go-canbus/internal/leak"
+	"github.com/otfabric/go-canbus/internal/leakcheck"
 )
 
 // testIface returns the vcan interface for the integration tests:
@@ -75,7 +75,7 @@ func onlyID(id canbus.ID, ext bool) Option {
 }
 
 func TestSendReceiveAllFormats(t *testing.T) {
-	leak.Check(t)
+	leakcheck.Check(t)
 	ifc := testIface(t)
 	base := uniqueID(t)
 	tx := open(t, ifc, WithFD())
@@ -258,7 +258,7 @@ func TestKernelFilterSemantics(t *testing.T) {
 }
 
 func TestCancelAndClose(t *testing.T) {
-	leak.Check(t)
+	leakcheck.Check(t)
 	ifc := testIface(t)
 	c := open(t, ifc, WithFilters(canbus.FilterSet{Filters: []canbus.Filter{canbus.ExactExtended(uniqueID(t))}}))
 	var f canbus.Frame
@@ -348,7 +348,7 @@ func TestOverflowAccounting(t *testing.T) {
 }
 
 func TestBusOverSocketCAN(t *testing.T) {
-	leak.Check(t)
+	leakcheck.Check(t)
 	ifc := testIface(t)
 	base := uniqueID(t)
 	c := open(t, ifc, WithFD(), onlyID(base, true))
@@ -376,7 +376,7 @@ func TestBusOverSocketCAN(t *testing.T) {
 // TestBusStartOnSubscribeOverSocketCAN: frames sent between NewBus and
 // the first Subscribe wait in the socket and all reach the subscription.
 func TestBusStartOnSubscribeOverSocketCAN(t *testing.T) {
-	leak.Check(t)
+	leakcheck.Check(t)
 	ifc := testIface(t)
 	base := uniqueID(t)
 	c := open(t, ifc, WithFD(), onlyID(base, true))

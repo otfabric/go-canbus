@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/otfabric/go-canbus"
-	"github.com/otfabric/go-canbus/internal/leak"
+	"github.com/otfabric/go-canbus/internal/leakcheck"
 )
 
 // xlIface returns the CAN XL test interface: $CANBUS_TEST_XL_IFACE or
@@ -51,7 +51,7 @@ func sameXL(a, b *canbus.XLFrame) bool {
 }
 
 func TestXLSendReceive(t *testing.T) {
-	leak.Check(t)
+	leakcheck.Check(t)
 	ifc := xlIface(t)
 	tx := open(t, ifc, WithXL())
 	rx := open(t, ifc, WithXL())
@@ -85,7 +85,7 @@ func TestXLSendReceive(t *testing.T) {
 // order through ReceiveAny; Receive skips CAN XL frames; a socket without
 // WithXL never sees them.
 func TestXLMixed(t *testing.T) {
-	leak.Check(t)
+	leakcheck.Check(t)
 	ifc := xlIface(t)
 	tx := open(t, ifc, WithXL())
 	any := open(t, ifc, WithXL())
@@ -289,7 +289,7 @@ func TestXLKernelFilterParity(t *testing.T) {
 // TestXLBus runs a canbus.Bus on CAN XL sockets: ReceiveAny feeds the
 // subscriptions.
 func TestXLBus(t *testing.T) {
-	leak.Check(t)
+	leakcheck.Check(t)
 	ifc := xlIface(t)
 	tx, err := canbus.NewBus(open(t, ifc, WithXL()))
 	if err != nil {

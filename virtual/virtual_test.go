@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/otfabric/go-canbus"
-	"github.com/otfabric/go-canbus/internal/leak"
+	"github.com/otfabric/go-canbus/internal/leakcheck"
 )
 
 func ctxT(t *testing.T) context.Context {
@@ -28,7 +28,7 @@ func recv(t *testing.T, p *Port, d time.Duration) (canbus.Frame, error) {
 }
 
 func TestLoopbackRules(t *testing.T) {
-	leak.Check(t)
+	leakcheck.Check(t)
 	ctx := ctxT(t)
 	b := New(Config{})
 	defer b.Close()
@@ -211,7 +211,7 @@ func TestDelayPreservesOrder(t *testing.T) {
 }
 
 func TestCloseUnblocks(t *testing.T) {
-	leak.Check(t)
+	leakcheck.Check(t)
 	b := New(Config{})
 	p, _ := b.Open()
 	errc := make(chan error, 1)

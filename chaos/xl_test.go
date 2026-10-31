@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/otfabric/go-canbus"
-	"github.com/otfabric/go-canbus/internal/leak"
+	"github.com/otfabric/go-canbus/internal/leakcheck"
 	"github.com/otfabric/go-canbus/virtual"
 )
 
@@ -46,7 +46,7 @@ func xlBridge(t *testing.T, cfg Config, dstXL bool) (*Bridge, *virtual.Port, *vi
 }
 
 func TestXLForwardedWithFaults(t *testing.T) {
-	leak.Check(t)
+	leakcheck.Check(t)
 	b, src, dst, stop := xlBridge(t, Config{Seed: 3, Drop: 0.1, Duplicate: 0.1, Reorder: 0.1, Corrupt: 0.2}, true)
 	defer stop()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -109,7 +109,7 @@ func waitStats(t *testing.T, b *Bridge, received uint64) {
 }
 
 func TestXLFilterAndSkipped(t *testing.T) {
-	leak.Check(t)
+	leakcheck.Check(t)
 	// Frames outside the filter pass untouched, even with every frame
 	// dropped otherwise.
 	b, src, dst, stop := xlBridge(t, Config{Drop: 1, Filter: &canbus.FilterSet{Filters: []canbus.Filter{canbus.ExactStandard(0x7FF)}}}, true)
@@ -147,7 +147,7 @@ func TestXLFilterAndSkipped(t *testing.T) {
 type classicOnly struct{ canbus.Transport }
 
 func TestXLToNonXLTransport(t *testing.T) {
-	leak.Check(t)
+	leakcheck.Check(t)
 	b, _ := New(Config{Reorder: 1})
 	x, y := virtual.New(virtual.Config{}), virtual.New(virtual.Config{})
 	defer x.Close()

@@ -17,7 +17,7 @@ import (
 	"github.com/otfabric/go-canbus"
 	"github.com/otfabric/go-canbus/capture"
 	"github.com/otfabric/go-canbus/chaos"
-	"github.com/otfabric/go-canbus/internal/leak"
+	"github.com/otfabric/go-canbus/internal/leakcheck"
 	"github.com/otfabric/go-canbus/isotp"
 	"github.com/otfabric/go-canbus/virtual"
 )
@@ -104,7 +104,7 @@ func newLink(t *testing.T, cfg chaos.Config) *link {
 // one that was sent, byte for byte; once the faults stop, transfers
 // succeed again.
 func TestMonkeyISOTP(t *testing.T) {
-	leak.Check(t)
+	leakcheck.Check(t)
 	seeds := iterations(12)
 	for seed := 0; seed < seeds; seed++ {
 		r := rand.New(rand.NewSource(int64(seed)))
@@ -188,7 +188,7 @@ func TestMonkeyISOTP(t *testing.T) {
 // TestMonkeyCorruption sends through every fault including corruption and
 // reordering. Invariant: nothing panics or hangs, every call returns.
 func TestMonkeyCorruption(t *testing.T) {
-	leak.Check(t)
+	leakcheck.Check(t)
 	for seed := 0; seed < iterations(6); seed++ {
 		r := rand.New(rand.NewSource(int64(1000 + seed)))
 		cfg := randomFaults(r, false)
@@ -227,7 +227,7 @@ func TestMonkeyCorruption(t *testing.T) {
 // moment. Invariants: no deadlock, no goroutine leak, every subscription
 // sees each sender's frames in order (duplicates aside: none here).
 func TestMonkeyBus(t *testing.T) {
-	leak.Check(t)
+	leakcheck.Check(t)
 	for seed := 0; seed < iterations(10); seed++ {
 		r := rand.New(rand.NewSource(int64(seed)))
 		vb := virtual.New(virtual.Config{Seed: int64(seed) + 1})
@@ -321,7 +321,7 @@ func TestMonkeyBus(t *testing.T) {
 // at a random moment: Replay must return promptly with the context error
 // or nil, never hang, and never send more than it read.
 func TestMonkeyReplay(t *testing.T) {
-	leak.Check(t)
+	leakcheck.Check(t)
 	var trace bytes.Buffer
 	w := capture.NewJSONLWriter(&trace)
 	base := time.Unix(1700000000, 0)

@@ -82,7 +82,7 @@ jobs:
           CANBUS_REQUIRE_ISOTP: "1"
           CANBUS_REQUIRE_XL: "1"
           CANBUS_REQUIRE_TSHARK: "1"
-        run: make coverage-check
+        run: make coverage-check coverage-pkg-check
       - name: Upload to Codecov
         if: matrix.arch == 'amd64'
         uses: codecov/codecov-action@v7

@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/otfabric/go-canbus"
-	"github.com/otfabric/go-canbus/internal/leak"
+	"github.com/otfabric/go-canbus/internal/leakcheck"
 )
 
 func ctxT(t *testing.T) context.Context {
@@ -139,7 +139,7 @@ func TestBadConfig(t *testing.T) {
 }
 
 func TestSendReceive(t *testing.T) {
-	leak.Check(t)
+	leakcheck.Check(t)
 	ctx := ctxT(t)
 	c, p := newPeer(t, Config{Bitrate: 500000, Name: "can-usb"})
 	f, _ := canbus.NewStandard(0x123, []byte{0xA1, 0xB2})
@@ -212,7 +212,7 @@ func TestListenOnly(t *testing.T) {
 }
 
 func TestCloseAndPeerGone(t *testing.T) {
-	leak.Check(t)
+	leakcheck.Check(t)
 	ctx := ctxT(t)
 	c, p := newPeer(t, Config{NoCommands: true})
 	p.write(t, "t0010\r")
@@ -246,7 +246,7 @@ func TestCloseAndPeerGone(t *testing.T) {
 }
 
 func TestCloseUnblocksReceive(t *testing.T) {
-	leak.Check(t)
+	leakcheck.Check(t)
 	c, p := newPeer(t, Config{})
 	errc := make(chan error, 1)
 	go func() { errc <- c.Receive(context.Background(), &canbus.Frame{}) }()
@@ -263,7 +263,7 @@ func TestCloseUnblocksReceive(t *testing.T) {
 // TestBusOverSlcan: two Conns joined back to back carry frames through
 // a Bus.
 func TestBusOverSlcan(t *testing.T) {
-	leak.Check(t)
+	leakcheck.Check(t)
 	ctx := ctxT(t)
 	a, b := net.Pipe()
 	ca, err := New(a, Config{NoCommands: true, Name: "a"})
