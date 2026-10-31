@@ -11,6 +11,7 @@
 | pcap/pcapng against Wireshark: every frame kind written by this package dissected by tshark into the same frame; the captures in `capture/testdata` (tcpdump and dumpcap on Linux 7.0) read alike by tshark and this package | any OS with tshark | `make test`; CI installs tshark and requires it (`CANBUS_REQUIRE_TSHARK=1`) |
 | pcap against the kernel and libpcap: tcpdump captures CAN, CAN FD and CAN XL frames sent on `vcanxl0`; this package and tshark read the capture | Linux ≥ 6.2, root, tcpdump | `make test-admin`; required in CI |
 | Coverage gate (90 %) | Linux with vcan0 | `make coverage-check` |
+| Per-package floor (80 %) | Linux with vcan0 | `make coverage-pkg-check` |
 | Fuzzing | any OS | `make fuzz FUZZTIME=30s` |
 | Golden code generation | any OS | `make generate-check` |
 | Interoperability with independent stacks | Linux, Docker, vcan0 | `make interop` (see [INTEROPERABILITY.md](INTEROPERABILITY.md)) |
@@ -51,6 +52,12 @@ code exercised through another package counts. Excluded, and why:
 Coverage is only meaningful on Linux with vcan0 (otherwise the SocketCAN
 code is not run). CI measures it in the `vcan` job and uploads that to
 Codecov.
+
+`make coverage-pkg-check` holds every package to `COVER_PKG_MIN` (80 %) and
+prints the figures. The floor is below the 90 % total because of
+`socketcan/link` (81.1 %) and `socketcan` (83.7 %): their remaining code is
+netlink administration, which needs root (`make test-admin`, not part of
+the coverage run), and kernel error paths vcan cannot produce.
 
 ## What the tests check
 
