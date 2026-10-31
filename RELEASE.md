@@ -5,6 +5,18 @@ it computes the version, tags it and publishes this file's section of
 that version as the release notes. Add the section, headed exactly
 `## vX.Y.Z` and closed by a line `---`, before running it.
 
+## v0.7.2
+
+**Date:** 2026-10-31
+**Previous release:** v0.7.1
+
+### Fixed
+
+- `dbc` read a message identifier with a leading zero as octal, so `BO_ 010` became message 8. Identifiers are decimal. **A DBC file that relied on the old reading now gets a different identifier.**
+- Built on go-serial v0.2.1.
+
+---
+
 ## v0.7.1
 
 **Date:** 2026-10-30
