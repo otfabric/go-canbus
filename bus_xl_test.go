@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/otfabric/go-canbus"
-	"github.com/otfabric/go-canbus/internal/leak"
+	"github.com/otfabric/go-canbus/internal/leakcheck"
 	"github.com/otfabric/go-canbus/virtual"
 )
 
@@ -35,7 +35,7 @@ func mustXL(t *testing.T, s string) canbus.XLFrame {
 }
 
 func TestBusXL(t *testing.T) {
-	leak.Check(t)
+	leakcheck.Check(t)
 	ctx := ctxT(t)
 	vb := virtual.New(virtual.Config{Name: "vxl"})
 	defer vb.Close()
@@ -113,7 +113,7 @@ func TestBusXL(t *testing.T) {
 }
 
 func TestBusXLUnsupportedAndClosed(t *testing.T) {
-	leak.Check(t)
+	leakcheck.Check(t)
 	ctx := ctxT(t)
 	_, a, _ := newPair(t, virtual.WithFD())
 	x := mustXL(t, "242#80:00:00000000#11")
@@ -166,7 +166,7 @@ func mustSub(t *testing.T, ctx context.Context) *canbus.Subscription {
 type nonXL struct{ canbus.Transport }
 
 func TestBusXLNotXLTransport(t *testing.T) {
-	leak.Check(t)
+	leakcheck.Check(t)
 	vb := virtual.New(virtual.Config{})
 	defer vb.Close()
 	p, _ := vb.Open()
@@ -178,7 +178,7 @@ func TestBusXLNotXLTransport(t *testing.T) {
 }
 
 func TestBusXLOverflowAndEcho(t *testing.T) {
-	leak.Check(t)
+	leakcheck.Check(t)
 	ctx := ctxT(t)
 	vb := virtual.New(virtual.Config{})
 	defer vb.Close()
@@ -217,7 +217,7 @@ func TestBusXLOverflowAndEcho(t *testing.T) {
 }
 
 func TestBusXLBlocking(t *testing.T) {
-	leak.Check(t)
+	leakcheck.Check(t)
 	ctx := ctxT(t)
 	vb := virtual.New(virtual.Config{})
 	defer vb.Close()
@@ -256,7 +256,7 @@ func TestBusXLBlocking(t *testing.T) {
 // frames in arrival order through ReceiveAny, whatever their timestamps
 // (a coarse clock gives many frames the same one).
 func TestBusXLOrder(t *testing.T) {
-	leak.Check(t)
+	leakcheck.Check(t)
 	ctx := ctxT(t)
 	same := time.Unix(1800000000, 0)
 	vb := virtual.New(virtual.Config{Clock: func() time.Time { return same }})

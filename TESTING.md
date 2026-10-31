@@ -46,7 +46,7 @@ code exercised through another package counts. Excluded, and why:
 | `examples/` | Programs, run by `make examples` |
 | `internal/cmd/gengolden` | Build tool, its output is checked by `make generate-check` |
 | `internal/golden/` | Generated code; verified bit-for-bit against the dynamic codec by `codegen`'s differential test |
-| `internal/leak` | Test helper |
+| `internal/leakcheck` | Test helper |
 
 Coverage is only meaningful on Linux with vcan0 (otherwise the SocketCAN
 code is not run). CI measures it in the `vcan` job and uploads that to
@@ -61,7 +61,7 @@ Codecov.
   cancellation semantics, echo, error-state tracking, metrics, interface
   down/up, transport failures and back-off; a stress test with concurrent
   senders, receivers and subscription churn checking per-sender order and
-  loss (`TestBusStress`); goroutine leak checks (`internal/leak`).
+  loss (`TestBusStress`); goroutine leak checks (`internal/leakcheck`).
 - **virtual**: SocketCAN delivery rules, FD ports, filters and error masks,
   queue overflow accounting, deterministic seeded faults, delays keeping
   order, close and down semantics, raw injection of invalid frames.

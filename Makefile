@@ -22,7 +22,7 @@ TEST_PKGS := $(shell go list ./... | grep -v '/examples')
 # examples, the generator of the golden files (internal/cmd), the
 # generated golden code (internal/golden, verified by the
 # differential test) and the leak-check test helper.
-COVER_PKGS := $(shell go list ./... | grep -v '/examples' | grep -v '/internal/cmd' | grep -v '/internal/golden' | grep -v '/internal/leak' | grep -v '/e2e' | paste -sd, -)
+COVER_PKGS := $(shell go list ./... | grep -v '/examples' | grep -v '/internal/cmd' | grep -v '/internal/golden' | grep -v '/internal/leakcheck' | grep -v '/e2e' | paste -sd, -)
 COVER_MIN := 90
 # Per-package floor (TEST-012), checked by coverage-pkg-check. Measured with
 # the coverage of the CI job that has the prerequisites; see TESTING.md.

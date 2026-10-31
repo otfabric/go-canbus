@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/otfabric/go-canbus"
-	"github.com/otfabric/go-canbus/internal/leak"
+	"github.com/otfabric/go-canbus/internal/leakcheck"
 	"github.com/otfabric/go-canbus/virtual"
 )
 
@@ -80,7 +80,7 @@ func exchange(t *testing.T, a, b *Conn, n int) {
 }
 
 func TestSizesAndModes(t *testing.T) {
-	leak.Check(t)
+	leakcheck.Check(t)
 	sizes := []int{1, 6, 7, 8, 62, 63, 64, 100, 4095, 4096, 10000}
 	modes := []struct {
 		name string
@@ -277,7 +277,7 @@ func TestSequenceWrap(t *testing.T) {
 }
 
 func TestFlowControlTimeoutAndClose(t *testing.T) {
-	leak.Check(t)
+	leakcheck.Check(t)
 	vb := virtual.New(virtual.Config{})
 	defer vb.Close()
 	port, _ := vb.Open()

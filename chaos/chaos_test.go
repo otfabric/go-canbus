@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/otfabric/go-canbus"
-	"github.com/otfabric/go-canbus/internal/leak"
+	"github.com/otfabric/go-canbus/internal/leakcheck"
 	"github.com/otfabric/go-canbus/virtual"
 )
 
@@ -73,7 +73,7 @@ func collect(p *virtual.Port, quiet time.Duration) []int {
 }
 
 func TestTransparent(t *testing.T) {
-	leak.Check(t)
+	leakcheck.Check(t)
 	b, x, y, _ := run(t, Config{})
 	sendSeq(t, x.node, 200)
 	got := collect(y.node, 100*time.Millisecond)

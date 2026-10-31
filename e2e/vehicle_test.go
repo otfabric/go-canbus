@@ -16,7 +16,7 @@ import (
 	"github.com/otfabric/go-canbus/capture"
 	"github.com/otfabric/go-canbus/dbc"
 	"github.com/otfabric/go-canbus/internal/golden/full"
-	"github.com/otfabric/go-canbus/internal/leak"
+	"github.com/otfabric/go-canbus/internal/leakcheck"
 	"github.com/otfabric/go-canbus/isotp"
 	"github.com/otfabric/go-canbus/virtual"
 )
@@ -217,7 +217,7 @@ func vehicle(t *testing.T, net network, isotpServer func(t *testing.T) isotp.End
 }
 
 func TestVehicleVirtual(t *testing.T) {
-	leak.Check(t)
+	leakcheck.Check(t)
 	vb := virtual.New(virtual.Config{Name: "vehicle"})
 	defer vb.Close()
 	net := virtualNet{vb}
