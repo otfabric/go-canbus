@@ -10,7 +10,7 @@ structure with `errors.As`.
 | `ErrInvalidFrame` | canbus | `Frame.Validate` failed; `*FrameError` carries frame and reason |
 | `ErrUnsupported` | canbus | SocketCAN off Linux, FD frame on a classical socket, non-CAN interface, vcan bit timing, kernel ISO-TP options the kernel lacks |
 | `ErrQueueFull` | canbus | A bounded queue rejected a frame |
-| `ErrInvalidOption` | canbus | Bad constructor or Config value, bad filter text; `socketcan.DialISOTP` ForceTxSTmin outside 0..127 ms; `link.SetMTU` MTU ≤ 0 or ≥ 2^32; `link.AddVCAN`/`AddVXCAN` name empty or over 15 bytes; interface index outside int32 |
+| `ErrInvalidOption` | canbus | Bad constructor or Config value, bad filter text; `socketcan.DialISOTP` ForceTxSTmin outside 0..127 ms; `link.SetMTU` MTU ≤ 0 or ≥ 2^32; `link.AddVCAN`/`AddVXCAN` name empty or over 15 bytes |
 | `ErrInterfaceDown` | canbus | Interface missing or down (ENETDOWN, ENODEV); a Bus reader reports it and recovers when the interface returns |
 | `ErrBufferOverflow` | canbus | ENOBUFS beyond a send's context |
 | `*OpError` | canbus | Operation, interface and cause of a transport failure |
