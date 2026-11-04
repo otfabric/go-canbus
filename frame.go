@@ -139,10 +139,11 @@ func newFrame(id ID, fl Flags, data []byte) (Frame, error) {
 	var f Frame
 	f.ID = id
 	f.Flags = fl
-	if len(data) > MaxFDLen {
-		return f, &FrameError{Frame: f, Reason: fmt.Sprintf("payload of %d bytes exceeds %d", len(data), MaxFDLen)}
+	n := len(data)
+	if n > MaxFDLen {
+		return f, &FrameError{Frame: f, Reason: fmt.Sprintf("payload of %d bytes exceeds %d", n, MaxFDLen)}
 	}
-	f.Len = uint8(len(data))
+	f.Len = uint8(n)
 	copy(f.Data[:], data)
 	return f, f.Validate()
 }
@@ -160,8 +161,8 @@ func (f *Frame) Payload() []byte {
 // SetPayload copies data into the frame, sets Len and clears the bytes
 // beyond it. It does not validate the length against the frame type.
 func (f *Frame) SetPayload(data []byte) {
-	n := copy(f.Data[:], data)
-	f.Len = uint8(n)
+	n := copy(f.Data[:], data) // at most MaxFDLen
+	f.Len = uint8(max(min(n, MaxFDLen), 0))
 	clear(f.Data[n:])
 }
 

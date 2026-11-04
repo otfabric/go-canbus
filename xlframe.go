@@ -157,7 +157,7 @@ func ParseXLFrame(s string) (XLFrame, error) {
 	if err1 != nil || err2 != nil || err3 != nil {
 		return bad("bad CAN XL header")
 	}
-	f.Flags, f.SDT, f.AF = XLFlags(fl&^xlf), uint8(sdt), uint32(af)
+	f.Flags, f.SDT, f.AF = XLFlags(fl&^xlf&0xFF), uint8(sdt&0xFF), uint32(af&0xFFFFFFFF) // parsed with 8, 8 and 32 bits
 	data := strings.ReplaceAll(rest[15:], ".", "")
 	if f.Data, err = hex.DecodeString(data); err != nil {
 		return bad("bad data")

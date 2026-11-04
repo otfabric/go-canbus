@@ -24,6 +24,7 @@ import (
 	"io"
 	"math"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -58,7 +59,7 @@ func (e *ParseError) Error() string {
 
 // ParseFile parses a DBC file. See [Parse].
 func ParseFile(path string) (*candb.Database, []candb.Diagnostic, error) {
-	b, err := os.ReadFile(path)
+	b, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -88,7 +89,7 @@ func ParseBytes(src []byte) (*candb.Database, []candb.Diagnostic, error) {
 		return &candb.Database{}, d, &ParseError{Diagnostics: d}
 	}
 	p := &parser{toks: toks, db: &candb.Database{}, msgs: map[msgKey]*candb.Message{},
-		valTypes: map[sigKey]int{}, muxVals: map[sigKey][]muxVal{}, muxInd: map[sigKey]string{}}
+		valTypes: map[sigKey]candb.ValueType{}, muxVals: map[sigKey][]muxVal{}, muxInd: map[sigKey]string{}}
 	p.run()
 	p.finish()
 	sortDiagnostics(p.diags)
@@ -119,7 +120,7 @@ type parser struct {
 
 	msgs     map[msgKey]*candb.Message
 	skipMsg  map[msgKey]bool
-	valTypes map[sigKey]int
+	valTypes map[sigKey]candb.ValueType
 	muxVals  map[sigKey][]muxVal
 	muxInd   map[sigKey]string // the raw multiplexer indicator: "M", "m3", "m3M"
 	attrs    []pendingAttr
@@ -252,11 +253,23 @@ func (p *parser) integer() int64 {
 			}
 		}
 	}
-	if err != nil || (!neg && u > math.MaxInt64) || (neg && u > 1<<63) {
+	if err != nil {
 		p.fail(t, "bad integer")
+		return 0
 	}
 	if neg {
+		if u > 1<<63 {
+			p.fail(t, "bad integer")
+			return 0
+		}
+		if u > math.MaxInt64 {
+			return math.MinInt64 // -(1<<63), which has no positive int64
+		}
 		return -int64(u)
+	}
+	if u > math.MaxInt64 {
+		p.fail(t, "bad integer")
+		return 0
 	}
 	return int64(u)
 }
@@ -279,6 +292,19 @@ func (p *parser) uinteger() uint64 {
 		p.fail(t, "bad unsigned integer")
 	}
 	return u
+}
+
+// msgID reads a DBC message identifier: 32 bits, bit 31 marking an
+// extended frame. A larger number is a syntax error rather than wrapping
+// onto another message.
+func (p *parser) msgID() msgKey {
+	t := p.peek()
+	u := p.uinteger()
+	if u > math.MaxUint32 {
+		p.fail(t, "message identifier %d out of range", u)
+		return 0
+	}
+	return msgKey(u)
 }
 
 // skipStatement skips to the next ';' (inclusive).
@@ -390,7 +416,7 @@ func (p *parser) statement() {
 	case "SG_":
 		p.fail(t, "SG_ outside a message")
 	case "BO_TX_BU_":
-		id := msgKey(p.uinteger())
+		id := p.msgID()
 		p.expectPunct(":")
 		var senders []string
 		for {
@@ -428,18 +454,26 @@ func (p *parser) statement() {
 	case "VAL_":
 		p.values(t)
 	case "SIG_VALTYPE_":
-		id := msgKey(p.uinteger())
+		id := p.msgID()
 		sig := p.ident()
 		p.acceptPunct(":")
 		vt := p.integer()
 		p.expectPunct(";")
-		if vt < 0 || vt > 2 {
+		var typ candb.ValueType
+		switch vt {
+		case 0:
+			typ = candb.Integer
+		case 1:
+			typ = candb.Float32
+		case 2:
+			typ = candb.Float64
+		default:
 			p.diag(candb.Error, t.line, "signal "+sig, "SIG_VALTYPE_ %d unknown (0 integer, 1 float, 2 double)", vt)
 			return
 		}
-		p.valTypes[sigKey{id, sig}] = int(vt)
+		p.valTypes[sigKey{id, sig}] = typ
 	case "SG_MUL_VAL_":
-		id := msgKey(p.uinteger())
+		id := p.msgID()
 		sig := p.ident()
 		sw := p.ident()
 		var rs []candb.MuxRange
@@ -459,7 +493,7 @@ func (p *parser) statement() {
 		k := sigKey{id, sig}
 		p.muxVals[k] = append(p.muxVals[k], muxVal{sw: sw, ranges: rs, line: t.line})
 	case "SIG_GROUP_":
-		id := msgKey(p.uinteger())
+		id := p.msgID()
 		g := candb.SignalGroup{Name: p.ident(), Repetitions: int(p.integer())}
 		p.expectPunct(":")
 		for p.peek().kind == tIdent {
@@ -511,15 +545,12 @@ func (p *parser) valueDescriptions() []candb.ValueDescription {
 const independentSignals = 0xC0000000
 
 func (p *parser) message(t token) {
-	rawID := p.uinteger()
-	if rawID > math.MaxUint32 {
-		p.fail(t, "message identifier %d out of range", rawID)
-	}
+	id := p.msgID()
+	rawID := uint32(id)
 	name := p.ident()
 	p.expectPunct(":")
 	length := p.integer()
 	sender := p.ident()
-	id := msgKey(rawID)
 	m := &candb.Message{Name: name, Length: int(length)}
 	if rawID&0x80000000 != 0 {
 		m.Extended = true
@@ -678,14 +709,14 @@ func (p *parser) comment(t token) {
 			p.diag(candb.Warning, t.line, "", "comment for unknown node %s ignored", name)
 		}
 	case "BO_":
-		id := msgKey(p.uinteger())
+		id := p.msgID()
 		text := p.str()
 		p.expectPunct(";")
 		if m := p.msg(id, t); m != nil {
 			m.Comment = text
 		}
 	case "SG_":
-		id := msgKey(p.uinteger())
+		id := p.msgID()
 		sig := p.ident()
 		text := p.str()
 		p.expectPunct(";")
@@ -755,9 +786,9 @@ func (p *parser) attrValue(t token) {
 		case "BU_":
 			pa.obj, pa.node = candb.ObjectNode, p.ident()
 		case "BO_":
-			pa.obj, pa.msg = candb.ObjectMessage, msgKey(p.uinteger())
+			pa.obj, pa.msg = candb.ObjectMessage, p.msgID()
 		case "SG_":
-			pa.obj, pa.msg = candb.ObjectSignal, msgKey(p.uinteger())
+			pa.obj, pa.msg = candb.ObjectSignal, p.msgID()
 			pa.sig = p.ident()
 		case "EV_":
 			p.skipStatement()
@@ -791,7 +822,7 @@ func (p *parser) values(t token) {
 		p.diag(candb.Warning, t.line, "", "value descriptions of environment variable %s ignored", name)
 		return
 	}
-	id := msgKey(p.uinteger())
+	id := p.msgID()
 	sig := p.ident()
 	vs := p.valueDescriptions()
 	p.expectPunct(";")

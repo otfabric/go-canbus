@@ -20,7 +20,7 @@ func (p *parser) finish() {
 			p.diag(candb.Warning, 0, "", "SIG_VALTYPE_ for unknown signal %d %s ignored", uint32(k.msg), k.sig)
 			continue
 		}
-		m.Signal(k.sig).ValueType = candb.ValueType(vt)
+		m.Signal(k.sig).ValueType = vt
 	}
 	for _, m := range p.db.Messages {
 		p.resolveMux(m)

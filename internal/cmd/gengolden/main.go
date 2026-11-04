@@ -50,14 +50,14 @@ func main() {
 		for name, want := range map[string][]byte{g.pkg + ".go": code, g.pkg + ".json": js} {
 			path := filepath.Join(dir, name)
 			if *check {
-				have, _ := os.ReadFile(path)
+				have, _ := os.ReadFile(filepath.Clean(path))
 				if !bytes.Equal(have, want) {
 					fmt.Fprintf(os.Stderr, "%s is out of date: run make generate\n", path)
 					stale = true
 				}
 				continue
 			}
-			if err := os.WriteFile(path, want, 0o644); err != nil {
+			if err := os.WriteFile(path, want, 0o600); err != nil {
 				fail(err)
 			}
 		}

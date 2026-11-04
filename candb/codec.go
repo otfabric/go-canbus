@@ -48,12 +48,16 @@ func (s *Signal) RawString(v Value) string {
 	return strconv.FormatUint(v.Raw, 10)
 }
 
+// maxStartBit bounds a signal's start bit far beyond the largest payload
+// (CAN XL, 2048 bytes), so that bit arithmetic on it cannot overflow.
+const maxStartBit = 1 << 24
+
 // layout returns the bit position for the bits package.
 func (s *Signal) layout() (pos int, err error) {
 	if s.Length < 1 || s.Length > 64 {
 		return 0, fmt.Errorf("%w: %s has %d bits", ErrLayout, s.Name, s.Length)
 	}
-	if s.StartBit < 0 {
+	if s.StartBit < 0 || s.StartBit > maxStartBit {
 		return 0, fmt.Errorf("%w: %s starts at bit %d", ErrLayout, s.Name, s.StartBit)
 	}
 	if s.ByteOrder == BigEndian {
@@ -109,12 +113,12 @@ func (s *Signal) Value(raw uint64) Value {
 	v := Value{Raw: raw}
 	switch s.ValueType {
 	case Float32:
-		f := float64(math.Float32frombits(uint32(raw)))
-		v.Signed = int64(raw)
+		f := float64(math.Float32frombits(uint32(raw & math.MaxUint32)))
+		v.Signed = bits.SignExtend(raw, 64)
 		v.Physical = f*s.Factor + s.Offset
 		return v
 	case Float64:
-		v.Signed = int64(raw)
+		v.Signed = bits.SignExtend(raw, 64)
 		v.Physical = math.Float64frombits(raw)*s.Factor + s.Offset
 		return v
 	default:
@@ -123,7 +127,7 @@ func (s *Signal) Value(raw uint64) Value {
 		v.Signed = bits.SignExtend(raw, s.Length)
 		v.Physical = float64(v.Signed)*s.Factor + s.Offset
 	} else {
-		v.Signed = int64(raw)
+		v.Signed = bits.SignExtend(raw, 64)
 		v.Physical = float64(raw)*s.Factor + s.Offset
 	}
 	v.Label = s.Label(v.Signed)
@@ -149,7 +153,7 @@ func (s *Signal) RawFromInt(v int64) (uint64, error) {
 		if !bits.FitsSigned(v, s.Length) {
 			return 0, fmt.Errorf("%w: %s: %d does not fit in %d signed bits", ErrRange, s.Name, v, s.Length)
 		}
-		return bits.Truncate(uint64(v), s.Length), nil
+		return bits.Truncate(asUint64(v), s.Length), nil
 	}
 	if v < 0 || !bits.FitsUnsigned(uint64(v), s.Length) {
 		return 0, fmt.Errorf("%w: %s: %d does not fit in %d unsigned bits", ErrRange, s.Name, v, s.Length)
@@ -268,6 +272,9 @@ func (m *Message) active(switchValue func(*Signal) (uint64, bool, error)) (map[*
 // Decode decodes the signals the payload carries, in the order of
 // m.Signals. The payload must hold at least Length bytes.
 func (m *Message) Decode(data []byte) ([]DecodedSignal, error) {
+	if m.Length < 0 {
+		return nil, fmt.Errorf("%w: %s has length %d", ErrLayout, m.Name, m.Length)
+	}
 	if len(data) < m.Length {
 		return nil, fmt.Errorf("%w: %s needs %d bytes, got %d", ErrShortPayload, m.Name, m.Length, len(data))
 	}
@@ -346,7 +353,7 @@ func (s *Signal) rawOf(in Input, opts EncodeOptions) (uint64, error) {
 		return s.RawFromUint(in.raw)
 	case 2:
 		if s.ValueType != Integer {
-			return s.RawFromUint(uint64(in.sraw))
+			return s.RawFromUint(asUint64(in.sraw))
 		}
 		return s.RawFromInt(in.sraw)
 	case 4:
@@ -378,7 +385,7 @@ func (s *Signal) rawOf(in Input, opts EncodeOptions) (uint64, error) {
 		if s.Signed {
 			return s.RawFromInt(v)
 		}
-		return s.RawFromUint(uint64(v))
+		return s.RawFromUint(asUint64(v))
 	}
 	if !opts.Lax && !s.InRange(in.phys) {
 		return 0, fmt.Errorf("%w: %s: %v outside [%v, %v]", ErrRange, s.Name, in.phys, s.Minimum, s.Maximum)
@@ -428,6 +435,9 @@ func (m *Message) EncodeWith(values map[string]Input, opts EncodeOptions) ([]byt
 		return nil, err
 	}
 	n := m.Length
+	if n < 0 || n > canbus.MaxXLLen || m.FD && n > canbus.MaxFDLen {
+		return nil, fmt.Errorf("%w: %s has length %d", ErrLayout, m.Name, m.Length)
+	}
 	if m.FD {
 		n = canbus.RoundUpFDLen(n)
 	}
@@ -473,4 +483,11 @@ func (db *Database) DecodeFrame(f *canbus.Frame) (*Message, []DecodedSignal, err
 	}
 	sigs, err := m.Decode(f.Payload())
 	return m, sigs, err
+}
+
+// asUint64 reinterprets the two's complement v as a 64-bit pattern (the
+// inverse of bits.SignExtend(raw, 64)). Written with masks so that no
+// conversion can overflow; it compiles to a few register operations.
+func asUint64(v int64) uint64 {
+	return uint64(v&math.MaxInt64) | uint64(v>>63&1)<<63
 }
