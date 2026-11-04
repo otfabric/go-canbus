@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -114,6 +115,9 @@ func (r *ASCReader) Read(f *canbus.Frame) error {
 		if !ok {
 			continue
 		}
+		if !(math.Abs(ts) <= maxOffsetSec) { // also NaN
+			return r.fail("timestamp %q out of range", fields[0])
+		}
 		f.Timestamp = r.start.Add(time.Duration(ts * float64(time.Second)).Round(time.Microsecond))
 		return nil
 	}
@@ -123,7 +127,11 @@ func (r *ASCReader) Read(f *canbus.Frame) error {
 	return io.EOF
 }
 
-func (r *ASCReader) num(s string) (uint64, error) { return strconv.ParseUint(s, r.base, 32) }
+// num parses an unsigned 32-bit number in the base of the trace.
+func (r *ASCReader) num(s string) (uint32, error) {
+	v, err := strconv.ParseUint(s, r.base, 32)
+	return uint32(v & math.MaxUint32), err // ParseUint holds v to 32 bits
+}
 
 func (r *ASCReader) id(s string, f *canbus.Frame) error {
 	ext := strings.HasSuffix(s, "x") || strings.HasSuffix(s, "X")
@@ -214,7 +222,7 @@ func (r *ASCReader) event(fields []string, f *canbus.Frame) (bool, error) {
 	if err := r.data(rest[1:], n, f); err != nil {
 		return false, err
 	}
-	f.Len = uint8(n)
+	f.Len = lenByte(n)
 	if dlc > 8 {
 		f.Len8DLC = uint8(dlc)
 	}
@@ -257,7 +265,7 @@ func (r *ASCReader) fd(fields []string, f *canbus.Frame) (bool, error) {
 	if err := r.data(rest[4:], n, f); err != nil {
 		return false, err
 	}
-	f.Len = uint8(n)
+	f.Len = lenByte(n)
 	return true, nil
 }
 
@@ -280,6 +288,9 @@ func ascChannel(iface string) string {
 }
 
 func (w *ASCWriter) header(t time.Time) error {
+	if y := t.Year(); y < 1 || y > 9999 {
+		return fmt.Errorf("%w: ASC date %v outside the years 1..9999", ErrUnrepresentable, t)
+	}
 	w.started = true
 	// The date header has milliseconds: offsets carry the rest.
 	t = t.Truncate(time.Millisecond)
@@ -315,7 +326,11 @@ func (w *ASCWriter) Write(f *canbus.Frame) error {
 	}
 	rel := 0.0
 	if !ts.IsZero() {
-		rel = ts.Sub(w.start).Seconds()
+		d := ts.Sub(w.start)
+		if d == math.MaxInt64 || d == math.MinInt64 { // Sub saturates
+			return fmt.Errorf("%w: ASC timestamp %v more than 292 years from the start %v", ErrUnrepresentable, ts, w.start)
+		}
+		rel = d.Seconds()
 	}
 	ch := ascChannel(f.Interface)
 	id := strings.ToUpper(strconv.FormatUint(uint64(f.ID), 16))

@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte(";$FILEVERSION=2.1\n;$STARTTIME=46000\n;$COLUMNS=N,O,T,I,d,l,D\n 1 1e300 DT 0001 Rx 0\n")

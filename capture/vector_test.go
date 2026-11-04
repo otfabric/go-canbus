@@ -227,7 +227,7 @@ func blfFile(t *testing.T, objs ...[]byte) []byte {
 	t.Helper()
 	le := binary.LittleEndian
 	w := &BLFWriter{start: time.Unix(1700000000, 0)}
-	h := w.fileHeader(time.Time{})
+	h, _ := w.fileHeader(time.Time{})
 	var body []byte
 	for _, o := range objs {
 		body = append(body, o...)

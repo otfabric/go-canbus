@@ -37,6 +37,7 @@ import (
 	"io"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/otfabric/go-canbus"
 )
@@ -122,6 +123,26 @@ func (e *ParseError) Error() string {
 // ErrUnknownFormat reports input whose format could not be recognised.
 var ErrUnknownFormat = errors.New("capture: unknown trace format")
 
+// ErrUnrepresentable reports a frame a writer cannot store in its format
+// without corrupting it: a timestamp outside the format's range (before
+// 1970 or after 2106 in pcap, for example), or a channel number or name
+// too large for its field. Nothing is written for that frame.
+var ErrUnrepresentable = errors.New("capture: frame not representable in the format")
+
+// maxUnixSec is the last second of the year 9999 (UTC). Readers reject
+// later timestamps and writers refuse them, so every timestamp read or
+// written stays inside the range time.Time computes with exactly.
+const maxUnixSec = 253402300799
+
+// unixRange returns an [ErrUnrepresentable] error unless t (not zero) is
+// between 1970 and the end of the year 9999.
+func unixRange(format Format, t time.Time) error {
+	if sec := t.Unix(); sec < 0 || sec > maxUnixSec {
+		return fmt.Errorf("%w: %s timestamp %v outside 1970..9999", ErrUnrepresentable, format, t)
+	}
+	return nil
+}
+
 // NewReader detects the format of r from its first bytes and returns a
 // reader for it.
 func NewReader(r io.Reader) (Reader, Format, error) {
@@ -189,3 +210,11 @@ func NewWriter(w io.Writer, format Format) (Writer, error) {
 	}
 	return nil, fmt.Errorf("%w: cannot write %q", ErrUnknownFormat, format)
 }
+
+// lenByte converts a payload length computed by canbus.DLCToLen (0..64)
+// to the frame's Len field; the clamp is a no-op.
+func lenByte(n int) uint8 { return uint8(max(min(n, canbus.MaxFDLen), 0)) }
+
+// maxOffsetSec bounds the offsets of the text formats (seconds from the
+// start): a time.Duration spans about ±292 years.
+const maxOffsetSec = 9e9

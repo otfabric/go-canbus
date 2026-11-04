@@ -7,6 +7,8 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"math"
+	"math/bits"
 	"time"
 
 	"github.com/otfabric/go-canbus"
@@ -67,7 +69,8 @@ func encodeSocketCANXL(x *canbus.XLFrame, b []byte) int {
 	binary.BigEndian.PutUint32(b[0:], canbus.XLKernelID(x))
 	b[4] = uint8(x.Flags) | xlFormatFlag
 	b[5] = x.SDT
-	binary.LittleEndian.PutUint16(b[6:], uint16(len(x.Data)))
+	// x.Validate holds the length to MinXLLen..MaxXLLen: the clamp is a no-op.
+	binary.LittleEndian.PutUint16(b[6:], uint16(max(min(len(x.Data), canbus.MaxXLLen), 0)))
 	binary.LittleEndian.PutUint32(b[8:], x.AF)
 	copy(b[xlHeaderLen:], x.Data)
 	return xlHeaderLen + len(x.Data)
@@ -102,7 +105,7 @@ func decodeSocketCANXL(b []byte, x *canbus.XLFrame) error {
 	}
 	*x = canbus.XLFrame{
 		Priority: uint16(id & canbus.MaxXLPriority),
-		VCID:     uint8(id >> 16),
+		VCID:     uint8(id >> 16 & 0xFF),
 		Flags:    canbus.XLFlags(b[4] &^ xlFormatFlag),
 		SDT:      b[5],
 		AF:       binary.LittleEndian.Uint32(b[8:]),
@@ -168,7 +171,7 @@ func decodeSocketCAN(b []byte, f *canbus.Frame) error {
 			f.Len8DLC = b[7]
 		}
 	}
-	f.Len = uint8(n)
+	f.Len = uint8(max(min(n, canbus.MaxFDLen), 0)) // n <= 64 (checked above)
 	avail := len(b) - 8
 	copy(f.Data[:n], b[8:8+min(n, avail)]) // bytes beyond the capture length stay zero
 	return nil
@@ -236,8 +239,10 @@ func (r *PCAPReader) ReadAny(f *canbus.Frame, x *canbus.XLFrame) (xl bool, err e
 	if incl > 1<<16 {
 		return false, &ParseError{Format: FormatPCAP, Line: r.record, Msg: fmt.Sprintf("record of %d bytes", incl)}
 	}
-	r.buf = r.buf[:0]
-	r.buf = append(r.buf, make([]byte, incl)...)
+	if int64(cap(r.buf)) < int64(incl) {
+		r.buf = make([]byte, incl)
+	}
+	r.buf = r.buf[:incl]
 	if _, err := io.ReadFull(r.r, r.buf); err != nil {
 		return false, &ParseError{Format: FormatPCAP, Line: r.record, Msg: "truncated record"}
 	}
@@ -298,16 +303,21 @@ func (w *PCAPWriter) WriteXL(x *canbus.XLFrame) error {
 }
 
 // record writes the record header of the n-byte packet in w.buf and the
-// packet.
+// packet. pcap has unsigned 32-bit seconds: a timestamp before 1970 or
+// after 2106-02-07 is an [ErrUnrepresentable] error.
 func (w *PCAPWriter) record(n int, ts time.Time) error {
 	var sec, ns int64
 	if !ts.IsZero() {
 		sec, ns = ts.Unix(), int64(ts.Nanosecond())
 	}
-	binary.LittleEndian.PutUint32(w.buf[0:], uint32(sec))
-	binary.LittleEndian.PutUint32(w.buf[4:], uint32(ns))
-	binary.LittleEndian.PutUint32(w.buf[8:], uint32(n))
-	binary.LittleEndian.PutUint32(w.buf[12:], uint32(n))
+	if sec < 0 || sec > math.MaxUint32 {
+		return fmt.Errorf("%w: pcap timestamp %v outside 1970..2106", ErrUnrepresentable, ts)
+	}
+	size := uint32(max(min(n, pcapSnapLen), 0)) // n <= pcapSnapLen by construction
+	binary.LittleEndian.PutUint32(w.buf[0:], uint32(sec&math.MaxUint32))
+	binary.LittleEndian.PutUint32(w.buf[4:], uint32(ns&math.MaxUint32))
+	binary.LittleEndian.PutUint32(w.buf[8:], size)
+	binary.LittleEndian.PutUint32(w.buf[12:], size)
 	_, err := w.w.Write(w.buf[:pcapRecordLen+n])
 	return err
 }
@@ -377,8 +387,14 @@ func (r *PCAPNGReader) ReadAny(f *canbus.Frame, x *canbus.XLFrame) (xl bool, err
 	var t time.Time
 	if hasTS {
 		sec := ts / ifc.resol
-		frac := ts % ifc.resol
-		t = time.Unix(int64(sec), int64(frac*1e9/ifc.resol))
+		if sec > maxUnixSec {
+			return xl, r.fail("timestamp of %d ticks of 1/%d s after the year 9999", ts, ifc.resol)
+		}
+		// frac*1e9/resol without overflow: frac < resol, so the quotient
+		// is below 1e9 < 2^30 and Div64 cannot panic.
+		hi, lo := bits.Mul64(ts%ifc.resol, 1e9)
+		ns, _ := bits.Div64(hi, lo, ifc.resol)
+		t = time.Unix(int64(sec), int64(ns&(1<<30-1)))
 	}
 	switch {
 	case !xl:
@@ -432,10 +448,13 @@ func (r *PCAPNGReader) next() (data []byte, ifc *pcapngIface, ts uint64, hasTS b
 		}
 		typ = r.order.Uint32(hdr[0:])
 		total := r.order.Uint32(hdr[4:])
-		if total < 12 || total%4 != 0 || total > 1<<20 {
+		if total < 12 || total%4 != 0 || total > pcapngMaxBlock {
 			return nil, nil, 0, false, r.fail("bad block length %d", total)
 		}
-		r.buf = append(r.buf[:0], make([]byte, total-8)...)
+		if int64(cap(r.buf)) < int64(total-8) {
+			r.buf = make([]byte, total-8)
+		}
+		r.buf = r.buf[:total-8]
 		if _, err := io.ReadFull(r.r, r.buf); err != nil {
 			return nil, nil, 0, false, r.fail("truncated block")
 		}
@@ -467,10 +486,11 @@ func (r *PCAPNGReader) next() (data []byte, ifc *pcapngIface, ts uint64, hasTS b
 				capLen = r.order.Uint32(body[0:])
 				data = body[4:]
 			}
-			if int(capLen) > len(data) {
+			// Compared in int64: int(uint32) is negative on 32-bit platforms.
+			if int64(capLen) > int64(len(data)) {
 				return nil, nil, 0, false, r.fail("captured length %d exceeds the block", capLen)
 			}
-			if int(ifIdx) >= len(r.ifaces) {
+			if int64(ifIdx) >= int64(len(r.ifaces)) {
 				return nil, nil, 0, false, r.fail("packet of undeclared interface %d", ifIdx)
 			}
 			ifc := &r.ifaces[ifIdx]
@@ -534,6 +554,7 @@ func cstringOf(b []byte) string {
 type PCAPNGWriter struct {
 	w      *bufio.Writer
 	ifaces map[string]uint32
+	next   uint32 // index of the next interface
 	buf    []byte
 }
 
@@ -561,16 +582,22 @@ func (w *PCAPNGWriter) block(typ uint32, n int) []byte {
 	return w.buf
 }
 
-// option appends a pcapng option, padded to 32 bits.
-func (w *PCAPNGWriter) option(code uint16, v []byte) {
+// option appends a pcapng option, padded to 32 bits. Option values have
+// a 16-bit length.
+func (w *PCAPNGWriter) option(code uint16, v []byte) error {
+	n := len(v)
+	if n > math.MaxUint16 {
+		return fmt.Errorf("%w: pcapng option of %d bytes", ErrUnrepresentable, n)
+	}
 	var h [4]byte
 	binary.LittleEndian.PutUint16(h[0:], code)
-	binary.LittleEndian.PutUint16(h[2:], uint16(len(v)))
+	binary.LittleEndian.PutUint16(h[2:], uint16(n))
 	w.buf = append(w.buf, h[:]...)
 	w.buf = append(w.buf, v...)
 	for len(w.buf)%4 != 0 {
 		w.buf = append(w.buf, 0)
 	}
+	return nil
 }
 
 // flushBlock completes the block in w.buf with its lengths and writes it.
@@ -578,7 +605,11 @@ func (w *PCAPNGWriter) flushBlock() error {
 	for len(w.buf)%4 != 0 {
 		w.buf = append(w.buf, 0)
 	}
-	total := uint32(len(w.buf) + 4)
+	n := len(w.buf) + 4
+	if n > pcapngMaxBlock {
+		return fmt.Errorf("%w: pcapng block of %d bytes", ErrUnrepresentable, n)
+	}
+	total := uint32(n)
 	binary.LittleEndian.PutUint32(w.buf[4:], total)
 	w.buf = binary.LittleEndian.AppendUint32(w.buf, total)
 	_, err := w.w.Write(w.buf)
@@ -595,36 +626,52 @@ func (w *PCAPNGWriter) iface(name string) (uint32, error) {
 	binary.LittleEndian.PutUint16(b[8:], LinkTypeCANSocketCAN)
 	binary.LittleEndian.PutUint32(b[12:], pcapSnapLen)
 	if name != "" {
-		w.option(2, []byte(name)) // if_name
+		if err := w.option(2, []byte(name)); err != nil { // if_name
+			return 0, err
+		}
 	}
-	w.option(9, []byte{9}) // if_tsresol: nanoseconds
-	w.option(0, nil)       // opt_endofopt
+	_ = w.option(9, []byte{9}) // if_tsresol: nanoseconds
+	_ = w.option(0, nil)       // opt_endofopt
 	if err := w.flushBlock(); err != nil {
 		return 0, err
 	}
-	i := uint32(len(w.ifaces))
+	i := w.next
+	w.next++
 	w.ifaces[name] = i
 	return i, nil
 }
 
+// pcapngMaxSec is the last second whose nanosecond count fits the 64-bit
+// timestamp of an enhanced packet block (2554-07-21).
+const pcapngMaxSec = (math.MaxUint64 - 999_999_999) / 1_000_000_000
+
+// pcapngMaxBlock is the largest block PCAPNGReader accepts.
+const pcapngMaxBlock = 1 << 20
+
 // packet writes an enhanced packet block; encode fills the packet bytes
-// and returns their number.
+// and returns their number. A timestamp before 1970 or after 2554 is an
+// [ErrUnrepresentable] error.
 func (w *PCAPNGWriter) packet(name string, ts time.Time, encode func([]byte) int) error {
+	var t uint64
+	if !ts.IsZero() {
+		sec, ns := ts.Unix(), int64(ts.Nanosecond())
+		if sec < 0 || sec > pcapngMaxSec {
+			return fmt.Errorf("%w: pcapng timestamp %v outside 1970..2554", ErrUnrepresentable, ts)
+		}
+		t = uint64(sec&math.MaxInt64)*1e9 + uint64(ns&(1<<30-1))
+	}
 	idx, err := w.iface(name)
 	if err != nil {
 		return err
 	}
 	b := w.block(blockEPB, 20+pcapSnapLen)
 	n := encode(b[28:])
-	var t uint64
-	if !ts.IsZero() {
-		t = uint64(ts.UnixNano())
-	}
+	size := uint32(max(min(n, pcapSnapLen), 0)) // n <= pcapSnapLen by construction
 	binary.LittleEndian.PutUint32(b[8:], idx)
 	binary.LittleEndian.PutUint32(b[12:], uint32(t>>32))
-	binary.LittleEndian.PutUint32(b[16:], uint32(t))
-	binary.LittleEndian.PutUint32(b[20:], uint32(n))
-	binary.LittleEndian.PutUint32(b[24:], uint32(n))
+	binary.LittleEndian.PutUint32(b[16:], uint32(t&math.MaxUint32))
+	binary.LittleEndian.PutUint32(b[20:], size)
+	binary.LittleEndian.PutUint32(b[24:], size)
 	w.buf = w.buf[:28+n]
 	return w.flushBlock()
 }

@@ -243,6 +243,11 @@ func NewJSONLWriter(w io.Writer) *JSONLWriter {
 
 // Write writes one frame record.
 func (w *JSONLWriter) Write(f *canbus.Frame) error {
+	if !f.Timestamp.IsZero() {
+		if err := unixRange(FormatJSONL, f.Timestamp); err != nil {
+			return err
+		}
+	}
 	if err := w.writeHeader(); err != nil {
 		return err
 	}
@@ -251,6 +256,11 @@ func (w *JSONLWriter) Write(f *canbus.Frame) error {
 
 // WriteXL writes one CAN XL record.
 func (w *JSONLWriter) WriteXL(x *canbus.XLFrame) error {
+	if !x.Timestamp.IsZero() {
+		if err := unixRange(FormatJSONL, x.Timestamp); err != nil {
+			return err
+		}
+	}
 	if err := w.writeHeader(); err != nil {
 		return err
 	}
