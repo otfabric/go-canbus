@@ -31,8 +31,12 @@ const (
 func cmsgAlign(n int) int { return (n + wordSize - 1) &^ (wordSize - 1) }
 
 // word reads a native size_t or long. b holds at least wordSize bytes.
-func word(b []byte) uint64 {
-	if wordSize == 8 {
+func word(b []byte) uint64 { return wordOf(b, wordSize) }
+
+// wordOf reads a size-byte (4 or 8) native word: both ABIs are tested on
+// every machine.
+func wordOf(b []byte, size int) uint64 {
+	if size == 8 {
 		return binary.NativeEndian.Uint64(b)
 	}
 	return uint64(binary.NativeEndian.Uint32(b))
@@ -100,12 +104,15 @@ func parseCmsgs(oob []byte) (ts time.Time, ovfl uint32, haveOvfl bool) {
 // timespec decodes a struct timespec of native longs. Negative or
 // out-of-range fields (never sent by the kernel for a receive timestamp)
 // report false.
-func timespec(b []byte) (time.Time, bool) {
-	if len(b) < 2*wordSize {
+func timespec(b []byte) (time.Time, bool) { return timespecOf(b, wordSize) }
+
+// timespecOf decodes a struct timespec of size-byte (4 or 8) longs.
+func timespecOf(b []byte, size int) (time.Time, bool) {
+	if len(b) < 2*size {
 		return time.Time{}, false
 	}
-	sec, nsec := word(b), word(b[wordSize:])
-	if wordSize == 4 && sec > math.MaxInt32 {
+	sec, nsec := wordOf(b, size), wordOf(b[size:], size)
+	if size == 4 && sec > math.MaxInt32 {
 		return time.Time{}, false // a negative 32-bit time_t
 	}
 	if sec > math.MaxInt64 {

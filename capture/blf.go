@@ -517,22 +517,27 @@ func (w *BLFWriter) object(typ uint32, ts time.Time, body []byte) error {
 	return nil
 }
 
+// begin writes the provisional file header for a trace starting at start
+// (the epoch when zero).
+func (w *BLFWriter) begin(start time.Time) error {
+	if start.IsZero() {
+		start = time.Unix(0, 0)
+	}
+	w.start = start.Truncate(time.Millisecond) // SYSTEMTIME has milliseconds
+	h, err := w.fileHeader(time.Time{})
+	if err != nil {
+		return err
+	}
+	w.started = true
+	_, err = w.out.Write(h)
+	return err
+}
+
 // Write writes one frame.
 func (w *BLFWriter) Write(f *canbus.Frame) error {
 	le := binary.LittleEndian
 	if !w.started {
-		w.started = true
-		w.start = f.Timestamp
-		if w.start.IsZero() {
-			w.start = time.Unix(0, 0)
-		}
-		w.start = w.start.Truncate(time.Millisecond) // SYSTEMTIME has milliseconds
-		h, err := w.fileHeader(time.Time{})
-		if err != nil {
-			w.started = false
-			return err
-		}
-		if _, err := w.out.Write(h); err != nil {
+		if err := w.begin(f.Timestamp); err != nil {
 			return err
 		}
 	}
@@ -639,13 +644,7 @@ func (w *BLFWriter) flush() error {
 // header. It does not close the underlying writer.
 func (w *BLFWriter) Close() error {
 	if !w.started {
-		w.started = true
-		w.start = time.Unix(0, 0)
-		h, err := w.fileHeader(time.Time{})
-		if err != nil {
-			return err
-		}
-		if _, err := w.out.Write(h); err != nil {
+		if err := w.begin(time.Time{}); err != nil {
 			return err
 		}
 	}

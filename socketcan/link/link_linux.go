@@ -55,12 +55,8 @@ func request(msg []byte, dump bool) ([]nlMsg, error) {
 			case nlmsgDone:
 				return out, nil
 			case nlmsgError:
-				e, err := errnoOf(m.body)
-				if err != nil {
+				if err := ackError(m.body); err != nil {
 					return out, err
-				}
-				if e != 0 {
-					return out, mapErrno(e)
 				}
 				if !dump {
 					return out, nil
@@ -226,4 +222,16 @@ func Delete(name string) error {
 	}
 	_, err = request(message(rtmDelLink, nlmFAck, seq.Add(1), ifinfomsg(idx, 0, 0)), false)
 	return err
+}
+
+// ackError returns the error an NLMSG_ERROR body reports: nil for an ACK.
+func ackError(body []byte) error {
+	e, err := errnoOf(body)
+	if err != nil {
+		return err
+	}
+	if e != 0 {
+		return mapErrno(e)
+	}
+	return nil
 }

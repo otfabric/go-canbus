@@ -181,14 +181,16 @@ func kernelFilters(fs canbus.FilterSet) []byte {
 
 // ifindex32 converts an interface index for struct sockaddr_can (a C
 // int).
-func ifindex32(idx int) (int32, error) {
+func ifindex32(idx int) int32 {
+	// Kernel indexes are positive C ints; anything else names no
+	// interface, and bind reports ENODEV.
 	if idx < 0 {
-		return 0, fmt.Errorf("%w: interface index %d", canbus.ErrInvalidOption, idx)
+		return math.MaxInt32
 	}
 	if idx > math.MaxInt32 {
-		return 0, fmt.Errorf("%w: interface index %d", canbus.ErrInvalidOption, idx)
+		return math.MaxInt32
 	}
-	return int32(idx), nil
+	return int32(idx)
 }
 
 // forceTxSTminNS converts isotp.Config.ForceTxSTmin for

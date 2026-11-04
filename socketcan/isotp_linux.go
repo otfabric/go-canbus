@@ -143,11 +143,7 @@ func DialISOTP(ifname string, cfg isotp.Config) (*ISOTPConn, error) {
 		}
 		return uint32(id)
 	}
-	idx, err := ifindex32(ifi.Index)
-	if err != nil {
-		return nil, opErr(err)
-	}
-	if e := bindCAN(fd, &sockaddrCAN{family: afCAN, ifindex: idx, rxID: idOf(cfg.RxID), txID: idOf(cfg.TxID)}); e != 0 {
+	if e := bindCAN(fd, &sockaddrCAN{family: afCAN, ifindex: ifindex32(ifi.Index), rxID: idOf(cfg.RxID), txID: idOf(cfg.TxID)}); e != 0 {
 		return nil, opErr(fmt.Errorf("bind: %w", mapErrno(e)))
 	}
 	c := &ISOTPConn{name: ifname, maxMsg: cfg.MaxMessageSize}

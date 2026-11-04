@@ -204,11 +204,7 @@ func Open(ifname string, opts ...Option) (*Conn, error) {
 			return nil, opErr(err)
 		}
 	}
-	idx, err := ifindex32(c.ifindex)
-	if err != nil {
-		return nil, opErr(err)
-	}
-	if e := bindCAN(fd, &sockaddrCAN{family: afCAN, ifindex: idx}); e != 0 {
+	if e := bindCAN(fd, &sockaddrCAN{family: afCAN, ifindex: ifindex32(c.ifindex)}); e != 0 {
 		if e == syscall.ENODEV {
 			// The interface exists (it was looked up above) but is not a
 			// CAN device.

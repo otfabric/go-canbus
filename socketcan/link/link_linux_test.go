@@ -168,3 +168,33 @@ func TestUnprivilegedChangeFails(t *testing.T) {
 		t.Fatal("unprivileged create succeeded")
 	}
 }
+
+// TestArgumentChecks: invalid arguments fail before any netlink request,
+// so no privilege is needed.
+func TestArgumentChecks(t *testing.T) {
+	for name, err := range map[string]error{
+		"SetMTU -1":          SetMTU("vcan0", -1),
+		"SetMTU 0":           SetMTU("vcan0", 0),
+		"AddVCAN empty":      AddVCAN("", false),
+		"AddVCAN 16 bytes":   AddVCAN("abcdefghijklmnop", true),
+		"AddVXCAN empty":     AddVXCAN("", "peer0"),
+		"AddVXCAN peer long": AddVXCAN("vx0", "abcdefghijklmnop"),
+	} {
+		if !errors.Is(err, canbus.ErrInvalidOption) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+}
+
+func TestAckError(t *testing.T) {
+	if err := ackError([]byte{0, 0, 0, 0}); err != nil {
+		t.Errorf("ACK: %v", err)
+	}
+	if err := ackError([]byte{1}); err == nil || errors.Is(err, canbus.ErrInvalidOption) {
+		t.Errorf("truncated error message: %v", err)
+	}
+	eperm := []byte{0xFF, 0xFF, 0xFF, 0xFF} // -1 in either byte order
+	if err := ackError(eperm); err == nil {
+		t.Error("EPERM reported as ACK")
+	}
+}

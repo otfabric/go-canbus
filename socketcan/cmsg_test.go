@@ -108,13 +108,16 @@ func TestSocketBounds(t *testing.T) {
 	if ns, err := forceTxSTminNS(127 * time.Millisecond); err != nil || ns != 127e6 {
 		t.Fatal(ns, err)
 	}
-	if _, err := ifindex32(-1); !errors.Is(err, canbus.ErrInvalidOption) {
-		t.Error("ifindex -1 accepted")
+	if got := ifindex32(-1); got != math.MaxInt32 {
+		t.Errorf("ifindex -1 -> %d, want MaxInt32 (no interface)", got)
+	}
+	if got := ifindex32(7); got != 7 {
+		t.Errorf("ifindex 7 -> %d", got)
 	}
 	if strconv.IntSize == 64 {
 		big := int64(1) << 32
-		if _, err := ifindex32(int(big)); !errors.Is(err, canbus.ErrInvalidOption) {
-			t.Error("ifindex 2^32 accepted")
+		if got := ifindex32(int(big)); got != math.MaxInt32 {
+			t.Errorf("ifindex 2^32 -> %d, want MaxInt32 (no interface)", got)
 		}
 	}
 	// marshalXL never writes a length field that disagrees with the
@@ -140,4 +143,37 @@ func FuzzParseCmsgs(f *testing.F) {
 			t.Fatal(got)
 		}
 	})
+}
+
+// TestTimespecBothABIs decodes struct timespec of 32-bit and 64-bit longs
+// on any machine.
+func TestTimespecBothABIs(t *testing.T) {
+	ts32 := func(sec, nsec uint32) []byte {
+		b := make([]byte, 8)
+		binary.NativeEndian.PutUint32(b, sec)
+		binary.NativeEndian.PutUint32(b[4:], nsec)
+		return b
+	}
+	if got, ok := timespecOf(ts32(1700000000, 5), 4); !ok || !got.Equal(time.Unix(1700000000, 5)) {
+		t.Errorf("32-bit timespec: %v %v", got, ok)
+	}
+	if _, ok := timespecOf(ts32(0x80000000, 0), 4); ok {
+		t.Error("negative 32-bit time_t accepted")
+	}
+	if _, ok := timespecOf(ts32(1, 1e9), 4); ok {
+		t.Error("32-bit nsec of a whole second accepted")
+	}
+	if _, ok := timespecOf(make([]byte, 7), 4); ok {
+		t.Error("short 32-bit timespec accepted")
+	}
+	b := make([]byte, 16)
+	binary.NativeEndian.PutUint64(b, 1<<63)
+	if _, ok := timespecOf(b, 8); ok {
+		t.Error("negative 64-bit time_t accepted")
+	}
+	binary.NativeEndian.PutUint64(b, 42)
+	binary.NativeEndian.PutUint64(b[8:], 7)
+	if got, ok := timespecOf(b, 8); !ok || !got.Equal(time.Unix(42, 7)) {
+		t.Errorf("64-bit timespec: %v %v", got, ok)
+	}
 }

@@ -229,3 +229,22 @@ func FuzzParseLink(f *testing.F) {
 		_, _ = parseMessages(b)
 	})
 }
+
+// TestMessageTooLarge: a request beyond the 32-bit netlink length panics
+// before allocating (no API can build one; names are checked first).
+func TestMessageTooLarge(t *testing.T) {
+	if strconv.IntSize < 64 {
+		t.Skip("a 4 GiB message needs 64-bit int")
+	}
+	chunk := make([]byte, 1<<20)
+	body := make([][]byte, 4097) // 4097 MiB through one shared buffer
+	for i := range body {
+		body[i] = chunk
+	}
+	defer func() {
+		if recover() == nil {
+			t.Error("no panic")
+		}
+	}()
+	message(rtmNewLink, 0, 1, body...)
+}
