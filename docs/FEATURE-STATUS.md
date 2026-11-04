@@ -1,6 +1,6 @@
 # Support and feature matrix
 
-What go-canbus supports, on what, how each feature is tested, and against what. Status: v0.7.0, with canbus-interop v0.5.0. Scenario-by-scenario results, known differences and test choices are in [INTEROPERABILITY.md](../INTEROPERABILITY.md); test levels in [TESTING.md](../TESTING.md); what is out of scope in [LIMITATIONS.md](../LIMITATIONS.md).
+What go-canbus supports, on what, how each feature is tested, and against what. Status: v0.8.0, with canbus-interop v0.6.0. Scenario-by-scenario results, known differences and test choices are in [INTEROPERABILITY.md](../INTEROPERABILITY.md); test levels in [TESTING.md](../TESTING.md); what is out of scope in [LIMITATIONS.md](../LIMITATIONS.md).
 
 None of this is a conformance claim: there is no ISO or CiA conformance claim and no certification, and vcan has no arbitration, timing or errors.
 
@@ -8,7 +8,8 @@ None of this is a conformance claim: there is no ISO or CiA conformance claim an
 
 | go-canbus | Go | canbus-interop (contract) | Supported |
 |---|---|---|---|
-| **v0.7.0** | 1.23 or later (CI: 1.23 to 1.26) | v0.5.0 (1.3) | **yes** |
+| **v0.8.0** | 1.26 or later (CI: 1.26, 1.27) | v0.6.0 (1.3) | **yes** |
+| v0.7.x | 1.23 or later | v0.5.0 (1.3) | no |
 
 ## 2. Platforms
 
