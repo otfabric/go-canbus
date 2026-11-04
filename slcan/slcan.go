@@ -175,6 +175,7 @@ func (c *Conn) read() {
 		if n < 0 {
 			n = 0 // go-serial before v0.1.7 returns -1 with the error of a failed read
 		}
+		n = min(n, len(buf)) // a reader that overreports must not crash the Conn
 		if n == 0 && err == nil {
 			// A hung-up tty (adapter unplugged) reads 0 bytes at once,
 			// forever: the end of the stream.

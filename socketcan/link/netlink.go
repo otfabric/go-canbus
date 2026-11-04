@@ -6,6 +6,10 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"math"
+	"syscall"
+
+	"github.com/otfabric/go-canbus"
 )
 
 // Netlink and rtnetlink constants (linux/netlink.h, linux/rtnetlink.h,
@@ -53,10 +57,20 @@ var ne = binary.NativeEndian
 
 func align4(n int) int { return (n + 3) &^ 3 }
 
-// attr builds one route attribute.
+// maxAttrData is the largest route attribute payload: nla_len is 16 bits
+// and includes the 4-byte header.
+const maxAttrData = math.MaxUint16 - 4
+
+// attr builds one route attribute. Callers bound data (interface names
+// by checkName, the rest is fixed-size); a longer payload would not be
+// representable and is a programming error.
 func attr(typ uint16, data []byte) []byte {
-	b := make([]byte, align4(4+len(data)))
-	ne.PutUint16(b[0:], uint16(4+len(data)))
+	l := 4 + len(data)
+	if l > math.MaxUint16 {
+		panic(fmt.Sprintf("link: route attribute of %d bytes exceeds %d", len(data), maxAttrData))
+	}
+	b := make([]byte, align4(l))
+	ne.PutUint16(b[0:], uint16(l))
 	ne.PutUint16(b[2:], typ)
 	copy(b[4:], data)
 	return b
@@ -78,7 +92,7 @@ func cstr(s string) []byte { return append([]byte(s), 0) }
 func ifinfomsg(index int32, flags, change uint32) []byte {
 	b := make([]byte, ifinfoLen)
 	// family 0, pad, type 0
-	ne.PutUint32(b[4:], uint32(index))
+	ne.PutUint32(b[4:], uint32(int64(index)&0xFFFFFFFF)) // int ifi_index, same bits
 	ne.PutUint32(b[8:], flags)
 	ne.PutUint32(b[12:], change)
 	return b
@@ -90,8 +104,11 @@ func message(typ, flags uint16, seq uint32, body ...[]byte) []byte {
 	for _, p := range body {
 		n += len(p)
 	}
+	if int64(n) > math.MaxUint32 {
+		panic(fmt.Sprintf("link: netlink message of %d bytes", n))
+	}
 	b := make([]byte, nlmsgHdrLen, n)
-	ne.PutUint32(b[0:], uint32(n))
+	ne.PutUint32(b[0:], uint32(int64(n)&0xFFFFFFFF)) // checked above
 	ne.PutUint16(b[4:], typ)
 	ne.PutUint16(b[6:], flags|nlmFRequest)
 	ne.PutUint32(b[8:], seq)
@@ -147,12 +164,54 @@ func parseMessages(b []byte) ([]nlMsg, error) {
 	return out, nil
 }
 
-// errnoOf returns the error code of an NLMSG_ERROR body (0 = ACK).
-func errnoOf(body []byte) int32 {
+// errnoOf decodes the error field of an NLMSG_ERROR body: 0 for an ACK,
+// else the errno the kernel reports as a negative int. A body too short
+// to hold it, or a positive code, is a malformed reply.
+func errnoOf(body []byte) (syscall.Errno, error) {
 	if len(body) < 4 {
-		return -1
+		return 0, errors.New("link: truncated netlink error message")
 	}
-	return int32(ne.Uint32(body))
+	v := ne.Uint32(body)
+	switch {
+	case v == 0:
+		return 0, nil
+	case v < 1<<31:
+		return 0, fmt.Errorf("link: netlink error code %d is not negative", v)
+	}
+	return syscall.Errno(-v), nil // two's complement: -v is the magnitude
+}
+
+// ifNameMax is IFNAMSIZ less the terminating NUL.
+const ifNameMax = 15
+
+// checkName rejects interface names the kernel cannot hold.
+func checkName(name string) error {
+	if name == "" || len(name) > ifNameMax {
+		return fmt.Errorf("%w: interface name %q (1 to %d bytes)", canbus.ErrInvalidOption, name, ifNameMax)
+	}
+	return nil
+}
+
+// checkMTU converts an MTU for IFLA_MTU (a u32).
+func checkMTU(mtu int) (uint32, error) {
+	if mtu <= 0 {
+		return 0, fmt.Errorf("%w: MTU %d", canbus.ErrInvalidOption, mtu)
+	}
+	if int64(mtu) > math.MaxUint32 {
+		return 0, fmt.Errorf("%w: MTU %d", canbus.ErrInvalidOption, mtu)
+	}
+	return uint32(int64(mtu) & 0xFFFFFFFF), nil // checked above
+}
+
+// ifindex32 converts an interface index (a C int in the kernel).
+func ifindex32(idx int) (int32, error) {
+	if idx < 0 {
+		return 0, fmt.Errorf("%w: interface index %d", canbus.ErrInvalidOption, idx)
+	}
+	if idx > math.MaxInt32 {
+		return 0, fmt.Errorf("%w: interface index %d", canbus.ErrInvalidOption, idx)
+	}
+	return int32(idx), nil
 }
 
 func readU32(b []byte) uint32 {
@@ -172,7 +231,11 @@ func parseLink(body []byte) (Interface, bool) {
 	if ne.Uint16(body[2:]) != arphrdCAN {
 		return it, false
 	}
-	it.Index = int(int32(ne.Uint32(body[4:])))
+	idx := ne.Uint32(body[4:])
+	if idx > math.MaxInt32 {
+		return it, false // a negative ifindex is not a real interface
+	}
+	it.Index = int(idx)
 	it.Up = ne.Uint32(body[8:])&iffUp != 0
 	for _, a := range parseAttrs(body[ifinfoLen:]) {
 		switch a.typ {

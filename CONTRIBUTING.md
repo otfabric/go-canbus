@@ -12,7 +12,7 @@ git checkout -b feature/my-change
 
 ## Prerequisites
 
-- Go 1.23+ (see [go.mod](go.mod)); the code must build and pass on Go 1.23
+- Go 1.26+ (see [go.mod](go.mod)); the code must build and pass on Go 1.26
 - [staticcheck](https://staticcheck.dev/), [golangci-lint](https://golangci-lint.run/), [govulncheck](https://pkg.go.dev/golang.org/x/vuln/cmd/govulncheck)
 - For the SocketCAN tests: Linux with the `vcan` (and `can-isotp`) modules: `make vcan-setup`. On macOS, a Linux VM (for example [Lima](https://lima-vm.io/) with Ubuntu) works; Docker Desktop's kernel has no CAN support.
 - Docker, for the interop suite only

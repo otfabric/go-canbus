@@ -196,10 +196,10 @@ func (b *Bus) SendXL(ctx context.Context, x *XLFrame) error {
 }
 
 // State returns the current bus state.
-func (b *Bus) State() State { return State(b.state.Load()) }
+func (b *Bus) State() State { return State(b.state.Load() & 0xFF) }
 
 func (b *Bus) setState(s State) {
-	old := State(b.state.Swap(uint32(s)))
+	old := State(b.state.Swap(uint32(s)) & 0xFF) // state only ever holds a State
 	if old != s {
 		b.metrics.OnStateChange(b.iface, old, s)
 		if old != StateUnknown {

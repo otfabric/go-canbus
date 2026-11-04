@@ -38,6 +38,7 @@ import (
 	"io"
 	"math"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -138,7 +139,7 @@ func (e *ParseError) Error() string {
 
 // ParseFile reads an ARXML file. See [Parse].
 func ParseFile(path string) (*candb.Database, []candb.Diagnostic, error) {
-	f, err := os.Open(path)
+	f, err := os.Open(filepath.Clean(path))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -472,8 +473,12 @@ func (p *parser) multiplexed(m *candb.Message, pdu *node, offset int, receivers 
 			continue
 		}
 		if alt.textOf("INITIAL-DYNAMIC-PART") == "true" {
-			iv := int64(code)
-			sel.Initial = &iv
+			if code <= math.MaxInt64 {
+				iv := int64(code)
+				sel.Initial = &iv
+			} else {
+				p.diag(candb.Warning, alt.line, obj, "initial SELECTOR-FIELD-CODE %d beyond an initial value: ignored", code)
+			}
 		}
 		for _, s := range p.pduSignals(m, ipdu, offset, receivers) {
 			if s.StartBit == sel.StartBit && s.Length == sel.Length {
@@ -544,7 +549,7 @@ func (p *parser) signal(m *candb.Message, sm *node, offset int, receivers []stri
 		return nil
 	}
 	if v := is.textOf("INIT-VALUE", "NUMERICAL-VALUE-SPECIFICATION", "VALUE"); v != "" {
-		if f, err := strconv.ParseFloat(v, 64); err == nil && f == math.Trunc(f) {
+		if f, err := strconv.ParseFloat(v, 64); err == nil && f == math.Trunc(f) && f >= math.MinInt64 && f < math.MaxInt64 {
 			iv := int64(f)
 			s.Initial = &iv
 		}

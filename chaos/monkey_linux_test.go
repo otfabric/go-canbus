@@ -79,7 +79,7 @@ func TestMonkeyKernelISOTP(t *testing.T) {
 
 		check := func(from, to isotp.Endpoint, name string) {
 			sent := map[string]bool{}
-			for i := 0; i < 5; i++ {
+			for range 5 {
 				msg := make([]byte, 1+r.Intn(600))
 				r.Read(msg)
 				sent[string(msg)] = true

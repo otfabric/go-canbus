@@ -2,6 +2,15 @@
 
 Release notes with details are in [RELEASE.md](RELEASE.md).
 
+## v0.8.0 (2026-11-04)
+
+SAST hardening: values that wrapped silently now return errors (DBC
+message references above 32 bits, candb layouts that panicked, capture
+writers and readers outside each format's range, ISO-TP ForceTxSTmin,
+netlink MTU and names); `capture.ErrUnrepresentable`; ISO-TP receivers no
+longer preallocate announced lengths; BLF split objects joined. Go 1.26
+minimum; canbus-interop v0.6.0.
+
 ## v0.7.0 (2026-10-29)
 
 CAN XL beyond SocketCAN sockets: a `canbus.Bus` carries CAN XL on an

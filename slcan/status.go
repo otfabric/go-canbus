@@ -146,5 +146,5 @@ func StateFrame(prev, st canbus.State, txErrors, rxErrors int) (canbus.Frame, bo
 		ctrl |= rxStatus[rxState]
 	}
 	return canbus.NewErrorFrame(canbus.ErrorInfo{Class: canbus.ErrClassController, Controller: ctrl,
-		TxErrors: uint8(txErrors), RxErrors: uint8(rxErrors), CountersValid: true}), true
+		TxErrors: uint8(txErrors & 0xFF), RxErrors: uint8(rxErrors & 0xFF), CountersValid: true}), true
 }

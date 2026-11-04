@@ -464,7 +464,7 @@ func TestRecordFrames(t *testing.T) {
 	sub, _ := b.Subscribe()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		f, _ := canbus.NewStandard(canbus.ID(i), nil)
 		_ = tx.Send(ctx, &f)
 	}
@@ -545,7 +545,7 @@ func FuzzReaders(f *testing.F) {
 			return
 		}
 		xr, _ := r.(XLReader)
-		for i := 0; i < 1000; i++ {
+		for range 1000 {
 			var fr canbus.Frame
 			var x canbus.XLFrame
 			var isXL bool

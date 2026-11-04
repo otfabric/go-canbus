@@ -5,6 +5,8 @@ package socketcan
 import (
 	"encoding/binary"
 	"fmt"
+	"math"
+	"time"
 
 	"github.com/otfabric/go-canbus"
 )
@@ -89,9 +91,9 @@ func unmarshal(buf []byte, f *canbus.Frame) error {
 		f.Flags |= canbus.FlagRemote
 	}
 	l := buf[4]
-	max := 8
+	maxLen := 8
 	if n == canFDMTU {
-		max = 64
+		maxLen = 64
 		f.Flags |= canbus.FlagFD
 		f.Flags &^= canbus.FlagRemote // FD frames have no RTR
 		if buf[5]&fdBRS != 0 {
@@ -103,14 +105,14 @@ func unmarshal(buf []byte, f *canbus.Frame) error {
 	} else if f.Flags&canbus.FlagError == 0 && l == 8 && buf[7] > 8 && buf[7] <= 15 {
 		f.Len8DLC = buf[7]
 	}
-	if int(l) > max {
+	if int(l) > maxLen {
 		return fmt.Errorf("%w: kernel frame length %d", canbus.ErrInvalidFrame, l)
 	}
 	if n == canFDMTU && !canbus.ValidFDLen(int(l)) {
 		// The kernel rounds lengths up when sending; a raw socket may
 		// still deliver what another socket wrote. Keep the data and
 		// round up, as the bus would have transmitted it.
-		l = uint8(canbus.RoundUpFDLen(int(l)))
+		l = uint8(max(min(canbus.RoundUpFDLen(int(l)), canbus.MaxFDLen), 0)) // l <= 64 here
 	}
 	f.Len = l
 	f.Data = [canbus.MaxFDLen]byte{}
@@ -128,9 +130,12 @@ func marshalXL(f *canbus.XLFrame, buf []byte) int {
 	binary.NativeEndian.PutUint32(buf[0:4], uint32(f.Priority)&xlPrioMask|uint32(f.VCID)<<xlVCIDShift)
 	buf[4] = byte(f.Flags) | xlXLF
 	buf[5] = f.SDT
-	binary.NativeEndian.PutUint16(buf[6:8], uint16(len(f.Data)))
+	// Callers validate f (at most MaxXLLen bytes); the clamp keeps the
+	// length field and the copied payload consistent regardless.
+	n := uint16(max(min(len(f.Data), canbus.MaxXLLen), 0))
+	binary.NativeEndian.PutUint16(buf[6:8], n)
 	binary.NativeEndian.PutUint32(buf[8:12], f.AF)
-	return canXLHdr + copy(buf[canXLHdr:], f.Data)
+	return canXLHdr + copy(buf[canXLHdr:], f.Data[:n])
 }
 
 // isXL reports whether a received buffer holds a struct canxl_frame: the
@@ -152,7 +157,7 @@ func unmarshalXL(buf []byte, f *canbus.XLFrame) error {
 	}
 	prio := binary.NativeEndian.Uint32(buf[0:4])
 	f.Priority = uint16(prio & xlPrioMask)
-	f.VCID = uint8(prio >> xlVCIDShift)
+	f.VCID = uint8(prio >> xlVCIDShift & 0xFF)
 	f.Flags = canbus.XLFlags(buf[4] &^ xlXLF)
 	f.SDT = buf[5]
 	f.AF = binary.NativeEndian.Uint32(buf[8:12])
@@ -172,4 +177,32 @@ func kernelFilters(fs canbus.FilterSet) []byte {
 		binary.NativeEndian.PutUint32(b[8*i+4:], mask)
 	}
 	return b
+}
+
+// ifindex32 converts an interface index for struct sockaddr_can (a C
+// int).
+func ifindex32(idx int) int32 {
+	// Kernel indexes are positive C ints; anything else names no
+	// interface, and bind reports ENODEV.
+	if idx < 0 {
+		return math.MaxInt32
+	}
+	if idx > math.MaxInt32 {
+		return math.MaxInt32
+	}
+	return int32(idx)
+}
+
+// forceTxSTminNS converts isotp.Config.ForceTxSTmin for
+// CAN_ISOTP_TX_STMIN (a u32 of nanoseconds), accepting the range the
+// userspace isotp.Conn accepts (0 to 127 ms).
+func forceTxSTminNS(d time.Duration) (uint32, error) {
+	ns := d.Nanoseconds()
+	if ns < 0 {
+		return 0, fmt.Errorf("%w: isotp: ForceTxSTmin %v", canbus.ErrInvalidOption, d)
+	}
+	if ns > int64(127*time.Millisecond) {
+		return 0, fmt.Errorf("%w: isotp: ForceTxSTmin %v", canbus.ErrInvalidOption, d)
+	}
+	return uint32(ns), nil
 }

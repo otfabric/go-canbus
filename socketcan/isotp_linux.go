@@ -16,7 +16,6 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
-	"unsafe"
 
 	"github.com/otfabric/go-canbus"
 	"github.com/otfabric/go-canbus/isotp"
@@ -66,6 +65,12 @@ func DialISOTP(ifname string, cfg isotp.Config) (*ISOTPConn, error) {
 	if err != nil {
 		return nil, opErr(err)
 	}
+	var ns uint32 // CAN_ISOTP_TX_STMIN
+	if cfg.ForceTxSTmin != nil {
+		if ns, err = forceTxSTminNS(*cfg.ForceTxSTmin); err != nil {
+			return nil, opErr(err)
+		}
+	}
 	fd, err := syscall.Socket(afCAN, syscall.SOCK_DGRAM|syscall.SOCK_NONBLOCK|syscall.SOCK_CLOEXEC, canISOTP)
 	if err != nil {
 		return nil, opErr(fmt.Errorf("socket: %w (is the can-isotp module available?)", err))
@@ -106,7 +111,6 @@ func DialISOTP(ifname string, cfg isotp.Config) (*ISOTPConn, error) {
 		return nil, opErr(fmt.Errorf("CAN_ISOTP_OPTS: %w", err))
 	}
 	if cfg.ForceTxSTmin != nil {
-		ns := uint32(cfg.ForceTxSTmin.Nanoseconds())
 		b := make([]byte, 4)
 		binary.NativeEndian.PutUint32(b, ns)
 		if err := syscall.SetsockoptString(fd, solCANISOTP, isotpTxSTmin, string(b)); err != nil {
@@ -139,8 +143,7 @@ func DialISOTP(ifname string, cfg isotp.Config) (*ISOTPConn, error) {
 		}
 		return uint32(id)
 	}
-	sa := sockaddrCAN{family: afCAN, ifindex: int32(ifi.Index), rxID: idOf(cfg.RxID), txID: idOf(cfg.TxID)}
-	if _, _, e := syscall.Syscall(syscall.SYS_BIND, uintptr(fd), uintptr(unsafe.Pointer(&sa)), unsafe.Sizeof(sa)); e != 0 {
+	if e := bindCAN(fd, &sockaddrCAN{family: afCAN, ifindex: ifindex32(ifi.Index), rxID: idOf(cfg.RxID), txID: idOf(cfg.TxID)}); e != 0 {
 		return nil, opErr(fmt.Errorf("bind: %w", mapErrno(e)))
 	}
 	c := &ISOTPConn{name: ifname, maxMsg: cfg.MaxMessageSize}
@@ -176,8 +179,7 @@ func (c *ISOTPConn) finish(ctx context.Context, op string, err error) error {
 	// came in time (N_Bs), EMSGSIZE for an OVERFLOW flow control,
 	// ETIMEDOUT when no consecutive frame came in time (N_Cr), EILSEQ for
 	// a wrong sequence number, EBADMSG for an invalid flow control.
-	var errno syscall.Errno
-	if errors.As(err, &errno) {
+	if errno, ok := errors.AsType[syscall.Errno](err); ok {
 		var kind error
 		switch errno {
 		case syscall.ECOMM, syscall.ETIMEDOUT:
@@ -252,11 +254,11 @@ func writeSignalsBlocked(fd int, p []byte) error {
 	all := ^uint64(0)
 	var old uint64
 	const sigBlock, sigSetMask = 0, 2
-	if _, _, e := syscall.RawSyscall6(syscall.SYS_RT_SIGPROCMASK, sigBlock, uintptr(unsafe.Pointer(&all)), uintptr(unsafe.Pointer(&old)), 8, 0, 0); e != 0 {
+	if e := rtSigprocmask(sigBlock, &all, &old); e != 0 {
 		return e
 	}
 	_, err := syscall.Write(fd, p)
-	_, _, _ = syscall.RawSyscall6(syscall.SYS_RT_SIGPROCMASK, sigSetMask, uintptr(unsafe.Pointer(&old)), 0, 8, 0, 0)
+	_ = rtSigprocmask(sigSetMask, &old, nil)
 	return err
 }
 

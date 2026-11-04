@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -139,7 +140,7 @@ func (e *ParseError) Error() string {
 
 // ParseFile parses a KCD file. See [Parse].
 func ParseFile(path string) (*candb.Database, []candb.Diagnostic, error) {
-	f, err := os.Open(path)
+	f, err := os.Open(filepath.Clean(path))
 	if err != nil {
 		return nil, nil, err
 	}

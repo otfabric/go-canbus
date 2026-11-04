@@ -5,6 +5,52 @@ it computes the version, tags it and publishes this file's section of
 that version as the release notes. Add the section, headed exactly
 `## vX.Y.Z` and closed by a line `---`, before running it.
 
+## v0.8.0
+
+**Date:** 2026-11-04
+**Previous release:** v0.7.2
+
+## Summary
+
+SAST review (gosec, opengrep at severity and confidence low): 96 findings,
+91 fixed in code, 5 recorded as false positives (`unsafe` for three
+syscalls the standard library has no AF_CAN form of; the seeded fault
+generators of `virtual` and `chaos`). The review found 16 defects, most
+where a value wrapped silently; they now return errors. Go 1.26 is the
+minimum. Interoperability against canbus-interop v0.6.0: 170 passed,
+0 failed, 13 skipped, 132 known-difference records (unchanged). Coverage
+94.4 % (Linux with vcan).
+
+### Changed
+
+- **Go 1.26 is the minimum** (was 1.23); CI tests 1.26 and 1.27. `go fix` applied.
+- Errors where values used to wrap or panic (no exported signature changes):
+  - `dbc`: a message identifier above 32 bits in `CM_`, `VAL_`, `BA_`, `BO_TX_BU_`, `SIG_VALTYPE_`, `SG_MUL_VAL_` or `SIG_GROUP_` is a syntax error; it used to attach to message `id mod 2^32`.
+  - `candb`: `Decode` and `Encode` return `ErrLayout` for a start bit beyond 2^24, a negative length, a length beyond the CAN XL payload or a CAN FD length over 64; they used to panic.
+  - `capture`: new `ErrUnrepresentable`. Writers refuse frames their format cannot hold (pcap before 1970 or after 2106, pcapng interface names over 65535 bytes, BLF CAN FD channels over 255, timestamps outside each format's range); readers return `*ParseError` for timestamps beyond `time.Duration` or the year 9999.
+  - `socketcan.DialISOTP`: `ForceTxSTmin` outside 0..127 ms is `ErrInvalidOption` (−1 ns became 4.29 s, 5 s became 705 ms).
+  - `socketcan/link`: `SetMTU` refuses an MTU ≤ 0 or ≥ 2^32; `AddVCAN`/`AddVXCAN` refuse names that are empty or longer than 15 bytes; a malformed NLMSG_ERROR is a protocol error, not EPERM.
+  - `arxml`: a selector code ≥ 2^63 or an INIT-VALUE outside int64 is dropped with a diagnostic.
+
+### Fixed
+
+- `isotp`: a first frame announcing up to 4 GiB made the receiver allocate it all at once; the buffer now starts at 64 KiB and grows as data arrives.
+- `slcan`: the read loop panicked when a reader reported more bytes than its buffer.
+- `capture` BLF: objects split across containers (python-can splits at 128 KiB) are joined instead of failing; nested containers are skipped instead of expanded; inflation is bounded by the announced size; an announced object is no longer allocated before it is read.
+- `capture` pcapng: 32-bit builds panicked on captured lengths or interface indexes ≥ 2^31; the fraction of a timestamp overflowed at resolutions above about 10^10 ticks per second.
+- `capture` candump and JSONL writers wrote timestamps their readers rejected.
+
+### Security
+
+- `unsafe` is confined to `socketcan/sys_linux.go` (bind, recvmsg, rt_sigprocmask); control messages are parsed with `encoding/binary`, still without allocation.
+- New fuzz targets: candb round trip, bit insert/extract, KCD round trip, capture round trip over seven formats, ISO-TP sender flow control, slcan stream, netlink stream, control messages. New hostile-input tests for DBC, KCD, ARXML, candb, capture (truncation at every offset, memory bounds), ISO-TP and slcan peers, and kernel ISO-TP on vcan (`e2e/hostile_linux_test.go`).
+
+### Dependencies
+
+- canbus-interop v0.6.0 images (by digest); shared workflows v3.3.1; go-serial v0.2.1 (latest).
+
+---
+
 ## v0.7.2
 
 **Date:** 2026-10-31

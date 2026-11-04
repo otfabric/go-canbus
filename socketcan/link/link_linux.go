@@ -55,8 +55,8 @@ func request(msg []byte, dump bool) ([]nlMsg, error) {
 			case nlmsgDone:
 				return out, nil
 			case nlmsgError:
-				if e := errnoOf(m.body); e != 0 {
-					return out, mapErrno(syscall.Errno(-e))
+				if err := ackError(m.body); err != nil {
+					return out, err
 				}
 				if !dump {
 					return out, nil
@@ -104,7 +104,7 @@ func index(name string) (int32, error) {
 	if err != nil {
 		return 0, fmt.Errorf("%w: %s: %v", canbus.ErrInterfaceDown, name, err)
 	}
-	return int32(ifi.Index), nil
+	return ifindex32(ifi.Index)
 }
 
 // Get returns one CAN interface.
@@ -147,8 +147,12 @@ func SetDown(name string) error {
 // SetMTU sets the MTU: 16 for classical CAN, 72 for CAN FD. Controllers
 // accept 72 only in CAN FD mode.
 func SetMTU(name string, mtu int) error {
+	v, err := checkMTU(mtu)
+	if err != nil {
+		return err
+	}
 	return change(name, func(idx int32) []byte {
-		return append(ifinfomsg(idx, 0, 0), attr(iflaMTU, u32(uint32(mtu)))...)
+		return append(ifinfomsg(idx, 0, 0), attr(iflaMTU, u32(v))...)
 	})
 }
 
@@ -178,6 +182,9 @@ func Restart(name string) error {
 // set, else the classical MTU (16). (The kernel's own default differs
 // between versions: 72, or 2060 since CAN XL.)
 func AddVCAN(name string, fd bool) error {
+	if err := checkName(name); err != nil {
+		return err
+	}
 	mtu := uint32(16)
 	if fd {
 		mtu = 72
@@ -193,6 +200,12 @@ func AddVCAN(name string, fd bool) error {
 // frame sent on one is received on the other. Moving the peer into another
 // network namespace connects two namespaces (containers).
 func AddVXCAN(name, peer string) error {
+	if err := checkName(name); err != nil {
+		return err
+	}
+	if err := checkName(peer); err != nil {
+		return err
+	}
 	peerInfo := append(ifinfomsg(0, 0, 0), attr(iflaIfname, cstr(peer))...)
 	attrs := append(ifinfomsg(0, 0, 0), attr(iflaIfname, cstr(name))...)
 	attrs = append(attrs, nested(iflaLinkinfo, attr(iflaInfoKind, cstr("vxcan")),
@@ -209,4 +222,16 @@ func Delete(name string) error {
 	}
 	_, err = request(message(rtmDelLink, nlmFAck, seq.Add(1), ifinfomsg(idx, 0, 0)), false)
 	return err
+}
+
+// ackError returns the error an NLMSG_ERROR body reports: nil for an ACK.
+func ackError(body []byte) error {
+	e, err := errnoOf(body)
+	if err != nil {
+		return err
+	}
+	if e != 0 {
+		return mapErrno(e)
+	}
+	return nil
 }

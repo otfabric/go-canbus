@@ -40,6 +40,10 @@ import (
 // violation and counters; other error classes are lost. An ER record that
 // does not have that layout is read as a protocol error without detail.
 
+// trcMaxDays bounds an OLE start date to ±106000 days from 1899-12-30
+// (the years 1610..2189), the range a time.Duration spans.
+const trcMaxDays = 106000
+
 // oleEpoch is day 0 of an OLE date, as a wall-clock time in UTC.
 var oleEpoch = time.Date(1899, 12, 30, 0, 0, 0, 0, time.UTC)
 
@@ -117,7 +121,7 @@ func (r *TRCReader) header(line string) error {
 		}
 	case "STARTTIME":
 		days, err := strconv.ParseFloat(val, 64)
-		if err != nil {
+		if err != nil || !(math.Abs(days) <= trcMaxDays) {
 			return r.fail("bad start time %q", val)
 		}
 		r.start = oleToTime(days)
@@ -177,7 +181,7 @@ func (r *TRCReader) Read(f *canbus.Frame) error {
 
 func (r *TRCReader) offset(s string, f *canbus.Frame) error {
 	ms, err := strconv.ParseFloat(s, 64)
-	if err != nil {
+	if err != nil || !(math.Abs(ms) <= maxOffsetSec*1e3) {
 		return fmt.Errorf("bad time offset %q", s)
 	}
 	f.Timestamp = r.start.Add(time.Duration(math.Round(ms*1e3)) * time.Microsecond)
@@ -205,7 +209,7 @@ func trcData(fields []string, n int, f *canbus.Frame) error {
 	if len(fields) < n {
 		return fmt.Errorf("%d data bytes announced, %d present", n, len(fields))
 	}
-	for i := 0; i < n; i++ {
+	for i := range n {
 		b, err := strconv.ParseUint(fields[i], 16, 8)
 		if err != nil {
 			return fmt.Errorf("bad data byte %q", fields[i])
@@ -265,7 +269,7 @@ func (r *TRCReader) record1(line string, f *canbus.Frame) (bool, error) {
 	if err != nil || dlc > 15 {
 		return false, fmt.Errorf("bad DLC %q", rest[0])
 	}
-	f.Len = uint8(canbus.DLCToLen(uint8(dlc), false))
+	f.Len = lenByte(canbus.DLCToLen(uint8(dlc), false))
 	if dlc > 8 {
 		f.Len8DLC = uint8(dlc)
 	}
@@ -351,7 +355,7 @@ func (r *TRCReader) record2(line string, f *canbus.Frame) (bool, error) {
 		if err != nil || dlc > 15 {
 			return false, fmt.Errorf("bad DLC %q", s)
 		}
-		f.Len = uint8(canbus.DLCToLen(uint8(dlc), fd))
+		f.Len = lenByte(canbus.DLCToLen(uint8(dlc), fd))
 		if !fd && dlc > 8 && typ == "DT" {
 			f.Len8DLC = uint8(dlc)
 		}
@@ -398,9 +402,12 @@ type TRCWriter struct {
 func NewTRCWriter(w io.Writer) *TRCWriter { return &TRCWriter{w: bufio.NewWriter(w)} }
 
 func (w *TRCWriter) header(t time.Time) error {
-	w.started = true
 	// The start is written to the millisecond: offsets carry the rest.
 	t = t.Truncate(time.Millisecond)
+	if days := timeToOLE(t); !(math.Abs(days) <= trcMaxDays) {
+		return fmt.Errorf("%w: TRC start time %v outside the years 1610..2189", ErrUnrepresentable, t)
+	}
+	w.started = true
 	w.start = t
 	_, err := fmt.Fprintf(w.w, `;$FILEVERSION=2.1
 ;$STARTTIME=%s
@@ -434,7 +441,11 @@ func (w *TRCWriter) Write(f *canbus.Frame) error {
 	}
 	off := 0.0
 	if !ts.IsZero() {
-		off = float64(ts.Sub(w.start).Round(time.Microsecond)) / float64(time.Millisecond)
+		d := ts.Sub(w.start)
+		if d == math.MaxInt64 || d == math.MinInt64 { // Sub saturates
+			return fmt.Errorf("%w: TRC timestamp %v more than 292 years from the start %v", ErrUnrepresentable, ts, w.start)
+		}
+		off = float64(d.Round(time.Microsecond)) / float64(time.Millisecond)
 	}
 	w.n++
 	bus := ascChannel(f.Interface)

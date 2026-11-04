@@ -10,14 +10,11 @@ import (
 
 func TestDLCMapping(t *testing.T) {
 	wantFD := []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 16, 20, 24, 32, 48, 64}
-	for dlc := uint8(0); dlc < 16; dlc++ {
+	for dlc := range uint8(16) {
 		if got := DLCToLen(dlc, true); got != wantFD[dlc] {
 			t.Errorf("DLCToLen(%d, fd) = %d, want %d", dlc, got, wantFD[dlc])
 		}
-		want := int(dlc)
-		if want > 8 {
-			want = 8
-		}
+		want := min(int(dlc), 8)
 		if got := DLCToLen(dlc, false); got != want {
 			t.Errorf("DLCToLen(%d, classical) = %d, want %d", dlc, got, want)
 		}

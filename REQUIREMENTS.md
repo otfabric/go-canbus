@@ -55,7 +55,7 @@ Status column: **done** = implemented and tested (test named), **partial**,
 
 | ID | Requirement |
 |----|-------------|
-| N-1 | Pure Go, no cgo, no third-party runtime dependency; Go 1.23 floor |
+| N-1 | Pure Go, no cgo, no third-party runtime dependency; Go 1.26 floor |
 | N-2 | ≥ 90 % statement coverage of production packages (generated test fixtures and examples excluded, documented in TESTING.md) |
 | N-3 | Race detector clean; concurrency stress tests; goroutine leak checks |
 | N-4 | Fuzz targets for every parser/decoder of untrusted input |

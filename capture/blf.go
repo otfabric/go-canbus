@@ -9,6 +9,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"math"
 	"time"
 
 	"github.com/otfabric/go-canbus"
@@ -49,6 +50,11 @@ const (
 
 	blfContainerMax = 128 * 1024
 	blfExtID        = 0x80000000
+
+	// blfObjectMax bounds an object's announced size and a container's
+	// uncompressed size: the reader never holds more than an incomplete
+	// object plus one container (32 MiB), whatever the file announces.
+	blfObjectMax = 16 << 20
 )
 
 // blfSystemTime decodes a Windows SYSTEMTIME (8 little-endian uint16).
@@ -60,19 +66,34 @@ func blfSystemTime(b []byte) time.Time {
 	return time.Date(u(0), time.Month(u(1)), u(3), u(4), u(5), u(6), u(7)*int(time.Millisecond), time.Local)
 }
 
-func blfPutSystemTime(b []byte, t time.Time) {
+// blfPutSystemTime encodes t as a SYSTEMTIME, or zeros for the zero time.
+// A SYSTEMTIME holds the years 1601 to 30827: others are an
+// [ErrUnrepresentable] error.
+func blfPutSystemTime(b []byte, t time.Time) error {
+	if t.IsZero() {
+		clear(b[:16])
+		return nil
+	}
+	if y := t.Year(); y < 1601 || y > 30827 {
+		return fmt.Errorf("%w: BLF time %v outside the SYSTEMTIME years 1601..30827", ErrUnrepresentable, t)
+	}
 	vals := []int{t.Year(), int(t.Month()), int(t.Weekday()), t.Day(), t.Hour(), t.Minute(), t.Second(), t.Nanosecond() / int(time.Millisecond)}
 	for i, v := range vals {
-		binary.LittleEndian.PutUint16(b[2*i:], uint16(v))
+		binary.LittleEndian.PutUint16(b[2*i:], uint16(v&0xFFFF)) // each field is at most 30827
 	}
+	return nil
 }
 
-// BLFReader reads BLF files, streaming through their containers.
+// BLFReader reads BLF files, streaming through their containers. Objects
+// split across containers (python-can splits at 128 KiB) are joined.
 type BLFReader struct {
 	r      *bufio.Reader
 	start  time.Time
 	obj    int
-	cur    *bytes.Reader // the decompressed container being read
+	cont   []byte       // unread bytes of the decompressed containers
+	skip   int          // padding of the last object still to skip in cont
+	store  []byte       // backing array of cont
+	raw    bytes.Buffer // body of the last object read from the file
 	header [blfObjBase]byte
 }
 
@@ -102,83 +123,142 @@ func (r *BLFReader) fail(format string, args ...any) error {
 }
 
 // next returns the next object (base header type and the bytes after the
-// base header) from the current container or the file.
+// base header, valid until the next call) from the containers or the
+// file. Containers inside containers are returned like any other object
+// (and skipped by Read).
 func (r *BLFReader) next() (uint32, []byte, error) {
 	for {
-		src := io.Reader(r.r)
-		inContainer := r.cur != nil && r.cur.Len() > 0
-		if inContainer {
-			src = r.cur
+		if k := min(r.skip, len(r.cont)); k > 0 {
+			r.cont, r.skip = r.cont[k:], r.skip-k
 		}
-		if _, err := io.ReadFull(src, r.header[:]); err != nil {
-			if !inContainer && err == io.EOF {
-				return 0, nil, io.EOF
+		if r.skip == 0 && len(r.cont) >= blfObjBase {
+			h := r.cont[:blfObjBase]
+			size, typ, err := r.objectHeader(h)
+			if err != nil {
+				return 0, nil, err
 			}
-			if inContainer {
-				return 0, nil, r.fail("truncated object header in container")
+			if len(r.cont) >= size {
+				r.obj++
+				copy(r.header[:], h)
+				body := r.cont[blfObjBase:size]
+				// Each object is followed by size%4 padding bytes (the
+				// binlog convention python-can follows; not "to the next
+				// multiple of 4"); they may be in the next container.
+				r.cont, r.skip = r.cont[size:], size%4
+				return typ, body, nil
 			}
-			return 0, nil, r.fail("truncated object header")
+			// The object continues in the next container.
 		}
-		r.obj++
-		h := r.header[:]
-		if string(h[:4]) != blfObjSig {
-			return 0, nil, r.fail("bad object signature %q", h[:4])
-		}
-		size := int(binary.LittleEndian.Uint32(h[8:]))
-		typ := binary.LittleEndian.Uint32(h[12:])
-		if size < blfObjBase || size > 16<<20 {
-			return 0, nil, r.fail("object size %d", size)
-		}
-		body := make([]byte, size-blfObjBase)
-		if _, err := io.ReadFull(src, body); err != nil {
-			return 0, nil, r.fail("truncated object")
-		}
-		// Each object is followed by size%4 padding bytes (the binlog
-		// convention python-can follows; not "to the next multiple of 4").
-		if pad := size % 4; pad != 0 {
-			skip := make([]byte, pad)
-			if inContainer {
-				_, _ = io.ReadFull(src, skip)
-			} else if _, err := io.ReadFull(src, skip); err != nil && err != io.EOF {
-				return 0, nil, r.fail("truncated padding")
-			}
+		typ, body, err := r.fileObject()
+		if err != nil {
+			return 0, nil, err
 		}
 		if typ != blfContType {
 			return typ, body, nil
 		}
-		// LOG_CONTAINER: compression (u16), reserved (6), uncompressed size (u32), reserved (4), data.
-		if len(body) < 16 {
-			return 0, nil, r.fail("short container")
+		if err := r.container(body); err != nil {
+			return 0, nil, err
 		}
-		method := binary.LittleEndian.Uint16(body[0:])
-		usize := int(binary.LittleEndian.Uint32(body[8:]))
-		data := body[16:]
-		switch method {
-		case blfCompressNone:
-		case blfCompressZlib:
-			if usize > 16<<20 {
-				return 0, nil, r.fail("container of %d bytes", usize)
-			}
-			zr, err := zlib.NewReader(bytes.NewReader(data))
-			if err != nil {
-				return 0, nil, r.fail("container: %v", err)
-			}
-			out, err := io.ReadAll(io.LimitReader(zr, int64(usize)+1))
-			if err != nil || len(out) != usize {
-				return 0, nil, r.fail("container: decompressed %d of %d bytes (%v)", len(out), usize, err)
-			}
-			data = out
-		default:
-			return 0, nil, r.fail("compression method %d", method)
-		}
-		// Bytes left from the previous container continue an object split
-		// across containers.
-		var prev []byte
-		if r.cur != nil {
-			prev, _ = io.ReadAll(r.cur)
-		}
-		r.cur = bytes.NewReader(append(prev, data...))
 	}
+}
+
+// objectHeader checks a base object header and returns the object's size
+// and type.
+func (r *BLFReader) objectHeader(h []byte) (int, uint32, error) {
+	if string(h[:4]) != blfObjSig {
+		return 0, 0, r.fail("bad object signature %q", h[:4])
+	}
+	size := binary.LittleEndian.Uint32(h[8:])
+	if size < blfObjBase || size > blfObjectMax {
+		return 0, 0, r.fail("object size %d", size)
+	}
+	return int(size), binary.LittleEndian.Uint32(h[12:]), nil
+}
+
+// fileObject reads the next object of the file.
+func (r *BLFReader) fileObject() (uint32, []byte, error) {
+	if _, err := io.ReadFull(r.r, r.header[:]); err != nil {
+		switch {
+		case err == io.EOF && len(r.cont) > 0:
+			return 0, nil, r.fail("truncated object header in container")
+		case err == io.EOF:
+			return 0, nil, io.EOF
+		}
+		return 0, nil, r.fail("truncated object header")
+	}
+	r.obj++
+	size, typ, err := r.objectHeader(r.header[:])
+	if err != nil {
+		return 0, nil, err
+	}
+	// Read through a LimitReader so that a truncated file announcing a
+	// large object costs no more memory than the file holds.
+	r.raw.Reset()
+	if n, _ := r.raw.ReadFrom(io.LimitReader(r.r, int64(size-blfObjBase))); n != int64(size-blfObjBase) {
+		return 0, nil, r.fail("truncated object")
+	}
+	if pad := size % 4; pad != 0 {
+		var skip [3]byte
+		if _, err := io.ReadFull(r.r, skip[:pad]); err != nil && err != io.EOF {
+			return 0, nil, r.fail("truncated padding")
+		}
+	}
+	return typ, r.raw.Bytes(), nil
+}
+
+// container appends the uncompressed data of a LOG_CONTAINER body to the
+// bytes left from the previous container.
+func (r *BLFReader) container(body []byte) error {
+	// compression (u16), reserved (6), uncompressed size (u32), reserved (4), data.
+	if len(body) < 16 {
+		return r.fail("short container")
+	}
+	method := binary.LittleEndian.Uint16(body[0:])
+	usize := binary.LittleEndian.Uint32(body[8:])
+	data := body[16:]
+	var add int // bytes this container adds
+	switch method {
+	case blfCompressNone:
+		add = len(data)
+	case blfCompressZlib:
+		if usize > blfObjectMax {
+			return r.fail("container of %d bytes", usize)
+		}
+		add = int(usize)
+	default:
+		return r.fail("compression method %d", method)
+	}
+	// Keep the bytes left from the previous container (an incomplete
+	// object, less than blfObjectMax) and make room for this one's.
+	keep, need := len(r.cont), len(r.cont)+add
+	if cap(r.store) < need {
+		grown := make([]byte, keep, need)
+		copy(grown, r.cont)
+		r.store = grown
+	} else {
+		r.store = append(r.store[:0], r.cont...) // overlapping copy is a memmove
+	}
+	r.cont, r.store = r.store[:keep], r.store[:need]
+	if method == blfCompressNone {
+		copy(r.store[keep:], data)
+		r.cont = r.store
+		return nil
+	}
+	zr, err := zlib.NewReader(bytes.NewReader(data))
+	if err != nil {
+		return r.fail("container: %v", err)
+	}
+	// Exactly usize bytes are inflated: a stream that holds more is an
+	// error, however much more it holds.
+	if n, err := io.ReadFull(zr, r.store[keep:]); err != nil {
+		return r.fail("container: decompressed %d of %d bytes (%v)", n, usize, err)
+	}
+	var more [1]byte
+	if n, _ := io.ReadFull(zr, more[:]); n != 0 {
+		return r.fail("container: more than the %d bytes announced", usize)
+	}
+	r.cont = r.store
+	return nil
 }
 
 // Read reads the next frame.
@@ -215,10 +295,14 @@ func (r *BLFReader) Read(f *canbus.Frame) error {
 		default:
 			return r.fail("object header version %d", hv)
 		}
-		d := time.Duration(ts) * 10 * time.Microsecond
+		unit, limit := 10*time.Microsecond, uint64(math.MaxInt64/int64(10*time.Microsecond))
 		if flags&blfFlagOneNanos != 0 {
-			d = time.Duration(ts)
+			unit, limit = 1, math.MaxInt64
 		}
+		if ts > limit {
+			return r.fail("timestamp %d out of range", ts)
+		}
+		d := time.Duration(ts&math.MaxInt64) * unit // ts <= limit: no overflow
 		*f = canbus.Frame{}
 		start := r.start
 		if start.IsZero() {
@@ -259,7 +343,7 @@ func (r *BLFReader) decode(typ uint32, b []byte, f *canbus.Frame) error {
 			return nil
 		}
 		n := canbus.DLCToLen(dlc, false)
-		f.Len = uint8(n)
+		f.Len = lenByte(n)
 		copy(f.Data[:n], b[8:8+n])
 		if dlc > 8 {
 			f.Len8DLC = dlc
@@ -289,7 +373,7 @@ func (r *BLFReader) decode(typ uint32, b []byte, f *canbus.Frame) error {
 			if valid < n || len(data) < n {
 				return fmt.Errorf("CAN FD message with %d of %d bytes", min(valid, len(data)), n)
 			}
-			f.Len = uint8(n)
+			f.Len = lenByte(n)
 			copy(f.Data[:n], data[:n])
 			return nil
 		}
@@ -302,7 +386,7 @@ func (r *BLFReader) decode(typ uint32, b []byte, f *canbus.Frame) error {
 		if len(data) < n {
 			return fmt.Errorf("short CAN message")
 		}
-		f.Len = uint8(n)
+		f.Len = lenByte(n)
 		copy(f.Data[:n], data[:n])
 	case blfCANFD64:
 		// channel u8, dlc u8, valid bytes u8, tx count u8, id u32, frame
@@ -338,7 +422,7 @@ func (r *BLFReader) decode(typ uint32, b []byte, f *canbus.Frame) error {
 		if valid < n || len(data) < n {
 			return fmt.Errorf("CAN FD 64 message with %d of %d bytes", min(valid, len(data)), n)
 		}
-		f.Len = uint8(n)
+		f.Len = lenByte(n)
 		copy(f.Data[:n], data[:n])
 	case blfCANErrorExt:
 		// channel u16, length u16, flags u32, ecc u8, position u8, dlc u8,
@@ -380,7 +464,7 @@ func NewBLFWriter(w io.Writer) (*BLFWriter, error) {
 	return bw, nil
 }
 
-func (w *BLFWriter) fileHeader(stop time.Time) []byte {
+func (w *BLFWriter) fileHeader(stop time.Time) ([]byte, error) {
 	h := make([]byte, blfHdrSize)
 	copy(h[0:], blfFileSig)
 	binary.LittleEndian.PutUint32(h[4:], blfHdrSize)
@@ -390,27 +474,37 @@ func (w *BLFWriter) fileHeader(stop time.Time) []byte {
 	binary.LittleEndian.PutUint64(h[16:], blfHdrSize+w.size)
 	binary.LittleEndian.PutUint64(h[24:], blfHdrSize+w.usize)
 	binary.LittleEndian.PutUint32(h[32:], w.count)
-	blfPutSystemTime(h[40:], w.start)
-	blfPutSystemTime(h[56:], stop)
-	return h
+	if err := blfPutSystemTime(h[40:], w.start); err != nil {
+		return nil, err
+	}
+	if err := blfPutSystemTime(h[56:], stop); err != nil {
+		return nil, err
+	}
+	return h, nil
 }
 
-func (w *BLFWriter) object(typ uint32, ts time.Time, body []byte) {
+// object buffers an object with a v1 header. Its timestamp is in
+// nanoseconds after the start (frames before the start are written at the
+// start); more than 292 years after it is an [ErrUnrepresentable] error.
+func (w *BLFWriter) object(typ uint32, ts time.Time, body []byte) error {
 	le := binary.LittleEndian
+	var rel time.Duration
+	if !ts.IsZero() {
+		rel = ts.Sub(w.start)
+		if rel == math.MaxInt64 { // Sub saturates
+			return fmt.Errorf("%w: BLF timestamp %v more than 292 years after the start %v", ErrUnrepresentable, ts, w.start)
+		}
+		rel = max(rel, 0)
+	}
 	size := blfObjBase + blfObjV1 + len(body)
 	var h [blfObjBase + blfObjV1]byte
 	copy(h[0:], blfObjSig)
 	le.PutUint16(h[4:], blfObjBase+blfObjV1)
 	le.PutUint16(h[6:], 1)
-	le.PutUint32(h[8:], uint32(size))
+	le.PutUint32(h[8:], uint32(max(min(size, blfObjectMax), 0))) // bodies are at most 104 bytes
 	le.PutUint32(h[12:], typ)
 	le.PutUint32(h[16:], blfFlagOneNanos)
-	var rel time.Duration
 	if !ts.IsZero() {
-		rel = ts.Sub(w.start)
-		if rel < 0 {
-			rel = 0
-		}
 		w.last = ts
 	}
 	le.PutUint64(h[24:], uint64(rel))
@@ -420,19 +514,30 @@ func (w *BLFWriter) object(typ uint32, ts time.Time, body []byte) {
 		w.buf.WriteByte(0)
 	}
 	w.count++
+	return nil
+}
+
+// begin writes the provisional file header for a trace starting at start
+// (the epoch when zero).
+func (w *BLFWriter) begin(start time.Time) error {
+	if start.IsZero() {
+		start = time.Unix(0, 0)
+	}
+	w.start = start.Truncate(time.Millisecond) // SYSTEMTIME has milliseconds
+	h, err := w.fileHeader(time.Time{})
+	if err != nil {
+		return err
+	}
+	w.started = true
+	_, err = w.out.Write(h)
+	return err
 }
 
 // Write writes one frame.
 func (w *BLFWriter) Write(f *canbus.Frame) error {
 	le := binary.LittleEndian
 	if !w.started {
-		w.started = true
-		w.start = f.Timestamp
-		if w.start.IsZero() {
-			w.start = time.Unix(0, 0)
-		}
-		w.start = w.start.Truncate(time.Millisecond) // SYSTEMTIME has milliseconds
-		if _, err := w.out.Write(w.fileHeader(time.Time{})); err != nil {
+		if err := w.begin(f.Timestamp); err != nil {
 			return err
 		}
 	}
@@ -440,6 +545,7 @@ func (w *BLFWriter) Write(f *canbus.Frame) error {
 	if n, err := fmt.Sscan(f.Interface, &ch); n != 1 || err != nil || ch == 0 {
 		ch = 1
 	}
+	var err error
 	id := uint32(f.ID)
 	if f.IsExtended() {
 		id |= blfExtID
@@ -450,8 +556,11 @@ func (w *BLFWriter) Write(f *canbus.Frame) error {
 		le.PutUint16(b[0:], ch)
 		le.PutUint16(b[2:], 0)
 		b[10] = 8
-		w.object(blfCANErrorExt, f.Timestamp, b)
+		err = w.object(blfCANErrorExt, f.Timestamp, b)
 	case f.IsFD():
+		if ch > math.MaxUint8 { // CAN_FD_MESSAGE_64 has an 8-bit channel
+			return fmt.Errorf("%w: BLF CAN FD channel %d", ErrUnrepresentable, ch)
+		}
 		b := make([]byte, 40+64)
 		b[0] = byte(ch)
 		b[1] = f.DLC()
@@ -469,7 +578,7 @@ func (w *BLFWriter) Write(f *canbus.Frame) error {
 			b[34] = 1
 		}
 		copy(b[40:], f.Payload())
-		w.object(blfCANFD64, f.Timestamp, b[:40+int(f.Len)])
+		err = w.object(blfCANFD64, f.Timestamp, b[:40+len(f.Payload())])
 	default:
 		b := make([]byte, 16)
 		le.PutUint16(b[0:], ch)
@@ -482,7 +591,10 @@ func (w *BLFWriter) Write(f *canbus.Frame) error {
 		b[3] = f.DLC()
 		le.PutUint32(b[4:], id)
 		copy(b[8:], f.Payload())
-		w.object(blfCANMessage, f.Timestamp, b)
+		err = w.object(blfCANMessage, f.Timestamp, b)
+	}
+	if err != nil {
+		return err
 	}
 	if w.buf.Len() >= blfContainerMax {
 		return w.flush()
@@ -504,23 +616,26 @@ func (w *BLFWriter) flush() error {
 		return err
 	}
 	le := binary.LittleEndian
+	// A container holds blfContainerMax bytes plus one object, compressed
+	// to at most a little more: the clamps are no-ops.
 	size := blfObjBase + 16 + z.Len()
+	usize := uint32(max(min(w.buf.Len(), blfObjectMax), 0))
 	h := make([]byte, blfObjBase+16)
 	copy(h[0:], blfObjSig)
 	le.PutUint16(h[4:], blfObjBase)
 	le.PutUint16(h[6:], 1)
-	le.PutUint32(h[8:], uint32(size))
+	le.PutUint32(h[8:], uint32(max(min(size, blfObjectMax), 0)))
 	le.PutUint32(h[12:], blfContType)
 	le.PutUint16(h[16:], blfCompressZlib)
-	le.PutUint32(h[24:], uint32(w.buf.Len()))
+	le.PutUint32(h[24:], usize)
 	pad := size % 4
 	out := append(h, z.Bytes()...)
 	out = append(out, make([]byte, pad)...)
 	if _, err := w.out.Write(out); err != nil {
 		return err
 	}
-	w.size += uint64(len(out))
-	w.usize += uint64(blfObjBase + 16 + w.buf.Len())
+	w.size += uint64(uint32(max(min(len(out), blfObjectMax), 0)))
+	w.usize += uint64(blfObjBase+16) + uint64(usize)
 	w.buf.Reset()
 	return nil
 }
@@ -529,9 +644,7 @@ func (w *BLFWriter) flush() error {
 // header. It does not close the underlying writer.
 func (w *BLFWriter) Close() error {
 	if !w.started {
-		w.started = true
-		w.start = time.Unix(0, 0)
-		if _, err := w.out.Write(w.fileHeader(time.Time{})); err != nil {
+		if err := w.begin(time.Time{}); err != nil {
 			return err
 		}
 	}
@@ -552,7 +665,11 @@ func (w *BLFWriter) Close() error {
 	if _, err := w.w.Seek(0, io.SeekStart); err != nil {
 		return err
 	}
-	if _, err := w.w.Write(w.fileHeader(stop)); err != nil {
+	h, err := w.fileHeader(stop)
+	if err != nil {
+		return err
+	}
+	if _, err := w.w.Write(h); err != nil {
 		return err
 	}
 	_, err = w.w.Seek(end, io.SeekStart)

@@ -100,10 +100,8 @@ func vehicle(t *testing.T, net network, isotpServer func(t *testing.T) isotp.End
 	var wg sync.WaitGroup
 	ecu := func(fd bool, build func(i int) (canbus.Frame, error), every time.Duration) {
 		tr := net.open(t, fd)
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for i := 0; i < perECU; i++ {
+		wg.Go(func() {
+			for i := range perECU {
 				f, err := build(i)
 				if err != nil {
 					t.Error(err)
@@ -115,7 +113,7 @@ func vehicle(t *testing.T, net network, isotpServer func(t *testing.T) isotp.End
 				}
 				time.Sleep(every)
 			}
-		}()
+		})
 	}
 	ecu(false, func(i int) (canbus.Frame, error) {
 		e := full.Engine{Speed: uint16(i * 100), Temp: int8(i - 30), Throttle: uint16(i * 7), Mode: full.EngineMode(i % 8), Flag: i%2 == 0}
@@ -136,10 +134,8 @@ func vehicle(t *testing.T, net network, isotpServer func(t *testing.T) isotp.End
 
 	// ISO-TP diagnostics alongside the traffic.
 	server, client := isotpServer(t), isotpClient(t)
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for i := 0; i < 5; i++ {
+	wg.Go(func() {
+		for range 5 {
 			req, err := server.Receive(ctx)
 			if err != nil {
 				t.Error("server:", err)
@@ -151,8 +147,8 @@ func vehicle(t *testing.T, net network, isotpServer func(t *testing.T) isotp.End
 				return
 			}
 		}
-	}()
-	for i := 0; i < 5; i++ {
+	})
+	for i := range 5 {
 		req := []byte(fmt.Sprintf("read %d", i))
 		if err := client.Send(ctx, req); err != nil {
 			t.Fatal("client:", err)

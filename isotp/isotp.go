@@ -225,7 +225,7 @@ func (c Config) withDefaults() (Config, error) {
 	if c.MaxMessageSize <= 0 {
 		c.MaxMessageSize = 4095
 	}
-	if uint64(c.MaxMessageSize) > 1<<32-1 {
+	if int64(c.MaxMessageSize) > 1<<32-1 {
 		return bad("MaxMessageSize %d exceeds 2^32-1", c.MaxMessageSize)
 	}
 	if c.QueueSize <= 0 {

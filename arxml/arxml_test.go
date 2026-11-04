@@ -125,8 +125,7 @@ func TestDiagnostics(t *testing.T) {
 <COMPU-METHOD><SHORT-NAME>Odd</SHORT-NAME><CATEGORY>BITFIELD_TEXTTABLE</CATEGORY></COMPU-METHOD>
 </ELEMENTS></AR-PACKAGE></AR-PACKAGES></AUTOSAR>`
 	db, diags, err := Parse(strings.NewReader(src))
-	var pe *ParseError
-	if !errors.As(err, &pe) {
+	if _, ok := errors.AsType[*ParseError](err); !ok {
 		t.Fatal(err)
 	}
 	all := ""
@@ -266,8 +265,7 @@ func TestMultiplexedVariants(t *testing.T) {
 		frame(5, "Empty", 0) + `<MULTIPLEXED-I-PDU><SHORT-NAME>Empty</SHORT-NAME><SELECTOR-FIELD-LENGTH>4</SELECTOR-FIELD-LENGTH><SELECTOR-FIELD-START-POSITION>0</SELECTOR-FIELD-START-POSITION></MULTIPLEXED-I-PDU>` +
 		tail
 	db, diags, err := Parse(strings.NewReader(src))
-	var pe *ParseError
-	if !errors.As(err, &pe) {
+	if _, ok := errors.AsType[*ParseError](err); !ok {
 		t.Fatal(err)
 	}
 	all := ""

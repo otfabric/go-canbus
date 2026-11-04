@@ -3,7 +3,14 @@
 package link
 
 import (
+	"errors"
+	"math"
+	"strconv"
+	"strings"
+	"syscall"
 	"testing"
+
+	"github.com/otfabric/go-canbus"
 )
 
 // fakeLink builds an RTM_NEWLINK body as the kernel sends it for a CAN
@@ -84,8 +91,21 @@ func TestMessages(t *testing.T) {
 	if _, err := parseMessages(m[:20]); err == nil {
 		t.Fatal("truncated accepted")
 	}
-	if errnoOf([]byte{1}) != -1 || errnoOf(u32(0xFFFFFFFF)) != -1 {
-		t.Fatal("errnoOf")
+	if e, err := errnoOf(u32(0)); e != 0 || err != nil {
+		t.Fatal("ACK:", e, err)
+	}
+	if e, err := errnoOf(u32(0xFFFFFFFF)); e != syscall.Errno(1) || err != nil {
+		t.Fatal("-1:", e, err)
+	}
+	if e, err := errnoOf(u32(0x80000000)); e != syscall.Errno(1<<31) || err != nil {
+		t.Fatal("INT_MIN:", e, err)
+	}
+	// Malformed replies used to read as -1 (EPERM, "CAP_NET_ADMIN needed").
+	if _, err := errnoOf([]byte{1}); err == nil {
+		t.Fatal("short error body accepted")
+	}
+	if _, err := errnoOf(u32(5)); err == nil {
+		t.Fatal("positive error code accepted")
 	}
 }
 
@@ -120,10 +140,111 @@ func TestNames(t *testing.T) {
 	}
 }
 
+func TestBounds(t *testing.T) {
+	for _, n := range []string{"", strings.Repeat("x", ifNameMax+1), strings.Repeat("x", 70000)} {
+		if err := checkName(n); !errors.Is(err, canbus.ErrInvalidOption) {
+			t.Errorf("name of %d bytes: %v", len(n), err)
+		}
+	}
+	if err := checkName("vcan0"); err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range []int{0, -1, math.MinInt32} {
+		if _, err := checkMTU(m); !errors.Is(err, canbus.ErrInvalidOption) {
+			t.Errorf("MTU %d: %v", m, err)
+		}
+	}
+	if strconv.IntSize == 64 {
+		big := int64(1) << 32
+		if _, err := checkMTU(int(big)); !errors.Is(err, canbus.ErrInvalidOption) {
+			t.Error("MTU 2^32 accepted (wrapped to 0)")
+		}
+		if _, err := ifindex32(int(big)); !errors.Is(err, canbus.ErrInvalidOption) {
+			t.Error("ifindex 2^32 accepted")
+		}
+	}
+	if v, err := checkMTU(72); v != 72 || err != nil {
+		t.Fatal(v, err)
+	}
+	if _, err := ifindex32(-1); !errors.Is(err, canbus.ErrInvalidOption) {
+		t.Error("ifindex -1 accepted")
+	}
+	if v, err := ifindex32(math.MaxInt32); v != math.MaxInt32 || err != nil {
+		t.Fatal(v, err)
+	}
+	// A negative ifindex from the kernel is not an interface.
+	b := fakeLink()
+	ne.PutUint32(b[4:], 0xFFFFFFFF)
+	if _, ok := parseLink(b); ok {
+		t.Fatal("negative ifindex accepted")
+	}
+	// ifinfomsg keeps the bits of a C int.
+	if got := ne.Uint32(ifinfomsg(-1, 0, 0)[4:]); got != 0xFFFFFFFF {
+		t.Fatalf("ifinfomsg(-1) index %#x", got)
+	}
+	// A route attribute cannot hold more than 65531 bytes.
+	if a := attr(1, make([]byte, maxAttrData)); ne.Uint16(a) != math.MaxUint16 {
+		t.Fatalf("largest attribute length %d", ne.Uint16(a))
+	}
+	defer func() {
+		if recover() == nil {
+			t.Fatal("oversized attribute did not panic")
+		}
+	}()
+	attr(1, make([]byte, maxAttrData+1))
+}
+
+// FuzzNetlinkStream parses an arbitrary receive buffer as the request loop
+// does: messages, then links and error codes.
+func FuzzNetlinkStream(f *testing.F) {
+	link := fakeLink()
+	f.Add(append(message(rtmNewLink, nlmFMulti, 1, link), message(nlmsgDone, 0, 1)...))
+	f.Add(message(nlmsgError, 0, 2, u32(0xFFFFFFEA)))
+	f.Add(message(nlmsgError, 0, 2, []byte{1}))
+	f.Fuzz(func(t *testing.T, b []byte) {
+		msgs, _ := parseMessages(b)
+		for _, m := range msgs {
+			if len(m.body) > len(b) {
+				t.Fatal("message body beyond the buffer")
+			}
+			switch m.typ {
+			case nlmsgError:
+				e, err := errnoOf(m.body)
+				if err == nil && e != 0 && e > 1<<31 {
+					t.Fatalf("errno %d out of range", e)
+				}
+			case rtmNewLink:
+				if it, ok := parseLink(m.body); ok && it.Index < 0 {
+					t.Fatalf("negative index %d", it.Index)
+				}
+			}
+		}
+	})
+}
+
 func FuzzParseLink(f *testing.F) {
 	f.Add(fakeLink())
 	f.Fuzz(func(t *testing.T, b []byte) {
 		parseLink(b)
 		_, _ = parseMessages(b)
 	})
+}
+
+// TestMessageTooLarge: a request beyond the 32-bit netlink length panics
+// before allocating (no API can build one; names are checked first).
+func TestMessageTooLarge(t *testing.T) {
+	if strconv.IntSize < 64 {
+		t.Skip("a 4 GiB message needs 64-bit int")
+	}
+	chunk := make([]byte, 1<<20)
+	body := make([][]byte, 4097) // 4097 MiB through one shared buffer
+	for i := range body {
+		body[i] = chunk
+	}
+	defer func() {
+		if recover() == nil {
+			t.Error("no panic")
+		}
+	}()
+	message(rtmNewLink, 0, 1, body...)
 }

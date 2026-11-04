@@ -57,7 +57,7 @@ func TestXLForwardedWithFaults(t *testing.T) {
 		binary.BigEndian.PutUint16(d, uint16(i))
 		return d
 	}
-	for i := 0; i < n; i++ {
+	for i := range n {
 		if err := src.SendXL(ctx, &canbus.XLFrame{Priority: 0x300, VCID: 2, SDT: 1, AF: uint32(i), Data: payload(i)}); err != nil {
 			t.Fatal(err)
 		}

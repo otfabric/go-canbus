@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("date Mon Oct 27 08:15:00.123 pm 2026\nbase hex timestamps absolute\n NaN 1 123 Rx d 0\n")

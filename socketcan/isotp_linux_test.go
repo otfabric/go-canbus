@@ -213,6 +213,10 @@ func TestKernelISOTPErrors(t *testing.T) {
 	if _, err := DialISOTP("nosuchcan0", isotp.Config{}); !errors.Is(err, canbus.ErrInterfaceDown) {
 		t.Fatal(err)
 	}
+	neg := time.Duration(-1)
+	if _, err := DialISOTP(ifc, isotp.Config{ForceTxSTmin: &neg}); !errors.Is(err, canbus.ErrInvalidOption) {
+		t.Fatalf("ForceTxSTmin -1ns: %v", err)
+	}
 	if _, err := DialISOTP(ifc, isotp.Config{STmin: time.Hour}); err == nil {
 		t.Fatal("bad STmin")
 	}

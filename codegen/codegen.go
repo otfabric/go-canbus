@@ -528,7 +528,7 @@ func (g *gen) phys(mi *msgInfo, s *candb.Signal) {
 // math2 returns 2^n as float64.
 func math2(n int) float64 {
 	f := 1.0
-	for i := 0; i < n; i++ {
+	for range n {
 		f *= 2
 	}
 	return f

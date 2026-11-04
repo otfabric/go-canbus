@@ -37,10 +37,7 @@ func ExtractLE(d []byte, start, n int) uint64 {
 	pos := start
 	for n > 0 {
 		bit := pos & 7
-		k := 8 - bit
-		if k > n {
-			k = n
-		}
+		k := min(8-bit, n)
 		v |= (uint64(d[pos>>3]) >> uint(bit) & mask(k)) << uint(shift)
 		shift += k
 		pos += k
@@ -57,10 +54,7 @@ func ExtractBE(d []byte, msb, n int) uint64 {
 	pos := msb
 	for n > 0 {
 		off := pos & 7 // from the byte's most significant bit
-		k := 8 - off
-		if k > n {
-			k = n
-		}
+		k := min(8-off, n)
 		v = v<<uint(k) | uint64(d[pos>>3])>>uint(8-off-k)&mask(k)
 		pos += k
 		n -= k
@@ -74,12 +68,9 @@ func InsertLE(d []byte, start, n int, v uint64) {
 	pos := start
 	for n > 0 {
 		bit := pos & 7
-		k := 8 - bit
-		if k > n {
-			k = n
-		}
-		m := byte(mask(k) << uint(bit))
-		d[pos>>3] = d[pos>>3]&^m | byte(v<<uint(bit))&m
+		k := min(8-bit, n)
+		m := byte(mask(k) << uint(bit) & 0xFF)
+		d[pos>>3] = d[pos>>3]&^m | byte(v<<uint(bit)&0xFF)&m
 		v >>= uint(k)
 		pos += k
 		n -= k
@@ -95,12 +86,11 @@ func InsertBE(d []byte, msb, n int, v uint64) {
 	for n > 0 {
 		off := pos & 7      // index of this bit from the byte's MSB
 		lsbShift := 7 - off // its shift from the byte's LSB
-		k := off + 1        // bits available in this byte towards the MSB
-		if k > n {
-			k = n
-		}
-		m := byte(mask(k) << uint(lsbShift))
-		d[pos>>3] = d[pos>>3]&^m | byte(v<<uint(lsbShift))&m
+		k := min(
+			// bits available in this byte towards the MSB
+			off+1, n)
+		m := byte(mask(k) << uint(lsbShift) & 0xFF)
+		d[pos>>3] = d[pos>>3]&^m | byte(v<<uint(lsbShift)&0xFF)&m
 		v >>= uint(k)
 		pos -= k
 		n -= k
@@ -108,12 +98,21 @@ func InsertBE(d []byte, msb, n int, v uint64) {
 }
 
 // SignExtend interprets the low n bits of v as a two's complement number.
+// For n >= 64 it reinterprets all 64 bits.
 func SignExtend(v uint64, n int) int64 {
 	if n >= 64 {
-		return int64(v)
+		return asInt64(v)
 	}
 	shift := uint(64 - n)
-	return int64(v<<shift) >> shift
+	return asInt64(v<<shift) >> shift
+}
+
+// asInt64 reinterprets the bit pattern v as a two's complement int64:
+// the low 63 bits carry over and bit 63 becomes the sign. Written with
+// masks so that no conversion can overflow; it compiles to a few
+// register operations.
+func asInt64(v uint64) int64 {
+	return int64(v&(1<<63-1)) | int64(v>>63&1)<<63
 }
 
 // FitsUnsigned reports whether v fits in n bits.

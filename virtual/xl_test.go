@@ -241,7 +241,7 @@ func TestXLWithoutLoopbackAndBlocking(t *testing.T) {
 		t.Fatalf("loopback off delivered %q", got)
 	}
 	tx, _ := b.Open(WithXL())
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		_ = tx.SendXL(ctx, &x)
 	}
 	deadline := time.Now().Add(time.Second)
@@ -252,10 +252,10 @@ func TestXLWithoutLoopbackAndBlocking(t *testing.T) {
 		t.Fatalf("drops %d", n)
 	}
 	blk, _ := b.Open(WithXL(), WithBlocking(), WithQueueSize(1))
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		_ = tx.SendXL(ctx, &x)
 	}
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		if got := recvAny(t, blk, time.Second); got != x.String() {
 			t.Fatalf("blocking port frame %d: %q", i, got)
 		}

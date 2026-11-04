@@ -10,7 +10,7 @@ structure with `errors.As`.
 | `ErrInvalidFrame` | canbus | `Frame.Validate` failed; `*FrameError` carries frame and reason |
 | `ErrUnsupported` | canbus | SocketCAN off Linux, FD frame on a classical socket, non-CAN interface, vcan bit timing, kernel ISO-TP options the kernel lacks |
 | `ErrQueueFull` | canbus | A bounded queue rejected a frame |
-| `ErrInvalidOption` | canbus | Bad constructor or Config value, bad filter text |
+| `ErrInvalidOption` | canbus | Bad constructor or Config value, bad filter text; `socketcan.DialISOTP` ForceTxSTmin outside 0..127 ms; `link.SetMTU` MTU ≤ 0 or ≥ 2^32; `link.AddVCAN`/`AddVXCAN` name empty or over 15 bytes |
 | `ErrInterfaceDown` | canbus | Interface missing or down (ENETDOWN, ENODEV); a Bus reader reports it and recovers when the interface returns |
 | `ErrBufferOverflow` | canbus | ENOBUFS beyond a send's context |
 | `*OpError` | canbus | Operation, interface and cause of a transport failure |
@@ -21,6 +21,7 @@ structure with `errors.As`.
 | `ErrTooLarge` | isotp | Beyond `MaxMessageSize` (send or announced by a first frame) |
 | `ErrInterrupted` | isotp | A new single/first frame replaced a reception |
 | `ErrProtocol` | isotp | Invalid flow control; kernel EBADMSG |
-| `ErrUnknownMessage`, `ErrUnknownSignal`, `ErrShortPayload`, `ErrRange`, `ErrMissingSignal`, `ErrInactiveSignal`, `ErrLayout` | candb | Codec failures |
-| `*ParseError` | dbc, kcd | Parse with error diagnostics (database and all diagnostics are still returned) |
-| `*ParseError`, `ErrUnknownFormat` | capture | Malformed trace record (format and record number), undetectable format |
+| `ErrUnknownMessage`, `ErrUnknownSignal`, `ErrShortPayload`, `ErrRange`, `ErrMissingSignal`, `ErrInactiveSignal`, `ErrLayout` | candb | Codec failures; `ErrLayout` also for a signal start bit beyond 2^24, a negative message length, or one beyond the CAN XL (64 for CAN FD) payload |
+| `*ParseError` | dbc, kcd | Parse with error diagnostics (database and all diagnostics are still returned); in dbc also a message identifier above 32 bits in any statement |
+| `*ParseError`, `ErrUnknownFormat` | capture | Malformed trace record (format and record number), including a timestamp outside the format's or `time.Duration`'s range; undetectable format |
+| `ErrUnrepresentable` | capture | A writer cannot store a frame without corrupting the file (timestamp outside the format's range, pcapng interface name over 65535 bytes, BLF CAN FD channel over 255); nothing is written for that frame |

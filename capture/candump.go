@@ -145,6 +145,9 @@ func parseTimestamp(s string) (time.Time, error) {
 	if err != nil || sec < 0 {
 		return time.Time{}, fmt.Errorf("bad timestamp %q", s)
 	}
+	if sec > maxUnixSec {
+		return time.Time{}, fmt.Errorf("timestamp %q after the year 9999", s)
+	}
 	if len(fracText) > 9 {
 		return time.Time{}, fmt.Errorf("timestamp %q has more than 9 fractional digits", s)
 	}
@@ -326,6 +329,9 @@ func (w *CandumpWriter) Write(f *canbus.Frame) error {
 	}
 	var sec, usec int64
 	if !f.Timestamp.IsZero() {
+		if err := unixRange(FormatCandump, f.Timestamp); err != nil {
+			return err
+		}
 		sec = f.Timestamp.Unix()
 		usec = int64(f.Timestamp.Nanosecond() / 1000)
 	}
@@ -341,6 +347,9 @@ func (w *CandumpWriter) WriteXL(x *canbus.XLFrame) error {
 	}
 	var sec, usec int64
 	if !x.Timestamp.IsZero() {
+		if err := unixRange(FormatCandump, x.Timestamp); err != nil {
+			return err
+		}
 		sec = x.Timestamp.Unix()
 		usec = int64(x.Timestamp.Nanosecond() / 1000)
 	}

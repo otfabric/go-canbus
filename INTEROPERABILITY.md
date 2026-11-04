@@ -50,7 +50,9 @@ selector: recorded as known, as are cantools' rejections of undescribed
 selector values). Against canbus-interop v0.5.0 (contract 1.3, 2026-10-28):
 **170 passed, 0 failed, 13 skipped**, 132 known-difference records; the
 additions are CAN XL with can-utils (both directions and a candump
-capture); the 9 new skips are the stacks without CAN XL.
+capture); the 9 new skips are the stacks without CAN XL. Against canbus-interop v0.6.0
+(contract 1.3, 2026-11-04, go-canbus v0.8.0): the same 170 passed, 0 failed,
+13 skipped, 132 known.
 
 | Area | Scenario | can-utils / kernel | python-can | socketcan-rs | Scapy | python-can-isotp | cantools | canmatrix |
 |------|----------|---|---|---|---|---|---|---|

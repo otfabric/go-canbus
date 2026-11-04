@@ -139,7 +139,7 @@ func TestWireFormat(t *testing.T) {
 		t.Fatal(err)
 	}
 	var got []string
-	for i := 0; i < 6; i++ {
+	for range 6 {
 		var f canbus.Frame
 		c, cancel := context.WithTimeout(ctx, time.Second)
 		err := spy.Receive(c, &f)
@@ -344,7 +344,7 @@ func TestMetricsAndConcurrentSend(t *testing.T) {
 	a, b, _ := pair(t, func(a, b *Config) { a.Metrics, b.Metrics = ma, mb; b.QueueSize = 64 })
 	ctx := ctxT(t)
 	var wg sync.WaitGroup
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
@@ -354,7 +354,7 @@ func TestMetricsAndConcurrentSend(t *testing.T) {
 		}(i)
 	}
 	seen := map[int]bool{}
-	for i := 0; i < 8; i++ {
+	for range 8 {
 		got, err := b.Receive(ctx)
 		if err != nil {
 			t.Fatal(err)

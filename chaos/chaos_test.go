@@ -50,7 +50,7 @@ func run(t *testing.T, cfg Config) (*Bridge, segment, segment, context.CancelFun
 }
 
 func sendSeq(t *testing.T, p *virtual.Port, n int) {
-	for i := 0; i < n; i++ {
+	for i := range n {
 		f, _ := canbus.NewStandard(0x100, []byte{byte(i >> 8), byte(i)})
 		if err := p.Send(context.Background(), &f); err != nil {
 			t.Fatal(err)
