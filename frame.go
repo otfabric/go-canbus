@@ -153,10 +153,7 @@ func (f *Frame) Payload() []byte {
 	if f.Flags&FlagRemote != 0 {
 		return f.Data[:0]
 	}
-	n := int(f.Len)
-	if n > MaxFDLen {
-		n = MaxFDLen
-	}
+	n := min(int(f.Len), MaxFDLen)
 	return f.Data[:n]
 }
 

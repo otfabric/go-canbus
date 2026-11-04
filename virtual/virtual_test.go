@@ -118,7 +118,7 @@ func TestQueueOverflowCountsDrops(t *testing.T) {
 	defer b.Close()
 	tx, _ := b.Open()
 	rx, _ := b.Open(WithQueueSize(2))
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		f, _ := canbus.NewStandard(1, []byte{byte(i)})
 		_ = tx.Send(ctx, &f)
 	}
@@ -146,7 +146,7 @@ func pattern(t *testing.T, seed int64, faults Faults, n int) []byte {
 	b.SetFaults(faults)
 	tx, _ := b.Open()
 	rx, _ := b.Open(WithQueueSize(4 * n))
-	for i := 0; i < n; i++ {
+	for i := range n {
 		f, _ := canbus.NewStandard(1, []byte{byte(i), 0})
 		if err := tx.Send(ctx, &f); err != nil {
 			t.Fatal(err)
@@ -192,11 +192,11 @@ func TestDelayPreservesOrder(t *testing.T) {
 	tx, _ := b.Open()
 	rx, _ := b.Open()
 	start := time.Now()
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		f, _ := canbus.NewStandard(1, []byte{byte(i)})
 		_ = tx.Send(ctx, &f)
 	}
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		f, err := recv(t, rx, time.Second)
 		if err != nil || f.Data[0] != byte(i) {
 			t.Fatal(f, err)

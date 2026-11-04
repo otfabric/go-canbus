@@ -188,7 +188,7 @@ func TestBusXLOverflowAndEcho(t *testing.T) {
 	newest, _ := b.Subscribe(canbus.WithXL(), canbus.WithQueueSize(2))
 	oldest, _ := b.Subscribe(canbus.WithXL(), canbus.WithQueueSize(2), canbus.WithOverflow(canbus.DropOldest))
 	noEcho, _ := b.Subscribe(canbus.WithXL(), canbus.WithoutEcho())
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		x := mustXL(t, fmt.Sprintf("123#80:00:00000000#%02X", i))
 		if err := b.SendXL(ctx, &x); err != nil {
 			t.Fatal(err)
@@ -230,12 +230,12 @@ func TestBusXLBlocking(t *testing.T) {
 	s, _ := b.Subscribe(canbus.WithXL(), canbus.WithQueueSize(1), canbus.WithOverflow(canbus.Block))
 	const n = 200
 	go func() {
-		for i := 0; i < n; i++ {
+		for i := range n {
 			x := canbus.XLFrame{Priority: uint16(i % 0x800), Data: []byte{byte(i)}}
 			_ = a.SendXL(ctx, &x)
 		}
 	}()
-	for i := 0; i < n; i++ {
+	for i := range n {
 		x, err := s.ReceiveXL(ctx)
 		if err != nil || x.Data[0] != byte(i) {
 			t.Fatalf("frame %d: %v %v", i, x, err)
@@ -267,7 +267,7 @@ func TestBusXLOrder(t *testing.T) {
 	defer b.Close()
 	s, _ := b.Subscribe(canbus.WithXL())
 	const n = 300
-	for i := 0; i < n; i++ {
+	for i := range n {
 		if i%3 == 0 {
 			f, _ := canbus.NewStandard(canbus.ID(i%0x800), []byte{byte(i)})
 			_ = tx.Send(ctx, &f)
@@ -277,7 +277,7 @@ func TestBusXLOrder(t *testing.T) {
 	}
 	var f canbus.Frame
 	var x canbus.XLFrame
-	for i := 0; i < n; i++ {
+	for i := range n {
 		isXL, err := s.ReceiveAny(ctx, &f, &x)
 		if err != nil {
 			t.Fatal(err)

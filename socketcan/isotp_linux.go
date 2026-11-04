@@ -176,8 +176,7 @@ func (c *ISOTPConn) finish(ctx context.Context, op string, err error) error {
 	// came in time (N_Bs), EMSGSIZE for an OVERFLOW flow control,
 	// ETIMEDOUT when no consecutive frame came in time (N_Cr), EILSEQ for
 	// a wrong sequence number, EBADMSG for an invalid flow control.
-	var errno syscall.Errno
-	if errors.As(err, &errno) {
+	if errno, ok := errors.AsType[syscall.Errno](err); ok {
 		var kind error
 		switch errno {
 		case syscall.ECOMM, syscall.ETIMEDOUT:

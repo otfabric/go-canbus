@@ -110,7 +110,7 @@ func TestBusOverflowPolicies(t *testing.T) {
 	_, a, b := newPair(t)
 	newest, _ := b.Subscribe(canbus.WithQueueSize(2))
 	oldest, _ := b.Subscribe(canbus.WithQueueSize(2), canbus.WithOverflow(canbus.DropOldest))
-	for i := uint32(0); i < 5; i++ {
+	for i := range uint32(5) {
 		f := seqFrame(i)
 		if err := a.Send(ctx, &f); err != nil {
 			t.Fatal(err)
@@ -144,12 +144,12 @@ func TestBusBlockingSubscriberLosesNothing(t *testing.T) {
 	s, _ := vb2.Subscribe(canbus.WithQueueSize(1), canbus.WithOverflow(canbus.Block))
 	const n = 2000
 	go func() {
-		for i := uint32(0); i < n; i++ {
+		for i := range uint32(n) {
 			f := seqFrame(i)
 			_ = pa.Send(ctx, &f)
 		}
 	}()
-	for i := uint32(0); i < n; i++ {
+	for i := range uint32(n) {
 		f, err := s.Receive(ctx)
 		if err != nil {
 			t.Fatal(err)
@@ -453,12 +453,12 @@ func TestBusStress(t *testing.T) {
 			}
 		}
 	}()
-	for s := 0; s < senders; s++ {
+	for s := range senders {
 		port, _ := vb.Open()
 		wg.Add(1)
 		go func(id canbus.ID, p *virtual.Port) {
 			defer wg.Done()
-			for i := uint32(0); i < perSender; i++ {
+			for i := range uint32(perSender) {
 				f := seqFrame(i)
 				f.ID = id
 				if err := p.Send(ctx, &f); err != nil {
@@ -474,7 +474,7 @@ func TestBusStress(t *testing.T) {
 		go func(s *canbus.Subscription) {
 			defer cwg.Done()
 			next := map[canbus.ID]uint32{}
-			for n := 0; n < senders*perSender; n++ {
+			for range senders * perSender {
 				f, err := s.Receive(ctx)
 				if err != nil {
 					t.Error(err)
@@ -508,7 +508,7 @@ func TestBusStartOnSubscribe(t *testing.T) {
 	}
 	defer b.Close()
 	// Frames sent before the first subscription wait in the port.
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		f, _ := canbus.NewStandard(canbus.ID(i), []byte{byte(i)})
 		if err := pa.Send(ctx, &f); err != nil {
 			t.Fatal(err)
@@ -519,7 +519,7 @@ func TestBusStartOnSubscribe(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		f, err := sub.Receive(ctx)
 		if err != nil || f.ID != canbus.ID(i) {
 			t.Fatalf("frame %d: %v %v", i, f.ID, err)

@@ -34,7 +34,7 @@ func randomSignal(r *rand.Rand, size int) *Signal {
 // and decoding it gives the same value, and only the signal's bits change.
 func TestRawRoundTrip(t *testing.T) {
 	r := rand.New(rand.NewSource(7))
-	for i := 0; i < 20000; i++ {
+	for range 20000 {
 		size := []int{1, 8, 12, 64}[r.Intn(4)]
 		s := randomSignal(r, size)
 		m := &Message{Name: "M", Length: size, FD: size > 8, Signals: []*Signal{s}}
@@ -73,7 +73,7 @@ func TestRawRoundTrip(t *testing.T) {
 
 func TestPhysicalRoundTrip(t *testing.T) {
 	r := rand.New(rand.NewSource(9))
-	for i := 0; i < 5000; i++ {
+	for range 5000 {
 		s := randomSignal(r, 8)
 		if s.Length > 48 {
 			// Physical values are float64: raw × factor must stay well

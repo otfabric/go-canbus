@@ -206,7 +206,7 @@ func TestKernelFilterSemantics(t *testing.T) {
 	}}))
 	ctx := ctxT(t, 5*time.Second)
 	var sent []canbus.Frame
-	for i := canbus.ID(0); i < 4; i++ {
+	for i := range canbus.ID(4) {
 		f, _ := canbus.NewExtended(base|i, nil)
 		sent = append(sent, f)
 	}
@@ -309,7 +309,7 @@ func TestOverflowAccounting(t *testing.T) {
 	rx := open(t, ifc, WithReceiveBuffer(1024), onlyID(base, true))
 	ctx := ctxT(t, 20*time.Second)
 	const n = 5000
-	for i := 0; i < n; i++ {
+	for i := range n {
 		var d [4]byte
 		binary.BigEndian.PutUint32(d[:], uint32(i))
 		f, _ := canbus.NewExtended(base, d[:])
@@ -388,7 +388,7 @@ func TestBusStartOnSubscribeOverSocketCAN(t *testing.T) {
 	tx := open(t, ifc, WithFD())
 	ctx := ctxT(t, 5*time.Second)
 	const n = 100
-	for i := 0; i < n; i++ {
+	for i := range n {
 		f, _ := canbus.NewExtended(base|canbus.ID(i), []byte{byte(i)})
 		if err := tx.Send(ctx, &f); err != nil {
 			t.Fatal(err)
@@ -396,7 +396,7 @@ func TestBusStartOnSubscribeOverSocketCAN(t *testing.T) {
 	}
 	time.Sleep(20 * time.Millisecond)
 	s, _ := b.Subscribe(canbus.WithoutEcho())
-	for i := 0; i < n; i++ {
+	for i := range n {
 		g, err := s.Receive(ctx)
 		if err != nil || g.ID != base|canbus.ID(i) {
 			t.Fatalf("frame %d: %v %v", i, g.ID, err)

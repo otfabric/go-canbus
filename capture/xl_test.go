@@ -102,8 +102,7 @@ func TestXLMalformed(t *testing.T) {
 		"(1.0) 00242#80:00:00000000#11",
 	} {
 		_, err := NewCandumpReader(strings.NewReader(in)).ReadAny(&f, &x)
-		var pe *ParseError
-		if !errors.As(err, &pe) {
+		if _, ok := errors.AsType[*ParseError](err); !ok {
 			t.Errorf("%q: %v", in, err)
 		}
 	}
@@ -120,8 +119,7 @@ func TestXLMalformed(t *testing.T) {
 		`{"type":`,
 	} {
 		_, err := NewJSONLReader(strings.NewReader(in)).ReadAny(&f, &x)
-		var pe *ParseError
-		if !errors.As(err, &pe) {
+		if _, ok := errors.AsType[*ParseError](err); !ok {
 			t.Errorf("%q: %v", in, err)
 		}
 	}

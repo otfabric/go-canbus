@@ -407,10 +407,7 @@ func (w *BLFWriter) object(typ uint32, ts time.Time, body []byte) {
 	le.PutUint32(h[16:], blfFlagOneNanos)
 	var rel time.Duration
 	if !ts.IsZero() {
-		rel = ts.Sub(w.start)
-		if rel < 0 {
-			rel = 0
-		}
+		rel = max(ts.Sub(w.start), 0)
 		w.last = ts
 	}
 	le.PutUint64(h[24:], uint64(rel))

@@ -276,7 +276,7 @@ func TestBusOverSlcan(t *testing.T) {
 	defer ca.Close()
 	sub, _ := bus.Subscribe()
 	var sent []canbus.Frame
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		f, err := canbus.NewFD(canbus.ID(i), i%2 == 0, i%3 == 0, make([]byte, i%65/4*4%49))
 		if err != nil {
 			continue // not a CAN FD length

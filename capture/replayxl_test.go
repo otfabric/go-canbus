@@ -110,7 +110,7 @@ func TestRecordAll(t *testing.T) {
 	// Both queues hold frames before recording starts: the recording
 	// keeps the order of arrival anyway (repeated, as a random choice
 	// between the queues would pass now and then).
-	for round := 0; round < 20; round++ {
+	for round := range 20 {
 		if _, err := Replay(ctx, NewCandumpReader(strings.NewReader(mixedLog)), tx, ReplayOptions{}); err != nil {
 			t.Fatal(err)
 		}
@@ -125,7 +125,7 @@ func TestRecordAll(t *testing.T) {
 			t.Fatalf("recorded %d: %v", n, err)
 		}
 		var got []string
-		for _, l := range strings.Split(strings.TrimSpace(b.String()), "\n") {
+		for l := range strings.SplitSeq(strings.TrimSpace(b.String()), "\n") {
 			got = append(got, strings.Fields(l)[2])
 		}
 		if strings.Join(got, " ") != "123#01 05242#81:01:12345678#AABB 00243#80:00:00000000#CC 124#02" {

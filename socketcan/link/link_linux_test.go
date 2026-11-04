@@ -137,7 +137,7 @@ func TestAdmin(t *testing.T) {
 	f, _ = canbus.NewExtended(0x1234, []byte{1, 2})
 	var g canbus.Frame
 	var rerr error
-	for try := 0; try < 40; try++ {
+	for range 40 {
 		if err := a.Send(context.Background(), &f); err != nil {
 			t.Fatal(err)
 		}

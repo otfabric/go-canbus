@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"errors"
+	"maps"
 	"math"
 	"reflect"
 	"strings"
@@ -234,9 +235,7 @@ func TestEncodeRanges(t *testing.T) {
 	}
 	try := func(name string, in candb.Input, lax bool) error {
 		m := map[string]candb.Input{}
-		for k, v := range base {
-			m[k] = v
-		}
+		maps.Copy(m, base)
 		m[name] = in
 		_, err := eng.EncodeWith(m, candb.EncodeOptions{Lax: lax})
 		return err

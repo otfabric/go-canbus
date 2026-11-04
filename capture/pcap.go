@@ -499,7 +499,7 @@ func (r *PCAPNGReader) parseIDBOptions(b []byte, ifc *pcapngIface) {
 					break
 				}
 				res := uint64(1)
-				for i := uint64(0); i < e; i++ {
+				for range e {
 					if v[0]&0x80 != 0 {
 						res *= 2
 					} else {

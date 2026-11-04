@@ -17,7 +17,7 @@ jobs:
   # code is not exercised there: coverage is measured and uploaded by the
   # vcan job instead (run-codecov: false here).
   ci:
-    uses: otfabric/.github/.github/workflows/go-ci.yml@v3.3.0
+    uses: otfabric/.github/.github/workflows/go-ci.yml@v3.3.1
     with:
       run-govulncheck: true
       fuzz-time: 10s
@@ -25,7 +25,7 @@ jobs:
       run-codecov: false
       coverpkg: >-
         github.com/otfabric/go-canbus,github.com/otfabric/go-canbus/arxml,github.com/otfabric/go-canbus/candb,github.com/otfabric/go-canbus/candb/bits,github.com/otfabric/go-canbus/capture,github.com/otfabric/go-canbus/chaos,github.com/otfabric/go-canbus/codegen,github.com/otfabric/go-canbus/dbc,github.com/otfabric/go-canbus/isotp,github.com/otfabric/go-canbus/kcd,github.com/otfabric/go-canbus/slcan,github.com/otfabric/go-canbus/socketcan,github.com/otfabric/go-canbus/socketcan/link,github.com/otfabric/go-canbus/virtual
-      go-versions: '["1.23", "1.24", "1.25", "1.26"]'
+      go-versions: '["1.26", "1.27"]'
     secrets: inherit
 
   # The SocketCAN, netlink and kernel ISO-TP tests on real vcan
@@ -101,7 +101,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version: "1.23.x"
+          go-version-file: go.mod
       - run: make generate-check coverpkg-check
 
   examples:
@@ -111,7 +111,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version: "1.23.x"
+          go-version-file: go.mod
       - run: make build examples
 
   # Every package builds for the release platforms, including 32-bit ARM

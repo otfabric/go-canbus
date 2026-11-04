@@ -197,7 +197,7 @@ func TestTcpdumpCapturesXL(t *testing.T) {
 		t.Fatalf("tshark: %v", err)
 	}
 	var fields []string
-	for _, l := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+	for l := range strings.SplitSeq(strings.TrimSpace(string(out)), "\n") {
 		if strings.HasPrefix(l, "147") { // priorities 0x5C3, 0x5C4 = 1475, 1476
 			fields = append(fields, l)
 		}

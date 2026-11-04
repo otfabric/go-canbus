@@ -30,14 +30,11 @@ func refBE(d []byte, msb, n int) uint64 {
 
 func TestAgainstBigInt(t *testing.T) {
 	r := rand.New(rand.NewSource(1))
-	for i := 0; i < 20000; i++ {
+	for range 20000 {
 		size := []int{1, 2, 8, 12, 64}[r.Intn(5)]
 		d := make([]byte, size)
 		r.Read(d)
-		n := 1 + r.Intn(64)
-		if n > 8*size {
-			n = 8 * size
-		}
+		n := min(1+r.Intn(64), 8*size)
 		start := r.Intn(8*size - n + 1)
 		if got, want := ExtractLE(d, start, n), refLE(d, start, n); got != want {
 			t.Fatalf("LE % x start %d n %d: %x want %x", d, start, n, got, want)
@@ -81,7 +78,7 @@ func TestKnownLayouts(t *testing.T) {
 	if v := ExtractLE(d, 4, 8); v != 0x41 {
 		t.Fatalf("%x", v)
 	}
-	for s := 0; s < 512; s++ {
+	for s := range 512 {
 		if MotorolaDBCStart(MotorolaStart(s)) != s {
 			t.Fatal(s)
 		}

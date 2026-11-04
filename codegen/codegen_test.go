@@ -53,7 +53,7 @@ func TestDifferential(t *testing.T) {
 	db := loadFull(t)
 	r := rand.New(rand.NewSource(3))
 	for _, m := range db.Messages {
-		for i := 0; i < 2000; i++ {
+		for range 2000 {
 			data := make([]byte, 64)
 			r.Read(data)
 			gm := full.New(m.ID, m.Extended)

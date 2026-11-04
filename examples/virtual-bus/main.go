@@ -32,7 +32,7 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	const n = 1000
-	for i := uint32(0); i < n; i++ {
+	for i := range uint32(n) {
 		var d [4]byte
 		binary.BigEndian.PutUint32(d[:], i)
 		f, _ := canbus.NewStandard(0x100, d[:])

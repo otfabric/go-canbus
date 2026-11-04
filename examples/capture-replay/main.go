@@ -30,7 +30,7 @@ func main() {
 	defer recBus.Close()
 	sub, _ := recBus.Subscribe()
 	go func() {
-		for i := 0; i < 20; i++ {
+		for i := range 20 {
 			f, _ := canbus.NewStandard(0x200+canbus.ID(i%4), []byte{byte(i)})
 			_ = node.Send(ctx, &f)
 			time.Sleep(5 * time.Millisecond)

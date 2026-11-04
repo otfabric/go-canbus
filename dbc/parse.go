@@ -24,6 +24,7 @@ import (
 	"io"
 	"math"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -480,12 +481,7 @@ func (p *parser) statement() {
 }
 
 func contains(list []string, s string) bool {
-	for _, x := range list {
-		if x == s {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(list, s)
 }
 
 // msg finds a message by DBC identifier, reporting unknown ones.

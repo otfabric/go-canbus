@@ -148,7 +148,7 @@ func (r *ASCReader) data(fields []string, n int, f *canbus.Frame) error {
 	if len(fields) < n {
 		return fmt.Errorf("%d data bytes announced, %d present", n, len(fields))
 	}
-	for i := 0; i < n; i++ {
+	for i := range n {
 		b, err := strconv.ParseUint(fields[i], r.base, 8)
 		if err != nil {
 			return fmt.Errorf("bad data byte %q", fields[i])

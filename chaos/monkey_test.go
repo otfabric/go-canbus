@@ -106,7 +106,7 @@ func newLink(t *testing.T, cfg chaos.Config) *link {
 func TestMonkeyISOTP(t *testing.T) {
 	leakcheck.Check(t)
 	seeds := iterations(12)
-	for seed := 0; seed < seeds; seed++ {
+	for seed := range seeds {
 		r := rand.New(rand.NewSource(int64(seed)))
 		cfg := randomFaults(r, true)
 		l := newLink(t, cfg)
@@ -123,7 +123,7 @@ func TestMonkeyISOTP(t *testing.T) {
 		b, _ := isotp.Dial(l.b, cb)
 		sent := map[string]bool{}
 		var ok, failed int
-		for i := 0; i < 8; i++ {
+		for range 8 {
 			msg := make([]byte, 1+r.Intn(800))
 			r.Read(msg)
 			sent[string(msg)] = true
@@ -196,7 +196,7 @@ func TestMonkeyCorruption(t *testing.T) {
 		l := newLink(t, cfg)
 		a, _ := isotp.Dial(l.a, isotp.Config{TxID: 1, RxID: 2, TimeoutBs: 100 * time.Millisecond, TimeoutCr: 100 * time.Millisecond, MaxMessageSize: 4095})
 		b, _ := isotp.Dial(l.b, isotp.Config{TxID: 2, RxID: 1, TimeoutBs: 100 * time.Millisecond, TimeoutCr: 100 * time.Millisecond, MaxMessageSize: 4095})
-		for i := 0; i < 6; i++ {
+		for range 6 {
 			// A corrupted flow control may ask for STmin 127 ms or WAIT:
 			// the call may run into its deadline, but must return then.
 			ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
@@ -237,7 +237,7 @@ func TestMonkeyBus(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		var wg sync.WaitGroup
 		stop := make(chan struct{})
-		for s := 0; s < 3; s++ {
+		for s := range 3 {
 			port, _ := vb.Open()
 			wg.Add(1)
 			go func(id canbus.ID, p *virtual.Port) {
@@ -258,14 +258,12 @@ func TestMonkeyBus(t *testing.T) {
 			}(canbus.ID(0x10+s), port)
 		}
 		// Ordered consumers.
-		for c := 0; c < 2; c++ {
+		for range 2 {
 			sub, err := bus.Subscribe(canbus.WithQueueSize(64), canbus.WithOverflow(canbus.Overflow(r.Intn(2))))
 			if err != nil {
 				t.Fatal(err)
 			}
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+			wg.Go(func() {
 				last := map[canbus.ID]int64{}
 				for {
 					f, err := sub.Receive(ctx)
@@ -282,10 +280,10 @@ func TestMonkeyBus(t *testing.T) {
 					}
 					last[f.ID] = seq
 				}
-			}()
+			})
 		}
 		// The monkey.
-		for step := 0; step < 60; step++ {
+		for range 60 {
 			switch r.Intn(5) {
 			case 0:
 				if s, err := bus.Subscribe(canbus.WithQueueSize(1 + r.Intn(8))); err == nil {
@@ -325,7 +323,7 @@ func TestMonkeyReplay(t *testing.T) {
 	var trace bytes.Buffer
 	w := capture.NewJSONLWriter(&trace)
 	base := time.Unix(1700000000, 0)
-	for i := 0; i < 400; i++ {
+	for i := range 400 {
 		f, _ := canbus.NewStandard(canbus.ID(i%16), []byte{byte(i)})
 		f.Timestamp = base.Add(time.Duration(i) * 200 * time.Microsecond)
 		_ = w.Write(&f)

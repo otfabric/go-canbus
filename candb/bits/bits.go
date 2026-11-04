@@ -37,10 +37,7 @@ func ExtractLE(d []byte, start, n int) uint64 {
 	pos := start
 	for n > 0 {
 		bit := pos & 7
-		k := 8 - bit
-		if k > n {
-			k = n
-		}
+		k := min(8-bit, n)
 		v |= (uint64(d[pos>>3]) >> uint(bit) & mask(k)) << uint(shift)
 		shift += k
 		pos += k
@@ -57,10 +54,7 @@ func ExtractBE(d []byte, msb, n int) uint64 {
 	pos := msb
 	for n > 0 {
 		off := pos & 7 // from the byte's most significant bit
-		k := 8 - off
-		if k > n {
-			k = n
-		}
+		k := min(8-off, n)
 		v = v<<uint(k) | uint64(d[pos>>3])>>uint(8-off-k)&mask(k)
 		pos += k
 		n -= k
@@ -74,10 +68,7 @@ func InsertLE(d []byte, start, n int, v uint64) {
 	pos := start
 	for n > 0 {
 		bit := pos & 7
-		k := 8 - bit
-		if k > n {
-			k = n
-		}
+		k := min(8-bit, n)
 		m := byte(mask(k) << uint(bit))
 		d[pos>>3] = d[pos>>3]&^m | byte(v<<uint(bit))&m
 		v >>= uint(k)
@@ -95,10 +86,9 @@ func InsertBE(d []byte, msb, n int, v uint64) {
 	for n > 0 {
 		off := pos & 7      // index of this bit from the byte's MSB
 		lsbShift := 7 - off // its shift from the byte's LSB
-		k := off + 1        // bits available in this byte towards the MSB
-		if k > n {
-			k = n
-		}
+		k := min(
+			// bits available in this byte towards the MSB
+			off+1, n)
 		m := byte(mask(k) << uint(lsbShift))
 		d[pos>>3] = d[pos>>3]&^m | byte(v<<uint(lsbShift))&m
 		v >>= uint(k)
