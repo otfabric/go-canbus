@@ -133,6 +133,7 @@ fuzz: ## Run every fuzz target for FUZZTIME (default 30s)
 	@go test -run='^$$' -fuzz='^FuzzParseLink$$' -fuzztime=$(FUZZTIME) ./socketcan/link
 	@go test -run='^$$' -fuzz='^FuzzParseFrame$$' -fuzztime=$(FUZZTIME) ./capture
 	@go test -run='^$$' -fuzz='^FuzzReaders$$' -fuzztime=$(FUZZTIME) ./capture
+	@go test -run='^$$' -fuzz='^FuzzRoundTrip$$' -fuzztime=$(FUZZTIME) ./capture
 	@go test -run='^$$' -fuzz='^FuzzParseFrame$$' -fuzztime=$(FUZZTIME) ./slcan
 	@go test -run='^$$' -fuzz='^FuzzParseStatus$$' -fuzztime=$(FUZZTIME) ./slcan
 	@go test -run='^$$' -fuzz='^FuzzParse$$' -fuzztime=$(FUZZTIME) ./dbc
@@ -140,6 +141,13 @@ fuzz: ## Run every fuzz target for FUZZTIME (default 30s)
 	@go test -run='^$$' -fuzz='^FuzzParse$$' -fuzztime=$(FUZZTIME) ./arxml
 	@go test -run='^$$' -fuzz='^FuzzReceiver$$' -fuzztime=$(FUZZTIME) ./isotp
 	@go test -run='^$$' -fuzz='^FuzzCodec$$' -fuzztime=$(FUZZTIME) ./candb
+	@go test -run='^$$' -fuzz='^FuzzMessageRoundTrip$$' -fuzztime=$(FUZZTIME) ./candb
+	@go test -run='^$$' -fuzz='^FuzzInsertExtract$$' -fuzztime=$(FUZZTIME) ./candb/bits
+	@go test -run='^$$' -fuzz='^FuzzRoundTrip$$' -fuzztime=$(FUZZTIME) ./kcd
+	@go test -run='^$$' -fuzz='^FuzzSenderFlowControl$$' -fuzztime=$(FUZZTIME) ./isotp
+	@go test -run='^$$' -fuzz='^FuzzConnStream$$' -fuzztime=$(FUZZTIME) ./slcan
+	@go test -run='^$$' -fuzz='^FuzzNetlinkStream$$' -fuzztime=$(FUZZTIME) ./socketcan/link
+	@go test -run='^$$' -fuzz='^FuzzParseCmsgs$$' -fuzztime=$(FUZZTIME) ./socketcan
 
 generate: ## Regenerate the code generator's golden output
 	@go generate ./codegen

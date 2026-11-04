@@ -96,6 +96,12 @@ Grouped into gaps and follow-ups, with what is not verified:
   STmin. The receiver reports the loss as `ErrSequence`, never as data.
 - A CAN identifier names a message, not a device; nothing identifies
   physical nodes.
+- Kernel ISO-TP (Linux 7.0, seen on vcan): a flow control with a reserved
+  flow status ends the transfer and `Send` returns nil, though nothing was
+  delivered; a first frame announcing 0xFFFFFFFF bytes is ignored without
+  an OVERFLOW flow control (65536 bytes gets OVERFLOW). The userspace
+  `isotp.Conn` reports both (`ErrProtocol`, `ErrTooLarge`). Pinned by
+  `e2e/hostile_linux_test.go`.
 
 ## Needs real hardware to validate
 

@@ -214,6 +214,7 @@ func checkRoundTrip(t *testing.T, format Format, in, got []item) {
 			wantTS = wantTS.Truncate(time.Microsecond)
 		case FormatPCAP:
 			wantIf = ""
+		case FormatJSONL, FormatPCAPNG, FormatASC, FormatBLF, FormatTRC:
 		}
 		if vector {
 			wantIf = "1"

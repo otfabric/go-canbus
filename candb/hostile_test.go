@@ -178,9 +178,9 @@ func FuzzMessageRoundTrip(f *testing.F) {
 		in := map[string]Input{}
 		for _, d := range dec {
 			if d.Signal.ValueType == Integer && d.Signal.Signed {
-				in[d.Signal.Name] = RawInt(d.Value.Signed)
+				in[d.Signal.Name] = RawInt(d.Signed)
 			} else {
-				in[d.Signal.Name] = Raw(d.Value.Raw)
+				in[d.Signal.Name] = Raw(d.Raw)
 			}
 		}
 		enc, err := m.Encode(in)
