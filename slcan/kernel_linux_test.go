@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MIT
 
+//go:build linux && (amd64 || arm64 || arm || riscv64 || ppc64le || loong64)
+
 package slcan
 
 import (

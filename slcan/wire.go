@@ -134,9 +134,9 @@ func ParseFrame(line []byte, f *canbus.Frame) (bool, error) {
 		return false, fmt.Errorf("slcan: bad DLC in %q", line)
 	}
 	fd := flags&canbus.FlagFD != 0
-	n := canbus.DLCToLen(dlc, fd)
+	n := canbus.DLCToLen(dlc, fd) // 0..64: dlc is one hex digit
 	rest := line[2+idLen:]
-	*f = canbus.Frame{ID: canbus.ID(id), Flags: flags, Len: uint8(n)}
+	*f = canbus.Frame{ID: canbus.ID(id), Flags: flags, Len: uint8(max(min(n, canbus.MaxFDLen), 0))}
 	if flags&canbus.FlagRemote != 0 {
 		if dlc > 8 {
 			return false, fmt.Errorf("slcan: bad remote DLC in %q", line)

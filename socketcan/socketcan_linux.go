@@ -6,7 +6,6 @@ package socketcan
 
 import (
 	"context"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"net"
@@ -15,7 +14,6 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
-	"unsafe"
 
 	"github.com/otfabric/go-canbus"
 )
@@ -39,11 +37,9 @@ const (
 	vcidTxPass   = 0x02 // CAN_RAW_XL_VCID_TX_PASS
 	vcidRxFilter = 0x04 // CAN_RAW_XL_VCID_RX_FILTER
 
-	soTimestampNS = 35 // SO_TIMESTAMPNS_OLD: struct timespec of the native long size
-	soRxqOvfl     = 40
 )
 
-// sockaddrCAN is struct sockaddr_can (24 bytes).
+// sockaddrCAN is struct sockaddr_can (sockaddrCANLen bytes).
 type sockaddrCAN struct {
 	family  uint16
 	_       [2]byte
@@ -74,8 +70,8 @@ type Conn struct {
 	// once in Open) do not allocate per call.
 	rmu    sync.Mutex
 	rbuf   [canXLMTU]byte
-	oob    [128]byte
-	rsa    sockaddrCAN
+	oob    [oobSize]byte
+	rsa    [sockaddrCANLen]byte // struct sockaddr_can of the sender
 	riov   syscall.Iovec
 	rmsg   syscall.Msghdr
 	rn     int
@@ -208,8 +204,11 @@ func Open(ifname string, opts ...Option) (*Conn, error) {
 			return nil, opErr(err)
 		}
 	}
-	sa := sockaddrCAN{family: afCAN, ifindex: int32(c.ifindex)}
-	if _, _, e := syscall.Syscall(syscall.SYS_BIND, uintptr(fd), uintptr(unsafe.Pointer(&sa)), unsafe.Sizeof(sa)); e != 0 {
+	idx, err := ifindex32(c.ifindex)
+	if err != nil {
+		return nil, opErr(err)
+	}
+	if e := bindCAN(fd, &sockaddrCAN{family: afCAN, ifindex: idx}); e != 0 {
 		if e == syscall.ENODEV {
 			// The interface exists (it was looked up above) but is not a
 			// CAN device.
@@ -499,7 +498,7 @@ func (c *Conn) receive(ctx context.Context, f *canbus.Frame, x *canbus.XLFrame) 
 			}
 			x.Echo = c.rflags&syscall.MSG_CONFIRM != 0
 			x.Timestamp = c.stamp()
-			x.Interface = c.ifName(int(c.rsa.ifindex))
+			x.Interface = c.ifName(sockaddrIndex(c.rsa[:]))
 			c.rxFrames.Add(1)
 			c.rxBytes.Add(uint64(len(x.Data)))
 			return true, nil
@@ -510,7 +509,7 @@ func (c *Conn) receive(ctx context.Context, f *canbus.Frame, x *canbus.XLFrame) 
 		}
 		f.Echo = c.rflags&syscall.MSG_CONFIRM != 0
 		f.Timestamp = c.stamp()
-		f.Interface = c.ifName(int(c.rsa.ifindex))
+		f.Interface = c.ifName(sockaddrIndex(c.rsa[:]))
 		c.rxFrames.Add(1)
 		if f.Flags&canbus.FlagError != 0 {
 			c.rxErrors.Add(1)
@@ -523,7 +522,7 @@ func (c *Conn) receive(ctx context.Context, f *canbus.Frame, x *canbus.XLFrame) 
 
 // stamp returns the kernel timestamp of the frame just read, or now.
 func (c *Conn) stamp() time.Time {
-	t := c.parseControl(c.oob[:int(c.rmsg.Controllen)])
+	t := c.parseControl(c.oob[:controlLen(uint64(c.rmsg.Controllen))])
 	if t.IsZero() {
 		t = time.Now()
 	}
@@ -536,13 +535,13 @@ func (c *Conn) doRead(fd uintptr) bool {
 	c.riov.Base = &c.rbuf[0]
 	c.riov.SetLen(len(c.rbuf))
 	c.rmsg = syscall.Msghdr{}
-	c.rmsg.Name = (*byte)(unsafe.Pointer(&c.rsa))
-	c.rmsg.Namelen = uint32(unsafe.Sizeof(c.rsa))
+	c.rmsg.Name = &c.rsa[0]
+	c.rmsg.Namelen = sockaddrCANLen
 	c.rmsg.Iov = &c.riov
 	c.rmsg.Iovlen = 1
 	c.rmsg.Control = &c.oob[0]
 	c.rmsg.SetControllen(len(c.oob))
-	r, _, e := syscall.Syscall(syscall.SYS_RECVMSG, fd, uintptr(unsafe.Pointer(&c.rmsg)), 0)
+	r, e := recvmsg(fd, &c.rmsg)
 	if e != 0 {
 		c.rerr = e
 		c.rmsg.SetControllen(0)
@@ -562,40 +561,14 @@ func (c *Conn) doWrite(fd uintptr) bool {
 }
 
 // parseControl reads the timestamp and drop counter from the control
-// messages without allocating (syscall.ParseSocketControlMessage would).
-func (c *Conn) parseControl(oob []byte) (ts time.Time) {
-	const hdr = int(unsafe.Sizeof(syscall.Cmsghdr{}))
-	align := func(n int) int {
-		return (n + int(unsafe.Sizeof(uintptr(0))) - 1) &^ (int(unsafe.Sizeof(uintptr(0))) - 1)
-	}
-	for len(oob) >= hdr {
-		h := (*syscall.Cmsghdr)(unsafe.Pointer(&oob[0]))
-		l := int(h.Len)
-		if l < hdr || l > len(oob) {
-			return ts
+// messages without allocating.
+func (c *Conn) parseControl(oob []byte) time.Time {
+	ts, total, ok := parseCmsgs(oob)
+	if ok {
+		if d := total - c.ovflLast; d != 0 { // wraps like the kernel's counter
+			c.drops.Add(uint64(d))
+			c.ovflLast = total
 		}
-		data := oob[align(hdr):l]
-		if h.Level == syscall.SOL_SOCKET {
-			switch h.Type {
-			case soTimestampNS:
-				if len(data) >= int(unsafe.Sizeof(syscall.Timespec{})) {
-					t := (*syscall.Timespec)(unsafe.Pointer(&data[0]))
-					ts = time.Unix(int64(t.Sec), int64(t.Nsec))
-				}
-			case soRxqOvfl:
-				if len(data) >= 4 {
-					total := binary.NativeEndian.Uint32(data)
-					if d := total - c.ovflLast; d != 0 { // wraps like the kernel's counter
-						c.drops.Add(uint64(d))
-						c.ovflLast = total
-					}
-				}
-			}
-		}
-		if align(l) >= len(oob) {
-			return ts
-		}
-		oob = oob[align(l):]
 	}
 	return ts
 }

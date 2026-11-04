@@ -24,6 +24,9 @@ const (
 	fcOverflow = 2
 )
 
+// rxPrealloc bounds the buffer a first frame preallocates.
+const rxPrealloc = 64 << 10
+
 type result struct {
 	data []byte
 	err  error
@@ -188,11 +191,13 @@ func (c *Conn) sendMessage(ctx context.Context, p []byte) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	// Single frame.
+	// n is at most MaxMessageSize (< 2^32): the masks below only drop
+	// bits that are zero.
 	if n <= 7-c.off {
-		return c.send(ctx, append([]byte{byte(n)}, p...))
+		return c.send(ctx, append([]byte{byte(n & 0x0F)}, p...))
 	}
 	if n <= c.sfMax() {
-		return c.send(ctx, append([]byte{0, byte(n)}, p...))
+		return c.send(ctx, append([]byte{0, byte(n & 0xFF)}, p...))
 	}
 	// Drop flow controls left over from an earlier transfer.
 	for drained := false; !drained; {
@@ -204,10 +209,10 @@ func (c *Conn) sendMessage(ctx context.Context, p []byte) error {
 	}
 	var first []byte
 	if n <= 4095 {
-		first = []byte{0x10 | byte(n>>8), byte(n)}
+		first = []byte{0x10 | byte(n>>8&0x0F), byte(n & 0xFF)}
 	} else {
 		first = []byte{0x10, 0, 0, 0, 0, 0}
-		binary.BigEndian.PutUint32(first[2:], uint32(n))
+		binary.BigEndian.PutUint32(first[2:], uint32(int64(n)&0xFFFFFFFF))
 	}
 	room := c.cfg.TxDL - c.off - len(first)
 	sent := room
@@ -407,7 +412,7 @@ func (c *Conn) handle(f *canbus.Frame, timer *time.Timer, crC *<-chan time.Time)
 			if u <= 4095 {
 				return // the escape is for lengths above 4095 only
 			}
-			if uint64(u) > uint64(c.cfg.MaxMessageSize) {
+			if int64(u) > int64(c.cfg.MaxMessageSize) {
 				if c.rxOn {
 					c.rxOn = false
 					stopCr()
@@ -433,7 +438,10 @@ func (c *Conn) handle(f *canbus.Frame, timer *time.Timer, crC *<-chan time.Time)
 			return
 		}
 		c.rxStart = time.Now()
-		c.rxBuf = append(make([]byte, 0, l), data[hdr:]...)
+		// The buffer grows with the consecutive frames that arrive: a
+		// first frame alone must not make the receiver allocate the
+		// (up to 4 GiB) length it announces.
+		c.rxBuf = append(make([]byte, 0, min(l, rxPrealloc)), data[hdr:]...)
 		c.rxLen, c.rxSN, c.rxBlock, c.rxOn = l, 1, 0, true
 		for i := 0; i < c.cfg.SendFlowWait; i++ {
 			c.sendFC(fcWait)
