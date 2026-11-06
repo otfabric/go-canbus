@@ -379,6 +379,7 @@ func encodeDiff(data []byte, err error, s stackDecoded) string {
 // layout canmatrix derives with go-canbus's KCD parser, then decodes the
 // KCD fixture frames with both models.
 func TestKCD(t *testing.T) {
+	needAdapter(t, "canmatrix")
 	scenario(t, "canmatrix", "kcd layout", func(t *testing.T) {
 		if !caps(t, "canmatrix").has("convert") {
 			skipf(t, "canmatrix has no convert")

@@ -10,6 +10,18 @@ is `pass`, `fail`, `skip` (with the reason) or, for individual frames,
 `known-difference` (with the reason below). A skipped scenario is never
 counted as passed.
 
+### Against an earlier go-canbus
+
+`otfabric/canbus-interop` also publishes go-canbus itself behind the same
+contract, `ghcr.io/otfabric/canbus-interop-otfabric` (adapter `otfabric`,
+tagged with go-canbus versions). The suite runs it only when
+`CANBUS_INTEROP_OTFABRIC_IMAGE` names an image, as a raw CAN, ISO-TP and
+database peer (`CANBUS_INTEROP_ADAPTERS=otfabric` runs nothing else). The
+Self-interop workflow, run by hand, tests a commit against `:latest`: it finds a
+change on the wire or in a codec that breaks an earlier release. It is never a
+required check, nothing pins the image, and a pass is not independent
+evidence: the image declares `independentEngine: false`.
+
 ## What is independent
 
 | Stack | Language | Licence | Role here | Independent of go-canbus in |

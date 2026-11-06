@@ -50,6 +50,58 @@ var (
 	dbAdapters    = []string{"cantools", "canmatrix"}
 )
 
+// otfabric is go-canbus itself, as published by otfabric/canbus-interop
+// (ghcr.io/otfabric/canbus-interop-otfabric). It is not a reference: it runs
+// only when CANBUS_INTEROP_OTFABRIC_IMAGE names an image (there is no
+// default), as a raw CAN, ISO-TP and database peer, and what it shows is
+// compatibility between releases of this library, not independent
+// verification (INTEROPERABILITY.md).
+const otfabric = "otfabric"
+
+// selectedAdapters is CANBUS_INTEROP_ADAPTERS, a comma-separated subset of
+// the adapters to run; empty runs all.
+var selectedAdapters = map[string]bool{}
+
+func init() {
+	if os.Getenv("CANBUS_INTEROP_OTFABRIC_IMAGE") != "" {
+		rawAdapters = append(rawAdapters, otfabric)
+		isotpAdapters = append(isotpAdapters, otfabric)
+		dbAdapters = append(dbAdapters, otfabric)
+	}
+	for a := range strings.SplitSeq(os.Getenv("CANBUS_INTEROP_ADAPTERS"), ",") {
+		if a = strings.TrimSpace(a); a != "" {
+			selectedAdapters[a] = true
+		}
+	}
+	keep := func(list []string) []string {
+		if len(selectedAdapters) == 0 {
+			return list
+		}
+		var out []string
+		for _, a := range list {
+			if selectedAdapters[a] {
+				out = append(out, a)
+			}
+		}
+		return out
+	}
+	rawAdapters, isotpAdapters, dbAdapters = keep(rawAdapters), keep(isotpAdapters), keep(dbAdapters)
+}
+
+// selected reports whether CANBUS_INTEROP_ADAPTERS lets the adapter run.
+func selected(adapter string) bool {
+	return len(selectedAdapters) == 0 || selectedAdapters[adapter]
+}
+
+// needAdapter skips a test of one particular adapter that
+// CANBUS_INTEROP_ADAPTERS leaves out.
+func needAdapter(t *testing.T, adapter string) {
+	t.Helper()
+	if !selected(adapter) {
+		t.Skipf("%s is not in CANBUS_INTEROP_ADAPTERS", adapter)
+	}
+}
+
 func image(adapter string) string {
 	if v := os.Getenv("CANBUS_INTEROP_" + strings.ToUpper(adapter) + "_IMAGE"); v != "" {
 		return v
@@ -158,7 +210,12 @@ func TestMain(m *testing.M) {
 func images() map[string]string {
 	out := map[string]string{}
 	for a := range defaultImages {
-		out[a] = image(a)
+		if selected(a) {
+			out[a] = image(a)
+		}
+	}
+	if v := image(otfabric); v != "" && selected(otfabric) {
+		out[otfabric] = v
 	}
 	return out
 }
@@ -513,14 +570,23 @@ func (p *proc) wait(t *testing.T, d time.Duration) ([]event, int) {
 
 var fixtureCache sync.Map
 
-// fixture fetches a file of canbus-interop's fixtures/ through a database
-// image (they all carry them).
+// fixture fetches a file of canbus-interop's fixtures/ through an image
+// (they all carry them): cantools, or the first adapter selected.
 func fixture(t *testing.T, path string) []byte {
 	t.Helper()
 	if v, ok := fixtureCache.Load(path); ok {
 		return v.([]byte)
 	}
-	out, code := run(t, "cantools", nil, "", "print-fixture", path)
+	src := "cantools"
+	if !selected(src) {
+		for _, list := range [][]string{dbAdapters, rawAdapters, isotpAdapters} {
+			if len(list) > 0 {
+				src = list[0]
+				break
+			}
+		}
+	}
+	out, code := run(t, src, nil, "", "print-fixture", path)
 	if code != 0 {
 		t.Fatalf("print-fixture %s: exit %d", path, code)
 	}

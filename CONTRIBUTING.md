@@ -25,6 +25,9 @@ make test-vcan      # Linux: SocketCAN tests must run, not skip
 make test-admin     # Linux, sudo: netlink administration
 make fuzz           # every fuzz target, FUZZTIME=30s each
 make interop        # Linux + Docker + vcan0: independent implementations
+
+# Against the latest published go-canbus (the Self-interop workflow, run by hand)
+CANBUS_INTEROP_ADAPTERS=otfabric CANBUS_INTEROP_OTFABRIC_IMAGE=ghcr.io/otfabric/canbus-interop-otfabric:latest make interop
 ```
 
 ## Rules
