@@ -1,0 +1,82 @@
+name: Self-interop
+run-name: "Self-interop against canbus-interop-otfabric:latest, by @${{ github.actor }} on ${{ github.ref_name }}"
+
+# Manual only. This commit against the latest published image of go-canbus itself
+# (ghcr.io/otfabric/canbus-interop-otfabric:latest, from otfabric/canbus-interop),
+# in both roles. The e2e tests run both sides from one commit; this one finds a
+# change on the wire that breaks an earlier release.
+#
+# Not part of the Interop workflow, which runs against the independent references,
+# and never a required check. Nothing is pinned or committed, so it cannot ask for
+# a release. A pass is not independent verification (INTEROPERABILITY.md).
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: ghcr.io/otfabric/canbus-interop-otfabric:latest
+
+jobs:
+  self-interop:
+    name: This commit against canbus-interop-otfabric:latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Pull the image
+        run: docker pull "${IMAGE}"
+
+      - name: Versions
+        id: versions
+        env:
+          SHA: ${{ github.sha }}
+          REF: ${{ github.ref_name }}
+        run: |
+          digest=$(docker inspect --format '{{index .RepoDigests 0}}' "${IMAGE}")
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Versions"
+            echo
+            echo "| | |"
+            echo "|---|---|"
+            echo "| go-canbus under test | \`${REF}\` at \`${SHA}\` (\`$(git describe --tags --always)\`) |"
+            echo "| Go | \`$(go env GOVERSION)\` |"
+            echo "| Image | \`${IMAGE}\` |"
+            echo "| Image digest | \`${digest}\` |"
+            docker run --rm "${IMAGE}" print-version | jq -r '"| go-canbus in the image | `\(.version)` at `\(.revision)` |"'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # As the Interop workflow: CAN interfaces of the runner, which the
+      # containers reach with --network host.
+      - name: Load the CAN modules and create vcan0, vcanxl0
+        run: |
+          scripts/ci-can-modules.sh
+          sudo ip link add vcan0 type vcan
+          sudo ip link set vcan0 mtu 72 up
+          sudo ip link add vcanxl0 type vcan
+          sudo ip link set vcanxl0 mtu 2060 up
+
+      - name: Run the interop suite
+        env:
+          CANBUS_INTEROP_OTFABRIC_IMAGE: ${{ steps.versions.outputs.digest }}
+          CANBUS_INTEROP_ADAPTERS: otfabric
+          CANBUS_REQUIRE_VCAN: "1"
+          CANBUS_REQUIRE_XL: "1"
+          CANBUS_REQUIRE_INTEROP: "1"
+        run: |
+          set -o pipefail
+          GOWORK=off go test -v -tags interop -count=1 -timeout 25m ./interop/ 2>&1 | tee interop.log
+          {
+            echo "## Result"
+            echo
+            echo "- $(grep -c -- '--- PASS' interop.log) passed, $(grep -c -- '--- SKIP' interop.log) skipped, $(grep -c -- '--- FAIL' interop.log) failed"
+          } | tee -a "$GITHUB_STEP_SUMMARY"

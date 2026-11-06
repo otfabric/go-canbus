@@ -64,6 +64,7 @@ var slcanFixtures = []string{"standard", "extended", "remote", "fd", "burst"}
 // TestSlcan: frames both ways between go-canbus's slcan transport and
 // python-can's slcan interface over TCP.
 func TestSlcan(t *testing.T) {
+	needAdapter(t, "pythoncan")
 	c := caps(t, "pythoncan")
 	if !c.Features["slcan"] {
 		t.Skip("the pinned pythoncan image predates contract 1.2 (no slcan)")

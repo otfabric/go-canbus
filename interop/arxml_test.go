@@ -91,6 +91,7 @@ func TestARXMLEncode(t *testing.T) {
 // converts that KCD to DBC, and the layout canmatrix read must equal the
 // one go-canbus wrote.
 func TestKCDWrite(t *testing.T) {
+	needAdapter(t, "canmatrix")
 	for _, name := range []string{"basic", "wide", "float", "mux", "fd"} {
 		scenario(t, "canmatrix", "kcd write "+name, func(t *testing.T) {
 			if !caps(t, "canmatrix").has("convert") {
