@@ -33,7 +33,7 @@ CANBUS_TEST_IFACE ?= vcan0
 export CANBUS_TEST_IFACE
 
 # docsync release of docs-check (DOC-008).
-DOCSYNC_VERSION := v0.3.0
+DOCSYNC_VERSION := v0.3.1
 
 all: build ## Build the examples
 
