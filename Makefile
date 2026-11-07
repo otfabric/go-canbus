@@ -4,7 +4,7 @@
 
 .DEFAULT_GOAL := help
 
-.PHONY: chaos e2e microvm interop-images help all build examples fmt fmt-check lint lint-ci vet vuln test test-vcan test-admin coverage coverage-check cover bench fuzz check clean generate generate-check coverpkg-check cross interop vcan-setup coverage-pkg-check
+.PHONY: chaos e2e microvm interop-images help all build examples fmt fmt-check lint lint-ci vet vuln test test-vcan test-admin coverage coverage-check cover bench fuzz check clean generate generate-check coverpkg-check cross interop vcan-setup coverage-pkg-check docs-check
 
 help: ## This help
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z0-9_-]+:.*?## / {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -31,6 +31,9 @@ COVER_PKG_MIN := 80
 # vcan interface the SocketCAN and kernel ISO-TP tests use (Linux).
 CANBUS_TEST_IFACE ?= vcan0
 export CANBUS_TEST_IFACE
+
+# docsync release of docs-check (DOC-008).
+DOCSYNC_VERSION := v0.2.0
 
 all: build ## Build the examples
 
@@ -177,7 +180,11 @@ interop: ## Run the interop suite against the canbus-interop images (Linux, Dock
 	@CANBUS_REQUIRE_VCAN=1 CANBUS_REQUIRE_INTEROP=1 CANBUS_INTEROP_REPORT=$(CURDIR)/$(BIN_DIR)/interop-report.json \
 		go test -tags=interop -count=1 -timeout=60m ./interop/...
 
-check: generate-check fmt-check lint lint-ci vet vuln test coverage-check coverage-pkg-check examples cross ## Everything CI checks except the vcan and interop jobs
+# The documents against the code (DOC-008): docsync, as docs-check.yml runs it.
+docs-check: ## Check that the documents agree with the code (docsync)
+	@go run github.com/otfabric/docsync@$(DOCSYNC_VERSION) check .
+
+check: generate-check fmt-check lint lint-ci vet vuln test coverage-check coverage-pkg-check examples cross docs-check ## Everything CI checks except the vcan and interop jobs
 
 clean: ## Remove binaries and coverage files
 	@rm -rf $(BIN_DIR) coverage.out coverage.html
