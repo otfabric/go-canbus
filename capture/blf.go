@@ -543,7 +543,7 @@ func (w *BLFWriter) Write(f *canbus.Frame) error {
 		}
 	}
 	c := vectorChannel(f.Interface)
-	if c > math.MaxUint16 {
+	if c < 1 || c > math.MaxUint16 {
 		return fmt.Errorf("%w: BLF channel %d", ErrUnrepresentable, c)
 	}
 	ch := uint16(c)

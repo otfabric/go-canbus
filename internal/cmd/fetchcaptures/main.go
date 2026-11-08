@@ -95,7 +95,7 @@ func (f *fetcher) cleanup() {
 }
 
 func (f *fetcher) fetch(e corpus.Extended, dst string) error {
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(dst), 0o750); err != nil {
 		return err
 	}
 	switch len(e.Archive) {
@@ -141,8 +141,14 @@ func (f *fetcher) download(url, dst string) error {
 }
 
 func writeFile(dst string, r io.Reader) error {
-	tmp := dst + ".part"
-	out, err := os.Create(tmp)
+	root, err := os.OpenRoot(filepath.Dir(dst))
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Close() }()
+	name := filepath.Base(dst)
+	tmp := name + ".part"
+	out, err := root.Create(tmp)
 	if err != nil {
 		return err
 	}
@@ -153,7 +159,7 @@ func writeFile(dst string, r io.Reader) error {
 	if err := out.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmp, dst)
+	return root.Rename(tmp, name)
 }
 
 func extract(archive, member, dst string) error {

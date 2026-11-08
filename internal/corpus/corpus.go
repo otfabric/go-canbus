@@ -121,7 +121,7 @@ func Path(name string) string { return filepath.Join(Dir(), filepath.FromSlash(n
 func Load() (*Manifest, error) { return load(Dir()) }
 
 func load(dir string) (*Manifest, error) {
-	b, err := os.ReadFile(filepath.Join(dir, "manifest.json"))
+	b, err := readFile(filepath.Join(dir, "manifest.json"))
 	if err != nil {
 		return nil, err
 	}
@@ -151,7 +151,12 @@ func Checked() (*Manifest, error) {
 
 // SHA256File returns the hex SHA-256 of a file.
 func SHA256File(path string) (string, error) {
-	fh, err := os.Open(path)
+	root, err := os.OpenRoot(filepath.Dir(path))
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = root.Close() }()
+	fh, err := root.Open(filepath.Base(path))
 	if err != nil {
 		return "", err
 	}
@@ -169,7 +174,7 @@ func Verify(m *Manifest) error { return verify(Dir(), m) }
 
 func verify(dir string, m *Manifest) error {
 	path := func(name string) string { return filepath.Join(dir, filepath.FromSlash(name)) }
-	sums, err := os.ReadFile(path("SHA256SUMS"))
+	sums, err := readFile(path("SHA256SUMS"))
 	if err != nil {
 		return err
 	}
@@ -244,6 +249,21 @@ func ExtendedDir() (string, bool) {
 	if dir == "" {
 		dir = filepath.Join(Dir(), "..", "..", ".cache", "captures")
 	}
-	st, err := os.Stat(dir)
-	return dir, err == nil && st.IsDir()
+	dir = filepath.Clean(dir)
+	root, err := os.OpenRoot(dir) // opens directories only
+	if err != nil {
+		return dir, false
+	}
+	_ = root.Close()
+	return dir, true
+}
+
+// readFile reads a file through an os.Root of its directory.
+func readFile(path string) ([]byte, error) {
+	root, err := os.OpenRoot(filepath.Dir(path))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = root.Close() }()
+	return root.ReadFile(filepath.Base(path))
 }
