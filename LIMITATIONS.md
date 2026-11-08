@@ -119,6 +119,10 @@ software peers only (INTEROPERABILITY.md).
   the writer takes from the first frame: a frame recorded before the first
   frame (every CANdid log starts with one frame 12–23 ms early) is written
   at the start time.
+- pcap and pcapng: a record whose FD flags byte has 0x04 set is CAN FD,
+  as tcpdump.org defines `LINKTYPE_CAN_SOCKETCAN` and Wireshark reads it.
+  Captures whose writer left garbage there (the Wireshark wiki's
+  CANopen.pcap, 2014: 0x7F in classical CANopen frames) read as CAN FD.
 - ASC, BLF and TRC hold channel numbers, not interface names: `can0` is
   written as channel 1, `can4` as 5, a bare number as itself, any other
   name as 1, and the readers name channels `"1"`, `"2"`, ….

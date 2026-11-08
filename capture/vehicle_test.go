@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"bytes"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -578,5 +579,82 @@ func TestCandumpWriterDirection(t *testing.T) {
 	}
 	if !slices.Equal(echoes, []bool{false, false, true, false, true}) {
 		t.Fatal(echoes)
+	}
+}
+
+// wiresharkCANopenRecords are four records of the Wireshark wiki's sample
+// CANopen.pcap (LINKTYPE_CAN_SOCKETCAN, 2014; SHA-256 71a5d2a2…5025),
+// frames 1, 2, 6 and 8, original length = captured length. Their writer
+// left garbage (0x7F) in the FD flags byte of some classical CANopen frames.
+var wiresharkCANopenRecords = []string{
+	"000007330100000000",
+	"00000000027f00008100",
+	"00000642087f00004008100000000000",
+	"00000642080000006000000000000000",
+}
+
+// TestPCAPFDFlagOfRecordedFrames: the FD flags byte decides as
+// tcpdump.org's LINKTYPE_CAN_SOCKETCAN definition says ("if the original
+// packet length is 72 or the 6th octet of the frame has the 0x04 bit set,
+// the frame is a CAN FD frame"), so a 16-byte record with 0x7F there is
+// CAN FD with BRS and ESI. Wireshark 4.6.9 decodes these records the same
+// way. The CANopen frames were classical on their bus; the capture breaks
+// the definition's rule for writers ("in CAN CC frames, must clear all
+// bits"), and no reader can tell.
+func TestPCAPFDFlagOfRecordedFrames(t *testing.T) {
+	var b bytes.Buffer
+	le := binary.LittleEndian
+	h := make([]byte, 24)
+	le.PutUint32(h[0:], pcapMagicMicro)
+	le.PutUint16(h[4:], 2)
+	le.PutUint16(h[6:], 4)
+	le.PutUint32(h[16:], 262144)
+	le.PutUint32(h[20:], LinkTypeCANSocketCAN)
+	b.Write(h)
+	for i, s := range wiresharkCANopenRecords {
+		rec, _ := hex.DecodeString(s)
+		r := make([]byte, 16)
+		le.PutUint32(r[0:], 1416492002)
+		le.PutUint32(r[4:], uint32(i))
+		le.PutUint32(r[8:], uint32(len(rec)))
+		le.PutUint32(r[12:], uint32(len(rec)))
+		b.Write(r)
+		b.Write(rec)
+	}
+	want := []string{"733#00", "000##38100", "642##34008100000000000", "642#6000000000000000"}
+	r, err := NewPCAPReader(bytes.NewReader(b.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	var f canbus.Frame
+	for r.Read(&f) == nil {
+		got = append(got, f.String())
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	if _, err := exec.LookPath("tshark"); err != nil && os.Getenv("CANBUS_REQUIRE_TSHARK") != "1" {
+		return
+	}
+	bin := tshark(t)
+	path := filepath.Join(t.TempDir(), "canopen.pcap")
+	if err := os.WriteFile(path, b.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, err := exec.Command(bin, "-r", path, "-T", "json").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws := tsharkFrames(t, out)
+	for i := range ws {
+		ws[i] = strings.TrimSpace(ws[i])
+	}
+	// Wireshark hands frame 2's payload (NMT 81 00) to its AUTOSAR NM
+	// heuristic, so its data layer is empty there; flags and length agree.
+	wantWS := slices.Clone(want)
+	wantWS[1] = "000##3"
+	if !slices.Equal(ws, wantWS) {
+		t.Fatalf("Wireshark %v, want %v", ws, wantWS)
 	}
 }

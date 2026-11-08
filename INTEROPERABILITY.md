@@ -171,6 +171,9 @@ Found by the recorded vehicle traffic (v0.9.0):
 - The candump writer dropped the `R`/`T` direction token that
   `candump -L -x` writes and the reader accepts: a CarDS log read and
   written back lost every `T` mark.
+- `isotp.Conn` reported `ErrTimeout` for a consecutive frame that was
+  already queued when N_Cr expired (one run in about ten replaying the
+  recorded 515-byte response on an arm64 CI runner).
 
 ## Needs real hardware
 

@@ -21,13 +21,16 @@ diagnostic bus (CarDS). 14 committed excerpts (8,996 frames) run offline in
 (17.0 million frames, TU Eindhoven's Opel Astra and Renault Clio included).
 Wireshark 4.6.9 is the independent decoder. The recordings showed two
 losses in the trace writers, both fixed. The ISO-TP connection reproduces
-the frames of the 21 recorded tester–ECU pairs byte for byte; no ISO-TP
-defect was found.
+the frames of the 21 recorded tester–ECU pairs byte for byte; replaying
+the recorded 515-byte response on a loaded CI runner exposed a spurious
+N_Cr timeout, fixed.
 
 ### Fixed
 
 - `capture`: the ASC, BLF and TRC writers wrote every interface that is not a bare number as channel 1, so a multi-bus recording (CarDS: `can0`..`can8`) collapsed into one channel. A name ending in a number now gets that number plus one (`can0` → 1, `can4` → 5), as python-can's writers number them; a bare number stays itself, any other name is 1. **Behaviour change**: frames of `can1`, `vcan2`, … are written on channels 2, 3, … instead of 1. A BLF channel above 65535 is now `ErrUnrepresentable` instead of channel 1.
 - `capture`: the candump writer dropped the `R`/`T` direction token that `candump -L -x` writes and the reader accepts, so a log with tokens lost its `T` marks when written back. `CandumpWriter.SetDirection(true)` writes the token (`T` for `Frame.Echo`, else `R`); off by default, so plain output is unchanged.
+
+- `isotp`: a consecutive frame already queued when N_Cr expired was ignored half the time (the receive goroutine's `select` picked the timer), giving `ErrTimeout` for a transfer whose frame arrived in time. Queued frames are now handled first; the timeout fires only if none continues the transfer.
 
 ### Added
 
@@ -37,6 +40,8 @@ defect was found.
 ### Tests
 
 - `capture`: recorded lines decode to the manifest's counts and to what Wireshark's candump reader decodes; write-back is byte for byte; conversion through every format keeps each frame and gives each interface its own channel; the out-of-order first line of the CANdid logs through BLF and replay; truncated and corrupted recorded lines; recorded lines seed `FuzzReaders`; the extended corpus round trip.
+- `capture`: four records of the Wireshark wiki's CANopen.pcap whose writer left 0x7F in the FD flags byte of classical frames: read as CAN FD, as tcpdump.org's LINKTYPE_CAN_SOCKETCAN definition and Wireshark 4.6.9 read them (pinned, not changed).
+- `isotp`: `TestQueuedConsecutiveFrameBeatsNCr` holds the receive goroutine while a consecutive frame queues and N_Cr expires (fails without the fix).
 - `isotp`: listen-only reassembly equals Wireshark's messages (incomplete first frames end in reception errors); as each recorded tester and ECU, requests, flow control, single, first and consecutive frames equal the recorded ones byte for byte; recorded frames seed `FuzzReceiver`.
 
 ### Known differences

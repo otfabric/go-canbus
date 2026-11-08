@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"slices"
 	"sync"
@@ -460,4 +461,57 @@ func ecuSide(t *testing.T, rec recorded, x diagExchange) {
 		}
 	}
 	t.Logf("%d consecutive frames", cfs)
+}
+
+// blockingWarn blocks the connection's goroutine in Logger.Warn until
+// released.
+type blockingWarn struct {
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (h *blockingWarn) Enabled(_ context.Context, l slog.Level) bool { return l >= slog.LevelWarn }
+func (h *blockingWarn) Handle(context.Context, slog.Record) error {
+	h.entered <- struct{}{}
+	<-h.release
+	return nil
+}
+func (h *blockingWarn) WithAttrs([]slog.Attr) slog.Handler { return h }
+func (h *blockingWarn) WithGroup(string) slog.Handler      { return h }
+
+// TestQueuedConsecutiveFrameBeatsNCr: a consecutive frame that arrived
+// before N_Cr ran out continues the transfer even when the connection's
+// goroutine handles it only after the timer fired (seen on a loaded CI
+// runner replaying the recorded 515-byte response: one spurious ErrTimeout
+// in about one run of ten). The goroutine is held in a logger call while
+// the frame queues and the timer expires; before the fix select chose the
+// timer half the time.
+func TestQueuedConsecutiveFrameBeatsNCr(t *testing.T) {
+	for range 20 {
+		h := &blockingWarn{entered: make(chan struct{}), release: make(chan struct{})}
+		vb := virtual.New(virtual.Config{})
+		raw, _ := vb.Open(virtual.WithQueueSize(256))
+		port, _ := vb.Open(virtual.WithQueueSize(256))
+		bus, _ := canbus.NewBus(port)
+		c, err := Dial(bus, Config{TxID: 0x721, RxID: 0x78B, ListenOnly: true, TimeoutCr: 20 * time.Millisecond, Logger: slog.New(h)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ctx := t.Context()
+		inject(t, raw, "78B#100962F1A2303031") // first frame, 9 bytes
+		for range 65 {                         // fill the flow control buffer, then one more
+			inject(t, raw, "78B#3000000000000000")
+		}
+		<-h.entered // the goroutine is held
+		inject(t, raw, "78B#21303032AAAAAAAA")
+		time.Sleep(60 * time.Millisecond) // N_Cr runs out while the frame waits
+		close(h.release)
+		got, err := c.Receive(ctx)
+		if err != nil || hex.EncodeToString(got) != "62f1a2303031303032" {
+			t.Fatalf("got %x, %v", got, err)
+		}
+		c.Close()
+		bus.Close()
+		vb.Close()
+	}
 }
