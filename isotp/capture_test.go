@@ -149,13 +149,39 @@ func reassemble(t *testing.T, rec recorded) {
 			want[k] = append(want[k], hex.EncodeToString(d))
 		}
 	}
+	// From Wireshark's dissection: a first frame that a later single or
+	// first frame of the same identifier overtakes before its message is
+	// complete ends in ErrInterrupted; one still open at the end of the
+	// trace ends in nothing (N_Cr is an hour here: no wall-clock timeout
+	// may decide what this test sees).
+	isFF := map[int]bool{}
 	for _, ff := range rec.gold.FirstFrames {
-		f := &rec.frames[ff.Frame-1]
-		wantErrs[key{f.ID, f.IsExtended()}]++
+		isFF[ff.Frame-1] = true
 	}
+	open := map[key]bool{}
+	pending := 0
 	for i := range rec.frames {
-		if _, ok := rec.msgAt[rec.lines[i]]; ok && pciOf(&rec.frames[i]) == pciCF {
-			wantErrs[key{rec.frames[i].ID, rec.frames[i].IsExtended()}]--
+		f := &rec.frames[i]
+		k := key{f.ID, f.IsExtended()}
+		_, msg := rec.msgAt[rec.lines[i]]
+		switch {
+		case isFF[i]:
+			if open[k] {
+				wantErrs[k]++
+			}
+			open[k] = true
+		case msg && pciOf(f) == pciCF:
+			open[k] = false
+		case msg:
+			if open[k] {
+				wantErrs[k]++
+			}
+			open[k] = false
+		}
+	}
+	for _, o := range open {
+		if o {
+			pending++
 		}
 	}
 	type result struct {
@@ -172,7 +198,7 @@ func reassemble(t *testing.T, rec recorded) {
 		bus, _ := canbus.NewBus(port)
 		defer bus.Close()
 		c, err := Dial(bus, Config{TxID: k.id, RxID: k.id, ExtendedIDs: k.ext, ListenOnly: true,
-			TimeoutCr: 50 * time.Millisecond, QueueSize: len(rec.frames) + 1})
+			TimeoutCr: time.Hour, QueueSize: len(rec.frames) + 1})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -187,7 +213,7 @@ func reassemble(t *testing.T, rec recorded) {
 				case ctx.Err() != nil:
 					mu.Unlock()
 					return
-				case errors.Is(err, ErrInterrupted) || errors.Is(err, ErrTimeout):
+				case errors.Is(err, ErrInterrupted):
 					res.errs++
 				case err != nil:
 					mu.Unlock()
@@ -208,7 +234,7 @@ func reassemble(t *testing.T, rec recorded) {
 		}
 	}
 	// Wait for every connection to report what it should.
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(60 * time.Second)
 	done := func() bool {
 		mu.Lock()
 		defer mu.Unlock()
@@ -243,6 +269,15 @@ func reassemble(t *testing.T, rec recorded) {
 	if total != len(rec.gold.Messages) {
 		t.Errorf("%d messages, Wireshark %d", total, len(rec.gold.Messages))
 	}
+	t.Logf("%d messages, %d first frames interrupted, %d open at the end of the trace", total, sumValues(wantErrs), pending)
+}
+
+func sumValues[K comparable](m map[K]int) int {
+	n := 0
+	for _, v := range m {
+		n += v
+	}
+	return n
 }
 
 // diagPair is a tester and an ECU of a recorded trace.
@@ -333,24 +368,50 @@ func TestCaptureTesterSide(t *testing.T) {
 	}
 }
 
-func dialPair(t *testing.T, cfg Config) (*Conn, *virtual.Port) {
+// timedPort is a virtual bus port that notes when the connection on it
+// hands each consecutive frame to the bus: the moment STmin applies to,
+// independent of when the test's goroutine reads the frames.
+type timedPort struct {
+	*virtual.Port
+	mu  sync.Mutex
+	cfs []time.Time
+}
+
+func (p *timedPort) Send(ctx context.Context, f *canbus.Frame) error {
+	if f.Len > 0 && f.Data[0]>>4 == pciCF {
+		p.mu.Lock()
+		p.cfs = append(p.cfs, time.Now())
+		p.mu.Unlock()
+	}
+	return p.Port.Send(ctx, f)
+}
+
+// sentCF returns when the connection sent its n-th consecutive frame.
+func (p *timedPort) sentCF(n int) time.Time {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.cfs[n]
+}
+
+func dialPair(t *testing.T, cfg Config) (*Conn, *virtual.Port, *timedPort) {
 	t.Helper()
 	vb := virtual.New(virtual.Config{})
 	raw, _ := vb.Open(virtual.WithQueueSize(4096))
 	port, _ := vb.Open(virtual.WithQueueSize(4096))
-	bus, _ := canbus.NewBus(port)
+	tp := &timedPort{Port: port}
+	bus, _ := canbus.NewBus(tp)
 	c, err := Dial(bus, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { c.Close(); bus.Close(); vb.Close() })
-	return c, raw
+	return c, raw, tp
 }
 
 func testerSide(t *testing.T, rec recorded, x diagExchange) {
 	pad, _ := x.padOf(x.tester)
 	bs, st := x.flowOf(x.tester)
-	c, raw := dialPair(t, Config{TxID: x.tester, RxID: x.ecu, ExtendedIDs: x.ext, Padding: true, PadByte: &pad,
+	c, raw, _ := dialPair(t, Config{TxID: x.tester, RxID: x.ecu, ExtendedIDs: x.ext, Padding: true, PadByte: &pad,
 		BlockSize: bs, STmin: st, TimeoutCr: 5 * time.Second})
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 	defer cancel()
@@ -415,7 +476,7 @@ func ecuSide(t *testing.T, rec recorded, x diagExchange) {
 		t.Fatal("no padded single frame of the ECU")
 	}
 	_, st := x.flowOf(x.tester)
-	c, raw := dialPair(t, Config{TxID: x.ecu, RxID: x.tester, ExtendedIDs: x.ext, Padding: true, PadByte: &pad})
+	c, raw, sent := dialPair(t, Config{TxID: x.ecu, RxID: x.tester, ExtendedIDs: x.ext, Padding: true, PadByte: &pad})
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 	defer cancel()
 	sendErr := make(chan error, 1)
@@ -459,11 +520,14 @@ func ecuSide(t *testing.T, rec recorded, x diagExchange) {
 			t.Fatalf("line %d: sent %s, the recorded ECU %s", x.lines[i], wire(&got), wire(&f))
 		}
 		if pciOf(&f) == pciCF {
-			now := time.Now()
-			if !lastCF.IsZero() && now.Sub(lastCF) < st-time.Millisecond/2 {
-				t.Fatalf("line %d: consecutive frames %v apart, STmin %v", x.lines[i], now.Sub(lastCF), st)
+			// STmin is measured where the connection sends, not where this
+			// goroutine happens to read the frames (it may read several
+			// queued ones back to back).
+			at := sent.sentCF(cfs)
+			if !lastCF.IsZero() && at.Sub(lastCF) < st {
+				t.Fatalf("line %d: consecutive frames sent %v apart, STmin %v", x.lines[i], at.Sub(lastCF), st)
 			}
-			lastCF = now
+			lastCF = at
 			cfs++
 			if _, ok := rec.msgAt[x.lines[i]]; ok {
 				if err := <-sendErr; err != nil {
