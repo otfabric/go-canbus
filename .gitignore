@@ -26,3 +26,6 @@ coverage.out
 /examples/vcan-pingpong/vcan-pingpong
 /examples/virtual-bus/virtual-bus
 /internal/cmd/gengolden/gengolden
+
+# Extended capture corpus (make captures-extended)
+/.cache/

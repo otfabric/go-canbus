@@ -23,7 +23,8 @@ import (
 // header; timestamps are seconds relative to the "Begin Triggerblock" date,
 // else the "date" header, else 0.
 //
-// The channel number becomes the frame's Interface ("1", "2", ...).
+// The channel number becomes the frame's Interface ("1", "2", ...). The
+// writer numbers channels as described at [vectorChannel].
 
 // ascDateLayouts are the date header layouts written by Vector tools and
 // python-can.
@@ -280,13 +281,6 @@ type ASCWriter struct {
 // NewASCWriter returns a writer of ASC traces.
 func NewASCWriter(w io.Writer) *ASCWriter { return &ASCWriter{w: bufio.NewWriter(w)} }
 
-func ascChannel(iface string) string {
-	if n, err := strconv.Atoi(iface); err == nil && n > 0 {
-		return strconv.Itoa(n)
-	}
-	return "1"
-}
-
 func (w *ASCWriter) header(t time.Time) error {
 	if y := t.Year(); y < 1 || y > 9999 {
 		return fmt.Errorf("%w: ASC date %v outside the years 1..9999", ErrUnrepresentable, t)
@@ -332,7 +326,7 @@ func (w *ASCWriter) Write(f *canbus.Frame) error {
 		}
 		rel = d.Seconds()
 	}
-	ch := ascChannel(f.Interface)
+	ch := strconv.Itoa(vectorChannel(f.Interface))
 	id := strings.ToUpper(strconv.FormatUint(uint64(f.ID), 16))
 	if f.IsExtended() {
 		id += "x"

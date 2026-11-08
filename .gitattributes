@@ -1,2 +1,4 @@
 * text=auto eol=lf
 *.pcap binary
+# Recorded traces and their licence texts are kept byte for byte (SHA256SUMS)
+testdata/captures/** -text

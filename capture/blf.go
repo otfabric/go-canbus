@@ -22,7 +22,8 @@ import (
 // every other object type. The writer writes CAN_MESSAGE, CAN_FD_MESSAGE_64
 // and CAN_ERROR_EXT objects in compressed containers, as python-can does.
 //
-// The channel number becomes the frame's Interface ("1", "2", ...).
+// The channel number becomes the frame's Interface ("1", "2", ...); the
+// writer numbers channels as described at [vectorChannel].
 // Layouts follow the public descriptions of the format (Vector's binlog
 // headers as reproduced by python-can and others); they are checked against
 // python-can in the interop suite.
@@ -541,10 +542,11 @@ func (w *BLFWriter) Write(f *canbus.Frame) error {
 			return err
 		}
 	}
-	ch := uint16(1)
-	if n, err := fmt.Sscan(f.Interface, &ch); n != 1 || err != nil || ch == 0 {
-		ch = 1
+	c := vectorChannel(f.Interface)
+	if c < 1 || c > math.MaxUint16 {
+		return fmt.Errorf("%w: BLF channel %d", ErrUnrepresentable, c)
 	}
+	ch := uint16(c)
 	var err error
 	id := uint32(f.ID)
 	if f.IsExtended() {

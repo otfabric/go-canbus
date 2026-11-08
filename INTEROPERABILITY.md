@@ -121,12 +121,61 @@ capture); the 9 new skips are the stacks without CAN XL. Against canbus-interop 
 - 64-bit physical inputs are passed as decimal text (`candb.PhysText`):
   through float64 they would lose bits above 2^53.
 
+## Recorded traffic of real vehicles
+
+CAN logs recorded by others on twelve real vehicles are in
+[testdata/captures](testdata/captures/README.md) (sources, evidence
+classes), byte for byte as published; docs/CAPTURE-COVERAGE.md lists what
+they exercise. The independent decoder is Wireshark 4.6.9: its candump
+reader and CAN dissector for the frames, its ISO 15765 dissector for the
+diagnostic messages. The vehicles and testers are evidence of what real
+buses carry; they did not talk to go-canbus.
+
+| Recording | Device | Checked |
+|---|---|---|
+| CANdid brake logs (`candid/obd-logger_<vehicle>_brakes.log`), whole, 1.35 M frames | 2018 Holden Astra, 2017 Mazda CX-3, 2012 Subaru Impreza (two), 2012 Holden Barina (two), 2012 Holden Cruze, 2013 and 2014 Mazda CX-5, 2016 Toyota Yaris; OBD-II port | candump decode = Wireshark; write-back byte for byte; every format; out-of-order first line |
+| CarDS testers T1 and T2, bus silence and wake-up, whole, 0.96 M frames; fast driving, first 2000 lines | 2020 EV (OEM withheld), ten CAN CC and CAN FD domains, Vector interfaces | as above, with CAN FD BRS/ESI, 29-bit IDs, direction tokens, ten interfaces |
+| CarDS testers T1 and T2, diagnostic domain `can9` | the same EV's ECUs and two workshop testers | ISO-TP reassembly = Wireshark; tester and ECU sides byte for byte (21 pairs) |
+| CarDS CaringCaribou enumeration, 1601 lines | the same EV's ECUs and CaringCaribou | ISO-TP reassembly = Wireshark, incomplete first frames end in errors |
+| TU/e Renault Clio, whole, 0.39 M frames | Renault Clio, OBD-II port, CANtact | as the CANdid logs |
+
+The extended corpus (`make captures-extended`) adds the three recordings too
+large to commit (CarDS fast driving and CaringCaribou, TU/e Opel Astra):
+14.7 million more frames, all decoded and written back with the SHA-256 the
+manifest records.
+
+Differences that remain, by design or because a format cannot hold it:
+
+| Where | Difference |
+|---|---|
+| pcap | no interface names; pcap and pcapng carry no direction (the CarDS `T` labels) |
+| ASC, BLF, TRC | interfaces become channel numbers (`can4` → 5) |
+| BLF | object times are unsigned offsets from the file's start: the CANdid frames older than their log's first line (258 in the ten logs) are written at the start time |
+| ISO-TP ECU side | recorded ECUs leave 8–20 ms between consecutive frames where the tester's STmin is 1 or 5 ms; go-canbus sends at STmin |
+
+Not in any recording, so not verified by recorded traffic: remote frames,
+error frames, the DLC 9..15 of classical frames, CAN XL, ISO-TP extended or
+mixed addressing, CAN FD ISO-TP, WAIT and OVERFLOW flow control, multi-frame
+requests. No recording comes with a DBC, so nothing is decoded into signals.
+
 ## Defects these tests found in go-canbus (fixed)
 
 - can-utils since 2023 writes the CAN FD flags nibble with FDF set
   (`123##4`); the candump parser rejected it.
 - 64-bit physical values given as JSON numbers lost precision (no exact
   input path existed).
+
+Found by the recorded vehicle traffic (v0.9.0):
+
+- The ASC, BLF and TRC writers wrote every interface that is not a bare
+  number as channel 1: the nine CAN domains of a CarDS recording (`can0`
+  to `can8`) became one channel.
+- The candump writer dropped the `R`/`T` direction token that
+  `candump -L -x` writes and the reader accepts: a CarDS log read and
+  written back lost every `T` mark.
+- `isotp.Conn` reported `ErrTimeout` for a consecutive frame that was
+  already queued when N_Cr expired (one run in about ten replaying the
+  recorded 515-byte response on an arm64 CI runner).
 
 ## Needs real hardware
 

@@ -1,0 +1,758 @@
+// SPDX-License-Identifier: MIT
+
+package capture
+
+import (
+	"bufio"
+	"bytes"
+	"crypto/sha256"
+	"encoding/binary"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"hash"
+	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"slices"
+	"strconv"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/otfabric/go-canbus"
+	"github.com/otfabric/go-canbus/internal/corpus"
+	"github.com/otfabric/go-canbus/virtual"
+)
+
+// The tests in this file run go-canbus against traffic recorded on real
+// vehicles by others (testdata/captures, see its README): ten passenger
+// cars of the CANdid dataset and the ten CAN domains of the CarDS
+// electric vehicle. They are evidence that the readers and writers carry
+// what real recordings hold, not a conformance claim.
+
+func vehicleManifest(t *testing.T) *corpus.Manifest {
+	t.Helper()
+	m, err := corpus.Checked()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return m
+}
+
+// raceLines is how many lines of each log a -race build checks.
+const raceLines = 20000
+
+// corpusLog returns a committed log's path and frames and bytes: the whole
+// log, or its first raceLines lines (in a temporary file) in a -race build.
+func corpusLog(t *testing.T, tf corpus.File) (string, []canbus.Frame, []byte) {
+	t.Helper()
+	path := corpus.Path(tf.Path)
+	if raceDetector {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if lines := bytes.SplitAfter(raw, []byte("\n")); len(lines) > raceLines {
+			path = filepath.Join(t.TempDir(), filepath.Base(tf.Path))
+			if err := os.WriteFile(path, bytes.Join(lines[:raceLines], nil), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	frames, raw := readCandumpFile(t, path)
+	return path, frames, raw
+}
+
+// readCandumpFile reads every frame of a candump log.
+func readCandumpFile(t *testing.T, path string) ([]canbus.Frame, []byte) {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := NewCandumpReader(bytes.NewReader(raw))
+	var out []canbus.Frame
+	for {
+		var f canbus.Frame
+		err := r.Read(&f)
+		if errors.Is(err, io.EOF) {
+			return out, raw
+		}
+		if err != nil {
+			t.Fatalf("%s: %v", path, err)
+		}
+		out = append(out, f)
+	}
+}
+
+// statsOf counts what the frames and lines of a trace hold.
+func statsOf(frames []canbus.Frame, raw []byte) corpus.Stats {
+	var s corpus.Stats
+	ifs := map[string]bool{}
+	var prev time.Time
+	for i := range frames {
+		f := &frames[i]
+		s.Frames++
+		ifs[f.Interface] = true
+		if f.IsExtended() {
+			s.Extended++
+		} else {
+			s.Standard++
+		}
+		for _, c := range []struct {
+			flag canbus.Flags
+			n    *int
+		}{{canbus.FlagFD, &s.FD}, {canbus.FlagBRS, &s.BRS}, {canbus.FlagESI, &s.ESI}, {canbus.FlagRemote, &s.Remote}, {canbus.FlagError, &s.Error}} {
+			if f.Flags&c.flag != 0 {
+				*c.n++
+			}
+		}
+		if f.Echo {
+			s.TxMarked++
+		}
+		if f.Timestamp.Before(prev) {
+			s.OutOfOrder++
+		}
+		prev = f.Timestamp
+	}
+	for line := range strings.SplitSeq(string(raw), "\n") {
+		if strings.HasSuffix(line, " R") || strings.HasSuffix(line, " T") {
+			s.Tokens++
+		}
+	}
+	for k := range ifs {
+		s.Interfaces = append(s.Interfaces, k)
+	}
+	slices.Sort(s.Interfaces)
+	return s
+}
+
+// TestVehicleCapturesDecode: every recorded line decodes, to the counts the
+// manifest holds (cross-checked with Wireshark in
+// TestWiresharkReadsVehicleCaptures).
+func TestVehicleCapturesDecode(t *testing.T) {
+	m := vehicleManifest(t)
+	kinds := map[string]bool{}
+	for _, tf := range m.Traces() {
+		_, frames, raw := corpusLog(t, tf)
+		got := statsOf(frames, raw)
+		want := *tf.Stats
+		if got.ESI > 0 {
+			kinds["esi"] = true
+		}
+		if got.FD > 0 && got.Extended > 0 {
+			kinds["fd+ext"] = true
+		}
+		if got.OutOfOrder > 0 {
+			kinds["out-of-order"] = true
+		}
+		if got.TxMarked > 0 {
+			kinds["T"] = true
+		}
+		if raceDetector && got.Frames < want.Frames {
+			continue // a prefix: the counts are checked without -race
+		}
+		gj, _ := json.Marshal(got)
+		wj, _ := json.Marshal(want)
+		if !bytes.Equal(gj, wj) {
+			t.Errorf("%s:\n got  %s\n want %s", tf.Path, gj, wj)
+		}
+	}
+	// The corpus is chosen to hold these: guard against a cut losing them.
+	for _, k := range []string{"esi", "fd+ext", "out-of-order", "T"} {
+		if !kinds[k] {
+			t.Errorf("no recorded frame of kind %q", k)
+		}
+	}
+}
+
+// TestVehicleCapturesCandumpRoundTrip: a recorded log read and written
+// again is byte for byte the original. Logs with direction tokens need
+// SetDirection; without it their "T" marks were lost (go-canbus 0.8.0 and
+// earlier wrote no token).
+func TestVehicleCapturesCandumpRoundTrip(t *testing.T) {
+	m := vehicleManifest(t)
+	for _, tf := range m.Traces() {
+		_, frames, raw := corpusLog(t, tf)
+		write := func(dir bool) []byte {
+			var buf bytes.Buffer
+			w := NewCandumpWriter(&buf, "")
+			w.SetDirection(dir)
+			for i := range frames {
+				if err := w.Write(&frames[i]); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := w.Close(); err != nil {
+				t.Fatal(err)
+			}
+			return buf.Bytes()
+		}
+		tokens := tf.Stats.Tokens > 0
+		if !bytes.HasSuffix(raw, []byte("\n")) {
+			raw = append(raw, '\n') // the TU/e logs end without one; the writer always writes it
+		}
+		if got := write(tokens); !bytes.Equal(got, raw) {
+			t.Errorf("%s: written back differs from the recording (direction tokens %v)", tf.Path, tokens)
+		}
+		if tokens {
+			plain := write(false)
+			if bytes.Contains(plain, []byte(" T\n")) || bytes.Contains(plain, []byte(" R\n")) {
+				t.Errorf("%s: tokens written without SetDirection", tf.Path)
+			}
+		}
+	}
+}
+
+// TestVehicleCapturesFormats converts every recorded frame to each trace
+// format and back. What a format cannot carry is named: pcap has no
+// interface names, pcap and pcapng no direction, ASC, BLF and TRC number
+// channels (vectorChannel) and BLF clamps frames recorded before its
+// start time (see TestVehicleCapturesBLFStart).
+func TestVehicleCapturesFormats(t *testing.T) {
+	pinLocalUTC(t)
+	m := vehicleManifest(t)
+	for _, tf := range m.Traces() {
+		t.Run(tf.Path, func(t *testing.T) { convertTrace(t, tf) })
+	}
+}
+
+func convertTrace(t *testing.T, tf corpus.File) {
+	_, frames, _ := corpusLog(t, tf)
+	for _, format := range []Format{FormatJSONL, FormatPCAP, FormatPCAPNG, FormatASC, FormatBLF, FormatTRC} {
+		var buf bytes.Buffer
+		w, err := NewWriter(&buf, format)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i := range frames {
+			if err := w.Write(&frames[i]); err != nil {
+				t.Fatalf("%s %s frame %d: %v", tf.Path, format, i+1, err)
+			}
+		}
+		if err := w.Close(); err != nil {
+			t.Fatal(err)
+		}
+		got, detected, err := readTrace(buf.Bytes())
+		if err != nil || detected != format || len(got) != len(frames) {
+			t.Fatalf("%s %s: read back as %s, %d of %d frames: %v", tf.Path, format, detected, len(got), len(frames), err)
+		}
+		vector := format == FormatASC || format == FormatBLF || format == FormatTRC
+		channels := map[string]string{}
+		start := frames[0].Timestamp.Truncate(time.Millisecond)
+		for i := range frames {
+			w, g := &frames[i], &got[i].f
+			if !same(g, w) {
+				t.Fatalf("%s %s frame %d: %v, want %v", tf.Path, format, i+1, g, w)
+			}
+			wantIf, wantEcho, wantTS := w.Interface, w.Echo, w.Timestamp
+			switch format {
+			case FormatPCAP:
+				wantIf, wantEcho = "", false
+			case FormatPCAPNG:
+				wantEcho = false
+			case FormatBLF:
+				if wantTS.Before(start) {
+					wantTS = start
+				}
+			case FormatCandump, FormatJSONL, FormatASC, FormatTRC:
+			}
+			if vector {
+				wantIf = strconv.Itoa(vectorChannel(w.Interface))
+				if c, ok := channels[g.Interface]; ok && c != w.Interface {
+					t.Fatalf("%s %s: interfaces %s and %s both written as channel %s", tf.Path, format, c, w.Interface, g.Interface)
+				}
+				channels[g.Interface] = w.Interface
+			}
+			if g.Interface != wantIf || g.Echo != wantEcho || !g.Timestamp.Equal(wantTS) {
+				t.Fatalf("%s %s frame %d: %q echo %v at %v, want %q echo %v at %v", tf.Path, format, i+1,
+					g.Interface, g.Echo, g.Timestamp, wantIf, wantEcho, wantTS)
+			}
+		}
+		if n := len(statsOf(frames, nil).Interfaces); vector && len(channels) != n {
+			t.Errorf("%s %s: %d channels for %d recorded interfaces", tf.Path, format, len(channels), n)
+		}
+	}
+}
+
+// TestVehicleCapturesBLFStart pins a property of every CANdid recording:
+// its first line is newer than the lines after it (12–23 ms, the logger
+// wrote one frame early). BLF object times are unsigned offsets from the
+// file's start time, so the BLF writer starts at the first frame and
+// writes the older frames at the start. ASC and TRC keep their times
+// (TestVehicleCapturesFormats).
+func TestVehicleCapturesBLFStart(t *testing.T) {
+	m := vehicleManifest(t)
+	clamped := 0
+	for _, tf := range m.Traces() {
+		if tf.Source != "candid" {
+			continue
+		}
+		_, frames, _ := corpusLog(t, tf)
+		if tf.Stats.OutOfOrder != 1 || !frames[1].Timestamp.Before(frames[0].Timestamp) {
+			t.Fatalf("%s: the first line is not the out-of-order one", tf.Path)
+		}
+		start := frames[0].Timestamp.Truncate(time.Millisecond)
+		for i := range frames {
+			if frames[i].Timestamp.Before(start) {
+				clamped++
+			}
+		}
+	}
+	if clamped == 0 {
+		t.Fatal("no recorded frame is older than its trace's first frame")
+	}
+	t.Logf("%d CANdid frames are older than their trace's BLF start", clamped)
+}
+
+// TestVehicleCapturesReplay replays the start of a recording with its
+// out-of-order first frame at 20 times its speed: every frame is sent once,
+// in file order.
+func TestVehicleCapturesReplay(t *testing.T) {
+	path := corpus.Path("candid/obd-logger_2016-toyota-yaris_brakes.log")
+	frames, raw := readCandumpFile(t, path)
+	frames = frames[:500]
+	vb := virtual.New(virtual.Config{})
+	defer vb.Close()
+	tx, _ := vb.Open(virtual.WithQueueSize(4096))
+	rx, _ := vb.Open(virtual.WithQueueSize(4096))
+	st, err := Replay(t.Context(), NewCandumpReader(bytes.NewReader(raw)), tx, ReplayOptions{Speed: 20, MaxFrames: len(frames)})
+	if err != nil || st.Sent != len(frames) {
+		t.Fatalf("sent %d of %d: %v", st.Sent, len(frames), err)
+	}
+	for i := range frames {
+		var f canbus.Frame
+		if err := rx.Receive(t.Context(), &f); err != nil {
+			t.Fatal(err)
+		}
+		if !same(&f, &frames[i]) {
+			t.Fatalf("frame %d: %v, want %v", i+1, f, frames[i])
+		}
+	}
+	span := frames[len(frames)-1].Timestamp.Sub(frames[1].Timestamp)
+	if min := span / 20 / 2; st.Elapsed < min {
+		t.Fatalf("replayed in %v, recording spans %v", st.Elapsed, span)
+	}
+}
+
+// TestWiresharkReadsVehicleCaptures: Wireshark's own candump reader and
+// CAN dissector decode every recorded line to the frame this package
+// reads (interface included), and dissect the pcapng this package writes
+// of them the same way.
+func TestWiresharkReadsVehicleCaptures(t *testing.T) {
+	bin := tshark(t)
+	m := vehicleManifest(t)
+	for _, tf := range m.Traces() {
+		t.Run(tf.Path, func(t *testing.T) {
+			t.Parallel()
+			wiresharkTrace(t, bin, tf)
+		})
+	}
+}
+
+func wiresharkTrace(t *testing.T, bin string, tf corpus.File) {
+	path, frames, _ := corpusLog(t, tf)
+	want := make([]string, len(frames))
+	for i := range frames {
+		want[i] = frames[i].Interface + " " + frames[i].String()
+	}
+	if got := tsharkFieldFrames(t, bin, path); !sameFrames(got, want) {
+		t.Errorf("%s: Wireshark's candump reader differs:\n%s", tf.Path, firstDiff(got, want))
+	}
+	path = filepath.Join(t.TempDir(), "trace.pcapng")
+	fh, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w, _ := NewPCAPNGWriter(fh)
+	for i := range frames {
+		if err := w.Write(&frames[i]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	_ = fh.Close()
+	if got := tsharkFieldFrames(t, bin, path); !sameFrames(got, want) {
+		t.Errorf("%s: Wireshark dissects the pcapng differently:\n%s", tf.Path, firstDiff(got, want))
+	}
+}
+
+// tsharkFieldFrames returns every packet of a trace as Wireshark dissects
+// it, as frame text ("can0 123#DEADBEEF"): field output, which stays small
+// for recordings of hundreds of thousands of frames. The payload goes to
+// Wireshark's data dissector, not to a heuristic one.
+func tsharkFieldFrames(t *testing.T, bin, path string) []string {
+	t.Helper()
+	out, err := exec.Command(bin, "-r", path, "-d", "can.subdissector=data", "-T", "fields", "-E", "separator=|",
+		"-e", "frame.interface_name", "-e", "can.id", "-e", "can.flags.xtd", "-e", "canfd.flags.fdf",
+		"-e", "canfd.flags.brs", "-e", "canfd.flags.esi", "-e", "can.len", "-e", "can.flags.rtr",
+		"-e", "can.flags.err", "-e", "can.len8dlc", "-e", "data.data").Output()
+	if err != nil {
+		t.Fatalf("tshark %s: %v", path, err)
+	}
+	yes := func(v string) bool { return v == "True" || v == "1" }
+	var got []string
+	for line := range strings.SplitSeq(strings.TrimRight(string(out), "\n"), "\n") {
+		c := strings.Split(line, "|")
+		if len(c) != 11 {
+			t.Fatalf("tshark %s: %q", path, line)
+		}
+		id, err1 := strconv.ParseUint(c[1], 10, 32)
+		n, err2 := strconv.Atoi(c[6])
+		data, err3 := hex.DecodeString(strings.ReplaceAll(c[10], ":", ""))
+		if err1 != nil || err2 != nil || err3 != nil {
+			t.Fatalf("tshark %s: %q", path, line)
+		}
+		var f canbus.Frame
+		switch {
+		case yes(c[8]):
+			got = append(got, c[0]+" error")
+			continue
+		case yes(c[3]):
+			f, err = canbus.NewFD(canbus.ID(id), yes(c[2]), yes(c[4]), data)
+			if yes(c[5]) {
+				f.Flags |= canbus.FlagESI
+			}
+		case yes(c[7]):
+			f, err = canbus.NewRemote(canbus.ID(id), yes(c[2]), uint8(n))
+		case yes(c[2]):
+			f, err = canbus.NewExtended(canbus.ID(id), data[:min(n, len(data))])
+		default:
+			f, err = canbus.NewStandard(canbus.ID(id), data[:min(n, len(data))])
+		}
+		if err != nil {
+			t.Fatalf("tshark %s: %q: %v", path, line, err)
+		}
+		if d, _ := strconv.Atoi(c[9]); d > 8 && !f.IsFD() {
+			f.Len8DLC = uint8(d)
+		}
+		got = append(got, c[0]+" "+f.String())
+	}
+	return got
+}
+
+func tsharkFrames(t *testing.T, out []byte) []string {
+	t.Helper()
+	var packets []struct {
+		Source struct {
+			Layers map[string]json.RawMessage `json:"layers"`
+		} `json:"_source"`
+	}
+	if err := json.Unmarshal(out, &packets); err != nil {
+		t.Fatal(err)
+	}
+	got := make([]string, len(packets))
+	for i, p := range packets {
+		got[i] = dissected(t, p.Source.Layers)
+	}
+	return got
+}
+
+func firstDiff(got, want []string) string {
+	for i := range min(len(got), len(want)) {
+		if got[i] != want[i] {
+			return "frame " + strconv.Itoa(i+1) + ": " + short([]string{got[i]}) + "\nwant " + short([]string{want[i]})
+		}
+	}
+	return "lengths " + strconv.Itoa(len(got)) + " and " + strconv.Itoa(len(want))
+}
+
+// TestExtendedVehicleCorpus streams the whole recordings of the extended
+// corpus (make captures-extended): each has the SHA-256 the manifest records, decodes
+// to the recorded number of frames, and is written back byte for byte.
+// Skipped without the corpus, unless CANBUS_REQUIRE_CAPTURES=1.
+func TestExtendedVehicleCorpus(t *testing.T) {
+	dir, ok := corpus.ExtendedDir()
+	if !ok {
+		if os.Getenv(corpus.RequireEnv) == "1" {
+			t.Fatalf("extended corpus %s missing: run make captures-extended", dir)
+		}
+		t.Skipf("extended corpus %s missing: make captures-extended fetches it", dir)
+	}
+	m := vehicleManifest(t)
+	for _, e := range m.Extended {
+		path := filepath.Join(dir, filepath.FromSlash(e.Name))
+		if _, err := os.Stat(path); err != nil {
+			if os.Getenv(corpus.RequireEnv) == "1" {
+				t.Errorf("%s: %v", e.Name, err)
+			}
+			continue
+		}
+		t.Run(e.Name, func(t *testing.T) { checkExtended(t, path, e) })
+	}
+}
+
+func checkExtended(t *testing.T, path string, e corpus.Extended) {
+	fh, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fh.Close()
+	in := sha256.New()
+	first, err := bufio.NewReader(io.TeeReader(io.LimitReader(fh, 4096), in)).ReadString('\n')
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fh.Seek(0, io.SeekStart); err != nil {
+		t.Fatal(err)
+	}
+	in.Reset()
+	// Some recordings (TU/e) do not end their last line with a newline;
+	// the writer always does. Hold the last byte back to compare.
+	st, err := fh.Stat()
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := make([]byte, 1)
+	if _, err := fh.ReadAt(last, st.Size()-1); err != nil {
+		t.Fatal(err)
+	}
+	out := &holdLast{h: sha256.New()}
+	w := NewCandumpWriter(out, "")
+	line := strings.TrimSpace(first)
+	w.SetDirection(strings.HasSuffix(line, " R") || strings.HasSuffix(line, " T"))
+	r := NewCandumpReader(io.TeeReader(fh, in))
+	n := 0
+	var f canbus.Frame
+	for {
+		err := r.Read(&f)
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		n++
+		if err := w.Write(&f); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if got := hex.EncodeToString(in.Sum(nil)); got != e.SHA256 {
+		t.Fatalf("SHA-256 %s, manifest %s", got, e.SHA256)
+	}
+	if n != e.Frames {
+		t.Errorf("%d frames, manifest %d", n, e.Frames)
+	}
+	if last[0] == '\n' {
+		out.h.Write(out.last[:out.n])
+	}
+	if got := hex.EncodeToString(out.h.Sum(nil)); got != e.SHA256 {
+		t.Errorf("written back: SHA-256 %s, the recording %s", got, e.SHA256)
+	}
+}
+
+// holdLast hashes everything written to it except the last byte.
+type holdLast struct {
+	h    hash.Hash
+	last [1]byte
+	n    int
+}
+
+func (w *holdLast) Write(p []byte) (int, error) {
+	if len(p) == 0 {
+		return 0, nil
+	}
+	w.h.Write(w.last[:w.n])
+	w.h.Write(p[:len(p)-1])
+	w.last[0], w.n = p[len(p)-1], 1
+	return len(p), nil
+}
+
+// vehicleSeeds adds the first lines of every recorded log to a fuzz
+// target's corpus: real candump lines of ten cars and the CarDS vehicle
+// (CAN FD with BRS and ESI, 29-bit identifiers, direction tokens, a first
+// line newer than the second).
+func vehicleSeeds(f *testing.F) {
+	m, err := corpus.Load()
+	if err != nil {
+		f.Fatal(err)
+	}
+	for _, tf := range m.Traces() {
+		raw, err := os.ReadFile(corpus.Path(tf.Path))
+		if err != nil {
+			f.Fatal(err)
+		}
+		lines := bytes.SplitAfter(raw, []byte("\n"))
+		f.Add(bytes.Join(lines[:min(len(lines), 40)], nil))
+	}
+}
+
+// TestVehicleLinesMalformed cuts, corrupts and stretches recorded lines:
+// the parser never panics, and every line it accepts is one it would
+// write back the same way (no silent reinterpretation).
+func TestVehicleLinesMalformed(t *testing.T) {
+	m := vehicleManifest(t)
+	var lines []string
+	for _, tf := range m.Traces() {
+		raw, _ := os.ReadFile(corpus.Path(tf.Path))
+		all := strings.Split(strings.TrimSpace(string(raw)), "\n")
+		lines = append(lines, all[:min(len(all), 25)]...)
+	}
+	accepted, refused := 0, 0
+	check := func(line string) {
+		var f canbus.Frame
+		if err := ParseCandumpLine(line, &f); err != nil {
+			refused++
+			return
+		}
+		accepted++
+		if err := f.Validate(); err != nil && !f.IsError() {
+			t.Fatalf("%q accepted as invalid frame %v: %v", line, f, err)
+		}
+	}
+	for _, line := range lines {
+		for i := range len(line) {
+			check(line[:i])
+		}
+		check(line + "00")                                                 // one byte more
+		check(line + " X")                                                 // unknown token
+		check(strings.Replace(line, "#", "##F", 1))                        // FD flags nibble with every bit
+		check(strings.Replace(line, "#", "#"+strings.Repeat("00", 64), 1)) // beyond 64 bytes
+		check(strings.Replace(line, ")", ".1)", 1))                        // two fractions
+		check(strings.Replace(line, "(", "(-", 1))                         // negative time
+	}
+	if accepted == 0 || refused == 0 {
+		t.Fatalf("%d accepted, %d refused", accepted, refused)
+	}
+}
+
+func TestVectorChannel(t *testing.T) {
+	for iface, want := range map[string]int{
+		"": 1, "1": 1, "2": 2, "17": 17, "0": 1, "can0": 1, "can4": 5, "can9": 10, "vcan3": 4,
+		"slcan0": 1, "can": 1, "any": 1, "can1234567890": 1, "300": 300, "can-1": 2,
+	} {
+		if got := vectorChannel(iface); got != want {
+			t.Errorf("vectorChannel(%q) = %d, want %d", iface, got, want)
+		}
+	}
+	// A BLF classical channel has 16 bits.
+	f, _ := canbus.NewStandard(1, nil)
+	f.Interface = "70000"
+	bw, _ := NewBLFWriter(io.Discard)
+	if err := bw.Write(&f); !errors.Is(err, ErrUnrepresentable) {
+		t.Fatalf("BLF channel 70000: %v", err)
+	}
+}
+
+func TestCandumpWriterDirection(t *testing.T) {
+	var buf bytes.Buffer
+	w := NewCandumpWriter(&buf, "can9")
+	f, _ := canbus.NewStandard(0x7E0, []byte{0x02, 0x10, 0x03})
+	w.Write(&f)
+	w.SetDirection(true)
+	w.Write(&f)
+	f.Echo = true
+	w.Write(&f)
+	x, _ := canbus.ParseXLFrame("05242#81:01:12345678#AABB")
+	w.WriteXL(&x)
+	x.Echo = true
+	w.WriteXL(&x)
+	w.Close()
+	want := "(0000000000.000000) can9 7E0#021003\n" +
+		"(0000000000.000000) can9 7E0#021003 R\n" +
+		"(0000000000.000000) can9 7E0#021003 T\n" +
+		"(0000000000.000000) can9 05242#81:01:12345678#AABB R\n" +
+		"(0000000000.000000) can9 05242#81:01:12345678#AABB T\n"
+	if buf.String() != want {
+		t.Fatalf("got\n%s\nwant\n%s", buf.String(), want)
+	}
+	// And they read back with their marks.
+	r := NewCandumpReader(strings.NewReader(want))
+	var g canbus.Frame
+	var gx canbus.XLFrame
+	var echoes []bool
+	for {
+		xl, err := r.ReadAny(&g, &gx)
+		if err != nil {
+			break
+		}
+		echoes = append(echoes, map[bool]bool{true: gx.Echo, false: g.Echo}[xl])
+	}
+	if !slices.Equal(echoes, []bool{false, false, true, false, true}) {
+		t.Fatal(echoes)
+	}
+}
+
+// wiresharkCANopenRecords are four records of the Wireshark wiki's sample
+// CANopen.pcap (LINKTYPE_CAN_SOCKETCAN, 2014; SHA-256 71a5d2a2…5025),
+// frames 1, 2, 6 and 8, original length = captured length. Their writer
+// left garbage (0x7F) in the FD flags byte of some classical CANopen frames.
+var wiresharkCANopenRecords = []string{
+	"000007330100000000",
+	"00000000027f00008100",
+	"00000642087f00004008100000000000",
+	"00000642080000006000000000000000",
+}
+
+// TestPCAPFDFlagOfRecordedFrames: the FD flags byte decides as
+// tcpdump.org's LINKTYPE_CAN_SOCKETCAN definition says ("if the original
+// packet length is 72 or the 6th octet of the frame has the 0x04 bit set,
+// the frame is a CAN FD frame"), so a 16-byte record with 0x7F there is
+// CAN FD with BRS and ESI. Wireshark 4.6.9 decodes these records the same
+// way. The CANopen frames were classical on their bus; the capture breaks
+// the definition's rule for writers ("in CAN CC frames, must clear all
+// bits"), and no reader can tell.
+func TestPCAPFDFlagOfRecordedFrames(t *testing.T) {
+	var b bytes.Buffer
+	le := binary.LittleEndian
+	h := make([]byte, 24)
+	le.PutUint32(h[0:], pcapMagicMicro)
+	le.PutUint16(h[4:], 2)
+	le.PutUint16(h[6:], 4)
+	le.PutUint32(h[16:], 262144)
+	le.PutUint32(h[20:], LinkTypeCANSocketCAN)
+	b.Write(h)
+	for i, s := range wiresharkCANopenRecords {
+		rec, _ := hex.DecodeString(s)
+		r := make([]byte, 16)
+		le.PutUint32(r[0:], 1416492002)
+		le.PutUint32(r[4:], uint32(i))
+		le.PutUint32(r[8:], uint32(len(rec)))
+		le.PutUint32(r[12:], uint32(len(rec)))
+		b.Write(r)
+		b.Write(rec)
+	}
+	want := []string{"733#00", "000##38100", "642##34008100000000000", "642#6000000000000000"}
+	r, err := NewPCAPReader(bytes.NewReader(b.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	var f canbus.Frame
+	for r.Read(&f) == nil {
+		got = append(got, f.String())
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	if _, err := exec.LookPath("tshark"); err != nil && os.Getenv("CANBUS_REQUIRE_TSHARK") != "1" {
+		return
+	}
+	bin := tshark(t)
+	path := filepath.Join(t.TempDir(), "canopen.pcap")
+	if err := os.WriteFile(path, b.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, err := exec.Command(bin, "-r", path, "-T", "json").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws := tsharkFrames(t, out)
+	for i := range ws {
+		ws[i] = strings.TrimSpace(ws[i])
+	}
+	// Wireshark hands frame 2's payload (NMT 81 00) to its AUTOSAR NM
+	// heuristic, so its data layer is empty there; flags and length agree.
+	wantWS := slices.Clone(want)
+	wantWS[1] = "000##3"
+	if !slices.Equal(ws, wantWS) {
+		t.Fatalf("Wireshark %v, want %v", ws, wantWS)
+	}
+}

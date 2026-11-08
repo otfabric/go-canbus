@@ -5,6 +5,61 @@ it computes the version, tags it and publishes this file's section of
 that version as the release notes. Add the section, headed exactly
 `## vX.Y.Z` and closed by a line `---`, before running it.
 
+## v0.9.0
+
+**Date:** 2026-11-08
+**Previous release:** v0.8.0
+
+### Summary
+
+go-canbus is now tested against CAN logs recorded by others on twelve real
+vehicles ([testdata/captures](testdata/captures/README.md); evidence class B),
+committed byte for byte as published: ten passenger cars at their OBD-II port
+(CANdid), the ten CAN domains of a 2020 electric vehicle with two workshop
+testers and CaringCaribou on its diagnostic bus (CarDS), and a Renault Clio
+(TU Eindhoven). 16 logs, 2.7 million frames, 131 MB, run offline in
+`go test ./...`; `make captures-extended` checks the three recordings too
+large to commit (14.7 million more frames, TU/e's Opel Astra included).
+Wireshark 4.6.9 is the independent decoder. The recordings showed two
+losses in the trace writers, both fixed. The ISO-TP connection reproduces
+the frames of the 21 recorded tester–ECU pairs byte for byte; replaying
+the recorded 515-byte response on a loaded CI runner exposed a spurious
+N_Cr timeout, fixed.
+
+### Fixed
+
+- `capture`: the ASC, BLF and TRC writers wrote every interface that is not a bare number as channel 1, so a multi-bus recording (CarDS: `can0`..`can8`) collapsed into one channel. A name ending in a number now gets that number plus one (`can0` → 1, `can4` → 5), as python-can's writers number them; a bare number stays itself, any other name is 1. **Behaviour change**: frames of `can1`, `vcan2`, … are written on channels 2, 3, … instead of 1. A BLF channel above 65535 is now `ErrUnrepresentable` instead of channel 1.
+- `capture`: the candump writer dropped the `R`/`T` direction token that `candump -L -x` writes and the reader accepts, so a log with tokens lost its `T` marks when written back. `CandumpWriter.SetDirection(true)` writes the token (`T` for `Frame.Echo`, else `R`); off by default, so plain output is unchanged.
+- `isotp`: a consecutive frame already queued when N_Cr expired was ignored half the time (the receive goroutine's `select` picked the timer), giving `ErrTimeout` for a transfer whose frame arrived in time. Queued frames are now handled first; the timeout fires only if none continues the transfer.
+
+### Added
+
+- `capture`: `CandumpWriter.SetDirection`.
+- `testdata/captures`: recordings of CANdid, CarDS and TU/e under clean names (`<tool-or-tester>_<vehicle>_<what-it-holds>.log`), `manifest.json` (sources, licences, original names, URLs and SHA-256, cuts, expected counts, a machine-readable coverage list), `SHA256SUMS`, Wireshark's ISO 15765 dissection of the CarDS diagnostic bus; `internal/corpus`; `internal/cmd/fetchcaptures` and `make captures-extended` for the whole recordings (HTTP range reads of CarDS's 3.6 GB archive).
+
+### Tests
+
+- `capture`: recorded lines decode to the manifest's counts and to what Wireshark's candump reader decodes; write-back is byte for byte; conversion through every format keeps each frame and gives each interface its own channel; the out-of-order first line of the CANdid logs through BLF and replay; truncated and corrupted recorded lines; recorded lines seed `FuzzReaders`; the extended corpus round trip.
+- `capture`: four records of the Wireshark wiki's CANopen.pcap whose writer left 0x7F in the FD flags byte of classical frames: read as CAN FD, as tcpdump.org's LINKTYPE_CAN_SOCKETCAN definition and Wireshark 4.6.9 read them (pinned, not changed).
+- `isotp`: `TestQueuedConsecutiveFrameBeatsNCr` holds the receive goroutine while a consecutive frame queues and N_Cr expires (fails without the fix).
+- `isotp`: listen-only reassembly equals Wireshark's messages (incomplete first frames end in reception errors); as each recorded tester and ECU, requests, flow control, single, first and consecutive frames equal the recorded ones byte for byte; recorded frames seed `FuzzReceiver`.
+- `internal/cmd/fetchcaptures`: tests against an `httptest` server (plain files, ZIPs, ZIPs of ZIPs read by range, every error path).
+- `make test-captures` runs the recorded-traffic tests on the whole logs without `-race` (CI's vcan jobs, Wireshark required); a `-race` build checks the first 20,000 lines of each log.
+
+### Security
+
+SAST (gosec, opengrep at severity and confidence high): 0 open findings; the six new ones in the capture harness (path taint on the corpus and cache paths, a BLF channel conversion, cache directory permissions) were fixed in code (`os.Root` reads and writes, a lower bound on the BLF channel, 0750 directories).
+
+### Known differences
+
+pcap carries no interface names and pcap/pcapng no direction; BLF writes frames older than the first frame at its start time (258 CANdid frames); recorded ECUs send consecutive frames 8–20 ms apart where go-canbus uses the STmin asked for. Not in any recording, so verified against software peers only: remote and error frames, classical DLC 9..15, CAN XL, ISO-TP extended/mixed addressing, CAN FD ISO-TP, WAIT/OVERFLOW, multi-frame requests.
+
+### Documentation
+
+testdata/captures/README.md, docs/CAPTURE-COVERAGE.md; TESTING.md, INTEROPERABILITY.md, LIMITATIONS.md, docs/FEATURE-STATUS.md, API.md, README.md.
+
+---
+
 ## v0.8.0
 
 **Date:** 2026-11-04

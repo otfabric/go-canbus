@@ -158,6 +158,15 @@ Streaming readers/writers: candump log (`(ts) iface ID#DATA`, `##F` FD,
 `LINKTYPE_CAN_SOCKETCAN`. `Replay` sends a capture with original, scaled or
 maximum timing, filters, frame/duration limits and rate limiting.
 
+The ASC, BLF and TRC writers turn interface names into the channel numbers
+those formats hold with one rule (`vectorChannel`): a number stays itself, a
+SocketCAN-style name ending in a number N becomes N+1, anything else 1.
+
+Recorded vehicle traffic in `testdata/captures` is reached through
+`internal/corpus` (manifest, SHA256SUMS, the extended cache);
+`internal/cmd/fetchcaptures` downloads the extended corpus. Neither is part
+of the public API.
+
 ## Packages `candb`, `dbc`, `kcd`, `codegen`
 
 `candb` is the format-independent message model (database, nodes,

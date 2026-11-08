@@ -1,0 +1,22 @@
+{
+    "Capture Description": "Depressing and releasing brakes in 10s intervals",
+    "Capture Duration (seconds)": 81,
+    "Capture Type": "Brakes",
+    "Car Info": {
+        "Fuel Level (Approx.)": "50%",
+        "Fuel Type": "Petrol",
+        "Handbrake Type": "Lever",
+        "Make": "Mazda",
+        "Model": "CX-5",
+        "Month": "Aug",
+        "Odometer (m)": 82060,
+        "Start Type": "Push-to-start",
+        "Transmission": "Auto",
+        "UID": 8,
+        "Year": 2014
+    },
+    "Weather Info": {
+        "Road Conditions": "Wet",
+        "Temperature (C)": 13
+    }
+}

@@ -27,7 +27,7 @@ jobs:
       codecov-name: go-canbus
       run-codecov: false
       coverpkg: >-
-        github.com/otfabric/go-canbus,github.com/otfabric/go-canbus/arxml,github.com/otfabric/go-canbus/candb,github.com/otfabric/go-canbus/candb/bits,github.com/otfabric/go-canbus/capture,github.com/otfabric/go-canbus/chaos,github.com/otfabric/go-canbus/codegen,github.com/otfabric/go-canbus/dbc,github.com/otfabric/go-canbus/isotp,github.com/otfabric/go-canbus/kcd,github.com/otfabric/go-canbus/slcan,github.com/otfabric/go-canbus/socketcan,github.com/otfabric/go-canbus/socketcan/link,github.com/otfabric/go-canbus/virtual
+        github.com/otfabric/go-canbus,github.com/otfabric/go-canbus/arxml,github.com/otfabric/go-canbus/candb,github.com/otfabric/go-canbus/candb/bits,github.com/otfabric/go-canbus/capture,github.com/otfabric/go-canbus/chaos,github.com/otfabric/go-canbus/codegen,github.com/otfabric/go-canbus/dbc,github.com/otfabric/go-canbus/internal/corpus,github.com/otfabric/go-canbus/isotp,github.com/otfabric/go-canbus/kcd,github.com/otfabric/go-canbus/slcan,github.com/otfabric/go-canbus/socketcan,github.com/otfabric/go-canbus/socketcan/link,github.com/otfabric/go-canbus/virtual
       go-versions: '["1.26", "1.27"]'
     secrets: inherit
 
@@ -69,6 +69,10 @@ jobs:
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq tcpdump tshark
           tcpdump --version | head -2
           tshark --version | head -1
+      - name: Recorded vehicle traffic, whole logs, against Wireshark
+        env:
+          CANBUS_REQUIRE_TSHARK: "1"
+        run: make test-captures
       - name: Tests with the race detector
         env:
           CANBUS_REQUIRE_ISOTP: "1"

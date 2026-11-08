@@ -38,10 +38,12 @@ Status column: **done** = implemented and tested (test named), **partial**,
 | F-TP-3 | N_As/N_Bs/N_Cr timeouts, padding, invalid sequence handling | done (TestReceptionErrors, TestFlowControlTimeoutAndClose) |
 | F-TP-4 | CAN FD ISO-TP (TX_DL up to 64, SF escape), FF escape > 4095 bytes, MaxMessageSize bound | done (fd modes, 10000-byte transfers) |
 | F-TP-5 | Kernel CAN_ISOTP adapter with the same configuration | done (TestKernelVersusUserspace) |
+| F-TP-6 | Reproduce recorded testers' and ECUs' ISO-TP frames; reassemble recorded traffic as Wireshark does | done (TestCapture*, isotp) |
 | F-CA-1 | candump log read/write (classical, FD, RTR, error) | done (TestParseFrame, interop capture/replay) |
 | F-CA-2 | Lossless JSONL capture, versioned schema | done (TestRoundTrips) |
 | F-CA-3 | pcap LINKTYPE_CAN_SOCKETCAN read/write, pcapng read/write, CAN XL in both | done (TestPCAPVariants, TestPCAPNG, TestXLRoundTrip, TestRealCapture*, TestWireshark*, TestTcpdumpCapturesXL) |
 | F-CA-4 | Replay: original, scaled, maximum speed; filters, limits, rate limiting; streaming | done (TestReplay) |
+| F-CA-5 | Logs recorded on real vehicles read, written back byte for byte and converted without losing what the target format holds (direction tokens, one channel per interface) | done (TestVehicleCaptures*, TestWiresharkReadsVehicleCaptures, TestExtendedVehicleCorpus; testdata/captures) |
 | F-DB-1 | Canonical model independent of DBC syntax | done |
 | F-DB-2 | DBC: messages, signals, Intel/Motorola, signed, scaling, units, limits, value tables, comments, attributes and defaults, senders/receivers, cycle time, float signals, CAN FD lengths, multiplexing and extended multiplexing | done (TestParseModel, interop DBC) |
 | F-DB-3 | Exact 64-bit raw values; no float round-trip loss | done (TestSixtyFourBitExact, PhysText) |

@@ -309,6 +309,7 @@ func FormatFrame(f *canbus.Frame) string { return f.String() }
 type CandumpWriter struct {
 	w     *bufio.Writer
 	iface string
+	dir   bool
 }
 
 // NewCandumpWriter returns a writer of candump log lines. iface replaces
@@ -318,6 +319,25 @@ func NewCandumpWriter(w io.Writer, iface string) *CandumpWriter {
 		iface = "can0"
 	}
 	return &CandumpWriter{w: bufio.NewWriter(w), iface: iface}
+}
+
+// SetDirection makes the writer end every line with the direction token
+// that candump -L -x writes: " T" for a frame this node sent
+// ([canbus.Frame.Echo]) and " R" for one it received. Off by default, as
+// plain candump -L writes no token. [CandumpReader] and canplayer read
+// lines with or without it; with it a trace read from a log with tokens
+// is written back unchanged instead of losing its "T" marks.
+func (w *CandumpWriter) SetDirection(on bool) { w.dir = on }
+
+// direction returns the token to append for a frame.
+func (w *CandumpWriter) direction(echo bool) string {
+	switch {
+	case !w.dir:
+		return ""
+	case echo:
+		return " T"
+	}
+	return " R"
 }
 
 // Write writes one line. The timestamp is truncated to microseconds, as
@@ -335,7 +355,7 @@ func (w *CandumpWriter) Write(f *canbus.Frame) error {
 		sec = f.Timestamp.Unix()
 		usec = int64(f.Timestamp.Nanosecond() / 1000)
 	}
-	_, err := fmt.Fprintf(w.w, "(%010d.%06d) %s %s\n", sec, usec, iface, f.String())
+	_, err := fmt.Fprintf(w.w, "(%010d.%06d) %s %s%s\n", sec, usec, iface, f.String(), w.direction(f.Echo))
 	return err
 }
 
@@ -353,7 +373,7 @@ func (w *CandumpWriter) WriteXL(x *canbus.XLFrame) error {
 		sec = x.Timestamp.Unix()
 		usec = int64(x.Timestamp.Nanosecond() / 1000)
 	}
-	_, err := fmt.Fprintf(w.w, "(%010d.%06d) %s %s\n", sec, usec, iface, x.String())
+	_, err := fmt.Fprintf(w.w, "(%010d.%06d) %s %s%s\n", sec, usec, iface, x.String(), w.direction(x.Echo))
 	return err
 }
 

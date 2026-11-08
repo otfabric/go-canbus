@@ -1,0 +1,22 @@
+{
+    "Capture Description": "Depressing and releasing brakes in 10s intervals",
+    "Capture Duration (seconds)": 80,
+    "Capture Type": "Brakes",
+    "Car Info": {
+        "Fuel Level (Approx.)": "50%",
+        "Fuel Type": "Petrol",
+        "Handbrake Type": "Lever",
+        "Make": "Holden",
+        "Model": "Barina TM",
+        "Month": "Nov",
+        "Odometer (m)": 120448,
+        "Start Type": "Key",
+        "Transmission": "Auto",
+        "UID": 4,
+        "Year": 2012
+    },
+    "Weather Info": {
+        "Road Conditions": "Wet",
+        "Temperature (C)": 18
+    }
+}

@@ -1,0 +1,22 @@
+{
+    "Capture Description": "Depressing and releasing brakes in 10s intervals",
+    "Capture Duration (seconds)": 80,
+    "Capture Type": "Brakes",
+    "Car Info": {
+        "Fuel Level (Approx.)": "50%",
+        "Fuel Type": "Petrol",
+        "Handbrake Type": "Lever",
+        "Make": "Toyota",
+        "Model": "Yaris",
+        "Month": "Mar",
+        "Odometer (m)": 75184,
+        "Start Type": "Key",
+        "Transmission": "Auto",
+        "UID": 9,
+        "Year": 2016
+    },
+    "Weather Info": {
+        "Road Conditions": "Dry",
+        "Temperature (C)": 12
+    }
+}

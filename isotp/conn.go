@@ -314,9 +314,22 @@ func (c *Conn) run() {
 				}
 			}
 		case <-crC:
+			// N_Cr ends at the reception of the next consecutive frame:
+			// one already queued arrived in time, though this goroutine
+			// sees it only now (select picks either ready case).
 			crC = nil
-			c.rxOn = false
-			c.deliver(nil, fmt.Errorf("%w: no consecutive frame within N_Cr (%v)", ErrTimeout, c.cfg.TimeoutCr))
+			for drained := false; !drained; {
+				select {
+				case f := <-c.sub.Frames():
+					c.handle(&f, timer, &crC)
+				default:
+					drained = true
+				}
+			}
+			if c.rxOn && crC == nil {
+				c.rxOn = false
+				c.deliver(nil, fmt.Errorf("%w: no consecutive frame within N_Cr (%v)", ErrTimeout, c.cfg.TimeoutCr))
+			}
 		case f := <-c.sub.Frames():
 			c.handle(&f, timer, &crC)
 		}
