@@ -89,8 +89,6 @@ func TestFetchErrors(t *testing.T) {
 	flat := zipOf(t, map[string][]byte{"Car/b.log": []byte("x")})
 	srv := server(t, map[string][]byte{"/data.zip": flat})
 	dir := t.TempDir()
-	f := &fetcher{dir: dir, tmp: map[string]string{}, client: srv.Client()}
-	defer f.cleanup()
 	for name, e := range map[string]corpus.Extended{
 		"404":           {URL: srv.URL + "/none"},
 		"archive hash":  {URL: srv.URL + "/data.zip", Archive: []string{"data.zip", "Car/b.log"}, ArchiveSHA256: "00"},
@@ -99,10 +97,15 @@ func TestFetchErrors(t *testing.T) {
 		"range member":  {URL: srv.URL + "/data.zip", Archive: []string{"data.zip", "none.zip", "y"}},
 		"archive depth": {URL: srv.URL + "/data.zip", Archive: []string{"a"}},
 	} {
+		// A fetcher per case: a fetcher keeps an archive it has checked
+		// for the entries after it, and map order would decide which case
+		// downloads it first.
+		f := &fetcher{dir: dir, tmp: map[string]string{}, client: srv.Client()}
 		e.Name = "e/" + strings.ReplaceAll(name, " ", "-")
 		if err := f.fetch(e, filepath.Join(dir, e.Name)); err == nil {
 			t.Errorf("%s: no error", name)
 		}
+		f.cleanup()
 	}
 }
 
