@@ -30,7 +30,6 @@ N_Cr timeout, fixed.
 
 - `capture`: the ASC, BLF and TRC writers wrote every interface that is not a bare number as channel 1, so a multi-bus recording (CarDS: `can0`..`can8`) collapsed into one channel. A name ending in a number now gets that number plus one (`can0` → 1, `can4` → 5), as python-can's writers number them; a bare number stays itself, any other name is 1. **Behaviour change**: frames of `can1`, `vcan2`, … are written on channels 2, 3, … instead of 1. A BLF channel above 65535 is now `ErrUnrepresentable` instead of channel 1.
 - `capture`: the candump writer dropped the `R`/`T` direction token that `candump -L -x` writes and the reader accepts, so a log with tokens lost its `T` marks when written back. `CandumpWriter.SetDirection(true)` writes the token (`T` for `Frame.Echo`, else `R`); off by default, so plain output is unchanged.
-
 - `isotp`: a consecutive frame already queued when N_Cr expired was ignored half the time (the receive goroutine's `select` picked the timer), giving `ErrTimeout` for a transfer whose frame arrived in time. Queued frames are now handled first; the timeout fires only if none continues the transfer.
 
 ### Added
@@ -44,6 +43,12 @@ N_Cr timeout, fixed.
 - `capture`: four records of the Wireshark wiki's CANopen.pcap whose writer left 0x7F in the FD flags byte of classical frames: read as CAN FD, as tcpdump.org's LINKTYPE_CAN_SOCKETCAN definition and Wireshark 4.6.9 read them (pinned, not changed).
 - `isotp`: `TestQueuedConsecutiveFrameBeatsNCr` holds the receive goroutine while a consecutive frame queues and N_Cr expires (fails without the fix).
 - `isotp`: listen-only reassembly equals Wireshark's messages (incomplete first frames end in reception errors); as each recorded tester and ECU, requests, flow control, single, first and consecutive frames equal the recorded ones byte for byte; recorded frames seed `FuzzReceiver`.
+- `internal/cmd/fetchcaptures`: tests against an `httptest` server (plain files, ZIPs, ZIPs of ZIPs read by range, every error path).
+- `make test-captures` runs the recorded-traffic tests on the whole logs without `-race` (CI's vcan jobs, Wireshark required); a `-race` build checks the first 20,000 lines of each log.
+
+### Security
+
+SAST (gosec, opengrep at severity and confidence high): 0 open findings; the six new ones in the capture harness (path taint on the corpus and cache paths, a BLF channel conversion, cache directory permissions) were fixed in code (`os.Root` reads and writes, a lower bound on the BLF channel, 0750 directories).
 
 ### Known differences
 
