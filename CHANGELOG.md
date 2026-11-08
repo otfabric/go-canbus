@@ -2,6 +2,14 @@
 
 Release notes with details are in [RELEASE.md](RELEASE.md).
 
+## v0.9.0 (2026-11-08)
+
+Tested against CAN logs recorded on eleven real vehicles (CANdid, CarDS;
+extended corpus with TU/e): Wireshark-checked decoding, byte-exact
+write-back, every format, ISO-TP as the recorded testers and ECUs. Fixed:
+ASC/BLF/TRC writers put every interface on channel 1; the candump writer
+dropped direction tokens (`CandumpWriter.SetDirection`).
+
 ## v0.8.0 (2026-11-04)
 
 SAST hardening: values that wrapped silently now return errors (DBC

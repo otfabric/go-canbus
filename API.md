@@ -80,10 +80,13 @@ Duplicate, Delay, DelayBy, Corrupt, DropNext})`, `FaultStats`, `SetUp`,
 ## capture
 
 `Reader`, `Writer`, `NewReader` (format detection), `NewWriter`;
-`NewCandumpReader`/`Writer`, `ParseCandumpLine`, `ParseFrame`,
+`NewCandumpReader`/`Writer` (`CandumpWriter.SetDirection` writes the
+`R`/`T` token of `candump -L -x`), `ParseCandumpLine`, `ParseFrame`,
 `FormatFrame`; `NewJSONLReader`/`Writer`, `Record`, `ToRecord`;
 `NewPCAPReader`/`Writer`, `NewPCAPNGReader`/`Writer`; `NewASCReader`/`Writer`,
-`NewBLFReader`/`Writer`, `NewTRCReader`/`Writer`; `FormatFromPath`; `Replay(ctx, Reader,
+`NewBLFReader`/`Writer`, `NewTRCReader`/`Writer` (their writers number
+channels from the interface: `"3"` stays 3, `can0` is 1, `can4` is 5, any
+other name 1); `FormatFromPath`; `Replay(ctx, Reader,
 Sender, ReplayOptions) (ReplayStats, error)`; `RecordFrames`. CAN XL:
 `XLReader` (`ReadAny`) and `XLWriter` (`WriteXL`), implemented by the
 candump, JSON Lines, pcap and pcapng readers and writers

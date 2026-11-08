@@ -103,6 +103,26 @@ Grouped into gaps and follow-ups, with what is not verified:
   `isotp.Conn` reports both (`ErrProtocol`, `ErrTooLarge`). Pinned by
   `e2e/hostile_linux_test.go`.
 
+## Recorded vehicle traffic
+
+go-canbus is tested against CAN logs recorded on eleven real vehicles by
+others (testdata/captures; class B evidence, the publishers' word for the
+vehicles). That shows go-canbus reads, writes and converts what real buses
+carried, and that its ISO-TP connection reproduces real testers' and ECUs'
+frames; it is not a test against a live vehicle and not a conformance
+claim. The recordings hold no remote frames, error frames, classical DLC
+9..15, CAN XL, ISO-TP extended or mixed addressing, CAN FD ISO-TP, WAIT or
+OVERFLOW flow control or multi-frame requests: those are verified against
+software peers only (INTEROPERABILITY.md).
+
+- BLF stores object times as unsigned offsets from the file's start, which
+  the writer takes from the first frame: a frame recorded before the first
+  frame (every CANdid log starts with one frame 12–23 ms early) is written
+  at the start time.
+- ASC, BLF and TRC hold channel numbers, not interface names: `can0` is
+  written as channel 1, `can4` as 5, a bare number as itself, any other
+  name as 1, and the readers name channels `"1"`, `"2"`, ….
+
 ## Needs real hardware to validate
 
 Bit rates and sample points, CAN FD data phase and transceiver delay
