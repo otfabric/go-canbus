@@ -305,6 +305,14 @@ func (w *CandumpWriter) Close() error
 
 Close flushes the output.
 
+#### func (CandumpWriter) SetDirection
+
+```go
+func (w *CandumpWriter) SetDirection(on bool)
+```
+
+SetDirection makes the writer end every line with the direction token that candump -L -x writes: " T" for a frame this node sent ([canbus.Frame.Echo](https://pkg.go.dev/github.com/otfabric/go-canbus#Frame.Echo)) and " R" for one it received. Off by default, as plain candump -L writes no token. [CandumpReader](#type-candumpreader) and canplayer read lines with or without it; with it a trace read from a log with tokens is written back unchanged instead of losing its "T" marks.
+
 #### func (CandumpWriter) Write
 
 ```go

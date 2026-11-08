@@ -36,6 +36,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -218,3 +219,31 @@ func lenByte(n int) uint8 { return uint8(max(min(n, canbus.MaxFDLen), 0)) }
 // maxOffsetSec bounds the offsets of the text formats (seconds from the
 // start): a time.Duration spans about ±292 years.
 const maxOffsetSec = 9e9
+
+// vectorChannel returns the channel number (1-based) that the Vector ASC
+// and BLF writers and the PEAK TRC writer give a frame's interface:
+//
+//   - a number, as their readers name channels ("1", "2", ...), is kept;
+//   - a name ending in a number, as SocketCAN names interfaces ("can0",
+//     "vcan3", "slcan0"), gets that number plus one, so that can0 is
+//     channel 1 and every bus of a multi-bus recording keeps a channel of
+//     its own (python-can's writers number channels the same way,
+//     can.util.channel2int plus one);
+//   - any other name, and an empty one, is channel 1.
+func vectorChannel(iface string) int {
+	i := len(iface)
+	for i > 0 && iface[i-1] >= '0' && iface[i-1] <= '9' {
+		i--
+	}
+	if i == len(iface) || len(iface)-i > 9 {
+		return 1
+	}
+	n, _ := strconv.Atoi(iface[i:]) // at most 9 digits: cannot fail
+	switch {
+	case i > 0:
+		return n + 1
+	case n > 0:
+		return n
+	}
+	return 1
+}

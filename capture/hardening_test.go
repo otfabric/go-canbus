@@ -11,6 +11,7 @@ import (
 	"math"
 	"math/rand/v2"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -217,7 +218,7 @@ func checkRoundTrip(t *testing.T, format Format, in, got []item) {
 		case FormatJSONL, FormatPCAPNG, FormatASC, FormatBLF, FormatTRC:
 		}
 		if vector {
-			wantIf = "1"
+			wantIf = strconv.Itoa(vectorChannel(wantIf))
 			if d := gotTS.Sub(wantTS); d > time.Microsecond || d < -time.Microsecond {
 				t.Fatalf("%s frame %d: timestamp %v off by %v", format, i, gotTS, d)
 			}

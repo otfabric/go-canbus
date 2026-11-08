@@ -30,7 +30,8 @@ import (
 // ";$STARTTIME=" is the start in days since 1899-12-30 (an OLE date) in
 // local time without a zone, read and written in time.Local like ASC and
 // BLF; offsets are milliseconds from it. The bus number becomes the frame's
-// Interface ("1", "2", ...); Tx records are read as echoes and echoes are
+// Interface ("1", "2", ...), and is written as described at
+// [vectorChannel]; Tx records are read as echoes and echoes are
 // written as Tx.
 //
 // Error frames: an ER record holds five bytes (error type 0 bit, 1 form, 2
@@ -448,7 +449,7 @@ func (w *TRCWriter) Write(f *canbus.Frame) error {
 		off = float64(d.Round(time.Microsecond)) / float64(time.Millisecond)
 	}
 	w.n++
-	bus := ascChannel(f.Interface)
+	bus := strconv.Itoa(vectorChannel(f.Interface))
 	dir := "Rx"
 	if f.Echo {
 		dir = "Tx"
