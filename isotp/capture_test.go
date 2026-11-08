@@ -48,22 +48,21 @@ type golden struct {
 		Frame int    `json:"frame"`
 		ID    uint32 `json:"id"`
 	} `json:"first_frames"`
+	Interface string `json:"interface"`
 }
 
-// recorded is a diagnostic trace with Wireshark's dissection of it.
+// recorded is the diagnostic bus of a recording with Wireshark's
+// dissection of it.
 type recorded struct {
-	frames []canbus.Frame
+	frames []canbus.Frame // the frames on the golden file's interface
+	lines  []int          // their lines in the whole recording (from 1)
 	gold   golden
-	msgAt  map[int][]byte // message completed by frame n (1-based)
+	msgAt  map[int][]byte // message completed by line n
 }
 
 func loadRecorded(t *testing.T, name string) recorded {
 	t.Helper()
-	m, err := corpus.Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := corpus.Verify(m); err != nil {
+	if _, err := corpus.Checked(); err != nil {
 		t.Fatal(err)
 	}
 	raw, err := os.ReadFile(corpus.Path(name + ".log"))
@@ -71,14 +70,6 @@ func loadRecorded(t *testing.T, name string) recorded {
 		t.Fatal(err)
 	}
 	var rec recorded
-	r := capture.NewCandumpReader(bytes.NewReader(raw))
-	for {
-		var f canbus.Frame
-		if err := r.Read(&f); err != nil {
-			break
-		}
-		rec.frames = append(rec.frames, f)
-	}
 	b, err := os.ReadFile(corpus.Path(name + ".isotp.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -86,13 +77,34 @@ func loadRecorded(t *testing.T, name string) recorded {
 	if err := json.Unmarshal(b, &rec.gold); err != nil {
 		t.Fatal(err)
 	}
+	r := capture.NewCandumpReader(bytes.NewReader(raw))
+	index := map[int]int{} // line -> index in rec.frames
+	for line := 1; ; line++ {
+		var f canbus.Frame
+		if err := r.Read(&f); err != nil {
+			break
+		}
+		if rec.gold.Interface == "" || f.Interface == rec.gold.Interface {
+			index[line] = len(rec.frames)
+			rec.frames = append(rec.frames, f)
+			rec.lines = append(rec.lines, line)
+		}
+	}
 	rec.msgAt = map[int][]byte{}
 	for _, msg := range rec.gold.Messages {
 		d, err := hex.DecodeString(msg.Data)
-		if err != nil || msg.Frame < 1 || msg.Frame > len(rec.frames) || uint32(rec.frames[msg.Frame-1].ID) != msg.ID {
+		i, ok := index[msg.Frame]
+		if err != nil || !ok || uint32(rec.frames[i].ID) != msg.ID {
 			t.Fatalf("%s: bad golden message %+v", name, msg)
 		}
 		rec.msgAt[msg.Frame] = d
+	}
+	for k, ff := range rec.gold.FirstFrames {
+		i, ok := index[ff.Frame]
+		if !ok {
+			t.Fatalf("%s: bad golden first frame %+v", name, ff)
+		}
+		rec.gold.FirstFrames[k].Frame = i + 1 // as an index of rec.frames from 1
 	}
 	return rec
 }
@@ -107,9 +119,9 @@ func pciOf(f *canbus.Frame) byte { return f.Data[0] >> 4 }
 // reception error instead of a message.
 func TestCaptureReassemblyMatchesWireshark(t *testing.T) {
 	for _, name := range []string{
-		"cards/Benign-Standstill-University-NA-T2_ReadVIN.can9",
-		"cards/Benign-Standstill-University-NA-T1_RecognizeCar.can9",
-		"cards/UDS-Standstill-University-NA-CaringCaribou_Auto_1.can9.3700-5300",
+		"cards/tester-t2_2020-ev_read-vin",
+		"cards/tester-t1_2020-ev_recognize-car",
+		"cards/caringcaribou_2020-ev_uds-scan",
 	} {
 		t.Run(name, func(t *testing.T) { reassemble(t, loadRecorded(t, name)) })
 	}
@@ -133,7 +145,7 @@ func reassemble(t *testing.T, rec recorded) {
 			want[k] = nil
 			order = append(order, k)
 		}
-		if d, ok := rec.msgAt[i+1]; ok {
+		if d, ok := rec.msgAt[rec.lines[i]]; ok {
 			want[k] = append(want[k], hex.EncodeToString(d))
 		}
 	}
@@ -142,7 +154,7 @@ func reassemble(t *testing.T, rec recorded) {
 		wantErrs[key{f.ID, f.IsExtended()}]++
 	}
 	for i := range rec.frames {
-		if _, ok := rec.msgAt[i+1]; ok && pciOf(&rec.frames[i]) == pciCF {
+		if _, ok := rec.msgAt[rec.lines[i]]; ok && pciOf(&rec.frames[i]) == pciCF {
 			wantErrs[key{rec.frames[i].ID, rec.frames[i].IsExtended()}]--
 		}
 	}
@@ -244,8 +256,8 @@ func recordedPairs() map[string][]diagPair {
 		t1 = append(t1, diagPair{0x18040000 | n, 0x18060000 | n})
 	}
 	return map[string][]diagPair{
-		"cards/Benign-Standstill-University-NA-T2_ReadVIN.can9":      {{0x17FC0087, 0x17FE0087}},
-		"cards/Benign-Standstill-University-NA-T1_RecognizeCar.can9": t1,
+		"cards/tester-t2_2020-ev_read-vin":      {{0x17FC0087, 0x17FE0087}},
+		"cards/tester-t1_2020-ev_recognize-car": t1,
 	}
 }
 
@@ -263,7 +275,7 @@ func (rec recorded) exchange(p diagPair) diagExchange {
 	for i := range rec.frames {
 		if id := rec.frames[i].ID; id == p.tester || id == p.ecu {
 			x.frames = append(x.frames, rec.frames[i])
-			x.lines = append(x.lines, i+1)
+			x.lines = append(x.lines, rec.lines[i])
 		}
 	}
 	return x

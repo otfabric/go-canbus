@@ -4,7 +4,7 @@
 
 .DEFAULT_GOAL := help
 
-.PHONY: captures-extended chaos e2e microvm interop-images help all build examples fmt fmt-check lint lint-ci vet vuln test test-vcan test-admin coverage coverage-check cover bench fuzz check clean generate generate-check coverpkg-check cross interop vcan-setup coverage-pkg-check docs-check
+.PHONY: test-captures captures-extended chaos e2e microvm interop-images help all build examples fmt fmt-check lint lint-ci vet vuln test test-vcan test-admin coverage coverage-check cover bench fuzz check clean generate generate-check coverpkg-check cross interop vcan-setup coverage-pkg-check docs-check
 
 help: ## This help
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z0-9_-]+:.*?## / {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -128,7 +128,11 @@ cover: coverage ## Open the coverage report in a browser
 bench: ## Run the benchmarks
 	@go test -count=1 -run='^$$' -bench=. -benchmem ./ ./candb/bits ./socketcan ./capture
 
-captures-extended: ## Fetch the whole vehicle recordings (about 1.2 GB download) and test them
+test-captures: ## Run the recorded-traffic tests on the whole committed logs (no -race; tshark checks with CANBUS_REQUIRE_TSHARK=1)
+	@go test -count=1 -timeout 20m -run 'Vehicle|PCAPFDFlag' ./capture
+	@go test -count=1 -run 'Capture' ./isotp
+
+captures-extended: ## Fetch the whole vehicle recordings (about 1.1 GB download) and test them
 	@go run ./internal/cmd/fetchcaptures
 	@CANBUS_REQUIRE_CAPTURES=1 go test -count=1 -timeout 30m -run '^TestExtendedVehicleCorpus$$' -v ./capture
 

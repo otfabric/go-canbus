@@ -24,8 +24,7 @@
    "version": 2,
    "licence": "CC-BY-4.0",
    "class": "B",
-   "recording": "OBD-II port of ten passenger cars, candump log format (can-utils), one interface can0; vehicle make, model and year in the published *_meta.json files",
-   "redistribution": "excerpts committed with attribution (CC BY 4.0)"
+   "recording": "OBD-II port of ten passenger cars, candump log format (can-utils), one interface can0; vehicle make, model and year in the published *_meta.json files"
   },
   {
    "id": "cards",
@@ -61,8 +60,7 @@
       "sha256": "a867ddcf59f6405afb237cdbd51dde0e3957016d452161b839a0188bff15f85f"
      }
     }
-   },
-   "redistribution": "excerpts committed under CC BY-SA 4.0 (licence text in cards/LICENSE.txt); the excerpts keep that licence, not this repository's MIT licence"
+   }
   },
   {
    "id": "tue",
@@ -79,13 +77,12 @@
    "version": 2,
    "licence": "CC-BY-NC-4.0",
    "class": "B",
-   "recording": "OBD-II port of an Opel Astra and a Renault Clio with a CANtact (slcan0), candump; the attack files are hand-edited copies and are not used",
-   "redistribution": "not committed: the non-commercial licence does not fit this MIT repository; extended corpus only"
+   "recording": "OBD-II port of an Opel Astra and a Renault Clio with a CANtact (slcan0), candump; the attack files are hand-edited copies and are not used"
   }
  ],
  "files": [
   {
-   "path": "candid/1_brakes_CAN.head500.log",
+   "path": "candid/obd-logger_2018-holden-astra_brakes.log",
    "source": "candid",
    "class": "B",
    "device": "2018 Holden Astra (CANdid vehicle 1), OBD-II port",
@@ -96,14 +93,14 @@
     "sha256": "c6a0439d90682d4d235f2c4c53b1351343bbc2a81feb8b96c2ef3410931ff517",
     "md5_published": "5953bb2b9231ab22058e02f33766a8f1"
    },
-   "cut": "head -n 500",
-   "sha256": "484d5e1df1d283f6dd5c9a64a289739ad283f651360c04a53dd24f8da4e6734b",
+   "cut": "none (the whole file)",
+   "sha256": "c6a0439d90682d4d235f2c4c53b1351343bbc2a81feb8b96c2ef3410931ff517",
    "stats": {
-    "frames": 500,
+    "frames": 193889,
     "interfaces": [
      "can0"
     ],
-    "standard": 500,
+    "standard": 193889,
     "extended": 0,
     "fd": 0,
     "brs": 0,
@@ -116,7 +113,16 @@
    }
   },
   {
-   "path": "candid/2_brakes_CAN.head500.log",
+   "path": "candid/obd-logger_2018-holden-astra_brakes.meta.json",
+   "source": "candid",
+   "kind": "metadata",
+   "original": {
+    "name": "1_brakes_meta.json"
+   },
+   "sha256": "42297fbdc1df3fac50c074e89cd03f90ce2690acbc495f346cb1ef44c15cef17"
+  },
+  {
+   "path": "candid/obd-logger_2017-mazda-cx-3_brakes.log",
    "source": "candid",
    "class": "B",
    "device": "2017 Mazda CX-3 Maxx Sport (CANdid vehicle 2), OBD-II port",
@@ -127,14 +133,14 @@
     "sha256": "616472907ce91c839ab95d59ec26a5621fc5a3ff94194600e468d1fd2b149f67",
     "md5_published": "90184acce240bd11df29cd1388aa4f81"
    },
-   "cut": "head -n 500",
-   "sha256": "ae3e05fdd59220b946f8463b91faba13bc9697aab7f30dbe02cbc69ff58e76d3",
+   "cut": "none (the whole file)",
+   "sha256": "616472907ce91c839ab95d59ec26a5621fc5a3ff94194600e468d1fd2b149f67",
    "stats": {
-    "frames": 500,
+    "frames": 184634,
     "interfaces": [
      "can0"
     ],
-    "standard": 500,
+    "standard": 184634,
     "extended": 0,
     "fd": 0,
     "brs": 0,
@@ -147,7 +153,16 @@
    }
   },
   {
-   "path": "candid/3_brakes_CAN.head500.log",
+   "path": "candid/obd-logger_2017-mazda-cx-3_brakes.meta.json",
+   "source": "candid",
+   "kind": "metadata",
+   "original": {
+    "name": "2_brakes_meta.json"
+   },
+   "sha256": "82f0fb9588335f7d986b7da99c0f7a3a7870e45308ef23c7e2849ad0c85937ff"
+  },
+  {
+   "path": "candid/obd-logger_2012-subaru-impreza-car3_brakes.log",
    "source": "candid",
    "class": "B",
    "device": "2012 Subaru Impreza (CANdid vehicle 3), OBD-II port",
@@ -158,14 +173,14 @@
     "sha256": "fb49c7c8b8d1b176e9494d0b6ce1cd85efc0be9293802c3a7ec40da70351b717",
     "md5_published": "89f52ba3f366921f16769861a546f411"
    },
-   "cut": "head -n 500",
-   "sha256": "1bc0aad97df695e54f5ca5d187ef49e06d0f63380034fe9f7f80c97fc62ae996",
+   "cut": "none (the whole file)",
+   "sha256": "fb49c7c8b8d1b176e9494d0b6ce1cd85efc0be9293802c3a7ec40da70351b717",
    "stats": {
-    "frames": 500,
+    "frames": 92009,
     "interfaces": [
      "can0"
     ],
-    "standard": 500,
+    "standard": 92009,
     "extended": 0,
     "fd": 0,
     "brs": 0,
@@ -178,7 +193,16 @@
    }
   },
   {
-   "path": "candid/4_brakes_CAN.head500.log",
+   "path": "candid/obd-logger_2012-subaru-impreza-car3_brakes.meta.json",
+   "source": "candid",
+   "kind": "metadata",
+   "original": {
+    "name": "3_brakes_meta.json"
+   },
+   "sha256": "f5a07a908e34293eccf5d25d785d596a7a21c2982431d950a09c832b3e6d9a2b"
+  },
+  {
+   "path": "candid/obd-logger_2012-holden-barina-automatic_brakes.log",
    "source": "candid",
    "class": "B",
    "device": "2012 Holden Barina TM (automatic) (CANdid vehicle 4), OBD-II port",
@@ -189,14 +213,14 @@
     "sha256": "c069ff06343c7ea2b4d03d1917de415b3e6925332585ab263c1ad76835ef1e93",
     "md5_published": "db46de13ecafae318ea1b89e20319bca"
    },
-   "cut": "head -n 500",
-   "sha256": "eb10d3fb77eb3debe541a58ff126493076d23168f22919b20683122f4c79d02a",
+   "cut": "none (the whole file)",
+   "sha256": "c069ff06343c7ea2b4d03d1917de415b3e6925332585ab263c1ad76835ef1e93",
    "stats": {
-    "frames": 500,
+    "frames": 186339,
     "interfaces": [
      "can0"
     ],
-    "standard": 500,
+    "standard": 186339,
     "extended": 0,
     "fd": 0,
     "brs": 0,
@@ -209,7 +233,16 @@
    }
   },
   {
-   "path": "candid/5_brakes_CAN.head500.log",
+   "path": "candid/obd-logger_2012-holden-barina-automatic_brakes.meta.json",
+   "source": "candid",
+   "kind": "metadata",
+   "original": {
+    "name": "4_brakes_meta.json"
+   },
+   "sha256": "b385814f0ad14c1fca7ecfa1c0a5191c186aa9e0e4b3f808223460685a575e6a"
+  },
+  {
+   "path": "candid/obd-logger_2012-holden-cruze_brakes.log",
    "source": "candid",
    "class": "B",
    "device": "2012 Holden JH Cruze (CANdid vehicle 5), OBD-II port",
@@ -220,14 +253,14 @@
     "sha256": "b424e71755a5dafac2794faa6aa8181c41a611cf649a2a9006d2b44abe8764d5",
     "md5_published": "5034059a2501d35d454797facf0aba7e"
    },
-   "cut": "head -n 500",
-   "sha256": "20a33661899a90a5a7cffd66f61f424da62941967045f0e9ba74b366b3560bfd",
+   "cut": "none (the whole file)",
+   "sha256": "b424e71755a5dafac2794faa6aa8181c41a611cf649a2a9006d2b44abe8764d5",
    "stats": {
-    "frames": 500,
+    "frames": 198565,
     "interfaces": [
      "can0"
     ],
-    "standard": 500,
+    "standard": 198565,
     "extended": 0,
     "fd": 0,
     "brs": 0,
@@ -240,7 +273,16 @@
    }
   },
   {
-   "path": "candid/6_brakes_CAN.head500.log",
+   "path": "candid/obd-logger_2012-holden-cruze_brakes.meta.json",
+   "source": "candid",
+   "kind": "metadata",
+   "original": {
+    "name": "5_brakes_meta.json"
+   },
+   "sha256": "5c4e38185af75f9021f231d0dcd2ec3015f049df0bb9e2d795d34c067e211cef"
+  },
+  {
+   "path": "candid/obd-logger_2012-subaru-impreza-car6_brakes.log",
    "source": "candid",
    "class": "B",
    "device": "2012 Subaru Impreza (CANdid vehicle 6), OBD-II port",
@@ -251,14 +293,14 @@
     "sha256": "4191a400059f37b15e2c6b127348834e041159625a424c0ae013ff7113f9ddef",
     "md5_published": "50a867a67fe15afc15efa402dfb70b66"
    },
-   "cut": "head -n 500",
-   "sha256": "6b87ef42660646df0ab7b984504e6f89aff432f3d8a4bcb0bf19d3a703da9b76",
+   "cut": "none (the whole file)",
+   "sha256": "4191a400059f37b15e2c6b127348834e041159625a424c0ae013ff7113f9ddef",
    "stats": {
-    "frames": 500,
+    "frames": 91699,
     "interfaces": [
      "can0"
     ],
-    "standard": 500,
+    "standard": 91699,
     "extended": 0,
     "fd": 0,
     "brs": 0,
@@ -271,7 +313,16 @@
    }
   },
   {
-   "path": "candid/7_brakes_CAN.head500.log",
+   "path": "candid/obd-logger_2012-subaru-impreza-car6_brakes.meta.json",
+   "source": "candid",
+   "kind": "metadata",
+   "original": {
+    "name": "6_brakes_meta.json"
+   },
+   "sha256": "852acc86aefce6bdbf677b8073acd2d1cffa38c12235de55e68bc292f2417ac5"
+  },
+  {
+   "path": "candid/obd-logger_2013-mazda-cx-5_brakes.log",
    "source": "candid",
    "class": "B",
    "device": "2013 Mazda CX-5 (CANdid vehicle 7), OBD-II port",
@@ -282,14 +333,14 @@
     "sha256": "326372d482e96649ef5570bca4618ae04504b98867d7fa225da4c37638b10d45",
     "md5_published": "71985afa19bb6b10665bcbc2b28d7297"
    },
-   "cut": "head -n 500",
-   "sha256": "50e675763310149f7c693ddcc6196c6c81b317d2f620d0c2918d240c95258e4d",
+   "cut": "none (the whole file)",
+   "sha256": "326372d482e96649ef5570bca4618ae04504b98867d7fa225da4c37638b10d45",
    "stats": {
-    "frames": 500,
+    "frames": 25085,
     "interfaces": [
      "can0"
     ],
-    "standard": 500,
+    "standard": 25085,
     "extended": 0,
     "fd": 0,
     "brs": 0,
@@ -302,7 +353,16 @@
    }
   },
   {
-   "path": "candid/8_brakes_CAN.head500.log",
+   "path": "candid/obd-logger_2013-mazda-cx-5_brakes.meta.json",
+   "source": "candid",
+   "kind": "metadata",
+   "original": {
+    "name": "7_brakes_meta.json"
+   },
+   "sha256": "154ce3dd8c17b218d9e103db88860c1b9b116a9031d3f55059d1abc3d9079201"
+  },
+  {
+   "path": "candid/obd-logger_2014-mazda-cx-5_brakes.log",
    "source": "candid",
    "class": "B",
    "device": "2014 Mazda CX-5 (CANdid vehicle 8), OBD-II port",
@@ -313,14 +373,14 @@
     "sha256": "0bf9ed416c64211026a1b6d2921b13bb9ddc2a63f8a752822b0cf644592e9146",
     "md5_published": "f155e70c6033cf654937fa6cb6661ebf"
    },
-   "cut": "head -n 500",
-   "sha256": "63ead3d30a77017bfc82cf23708ae1c583c203a6ca04ec8658689170a1e50471",
+   "cut": "none (the whole file)",
+   "sha256": "0bf9ed416c64211026a1b6d2921b13bb9ddc2a63f8a752822b0cf644592e9146",
    "stats": {
-    "frames": 500,
+    "frames": 140670,
     "interfaces": [
      "can0"
     ],
-    "standard": 500,
+    "standard": 140670,
     "extended": 0,
     "fd": 0,
     "brs": 0,
@@ -333,7 +393,16 @@
    }
   },
   {
-   "path": "candid/9_brakes_CAN.head500.log",
+   "path": "candid/obd-logger_2014-mazda-cx-5_brakes.meta.json",
+   "source": "candid",
+   "kind": "metadata",
+   "original": {
+    "name": "8_brakes_meta.json"
+   },
+   "sha256": "89c695d8960413aa5c83c0c3d9a165201523c41e7c6e5fc9f537c3cf9707998f"
+  },
+  {
+   "path": "candid/obd-logger_2016-toyota-yaris_brakes.log",
    "source": "candid",
    "class": "B",
    "device": "2016 Toyota Yaris (CANdid vehicle 9), OBD-II port",
@@ -344,14 +413,14 @@
     "sha256": "9cf65cecb04d99cac55adb5ccffa40f4b8ea26198ddc62a9eb684caaa9a4ff05",
     "md5_published": "1785c98609e5dc895e9deea892f63fe1"
    },
-   "cut": "head -n 500",
-   "sha256": "4e8ce735100ad90be88f3c1064731c5de81c176bce6562da8fc5d01523075f61",
+   "cut": "none (the whole file)",
+   "sha256": "9cf65cecb04d99cac55adb5ccffa40f4b8ea26198ddc62a9eb684caaa9a4ff05",
    "stats": {
-    "frames": 500,
+    "frames": 70096,
     "interfaces": [
      "can0"
     ],
-    "standard": 500,
+    "standard": 70096,
     "extended": 0,
     "fd": 0,
     "brs": 0,
@@ -364,7 +433,16 @@
    }
   },
   {
-   "path": "candid/10_brakes_CAN.head500.log",
+   "path": "candid/obd-logger_2016-toyota-yaris_brakes.meta.json",
+   "source": "candid",
+   "kind": "metadata",
+   "original": {
+    "name": "9_brakes_meta.json"
+   },
+   "sha256": "dca79754753e11f47820cbb7da3a5a0d2cbbe07f56825a087bb3b78431fe0960"
+  },
+  {
+   "path": "candid/obd-logger_2012-holden-barina-manual_brakes.log",
    "source": "candid",
    "class": "B",
    "device": "2012 Holden Barina (manual) (CANdid vehicle 10), OBD-II port",
@@ -375,14 +453,14 @@
     "sha256": "b340bb7620abfbb570abb25491e5dd5f08db3aab0ee330f3b07f4117d08ab529",
     "md5_published": "538d760548bb087f66646a92224dc0b2"
    },
-   "cut": "head -n 500",
-   "sha256": "e08631ba2f1a5c37ec050b43f537f9330caeec3c893431d0ae06d33ef6a00311",
+   "cut": "none (the whole file)",
+   "sha256": "b340bb7620abfbb570abb25491e5dd5f08db3aab0ee330f3b07f4117d08ab529",
    "stats": {
-    "frames": 500,
+    "frames": 162593,
     "interfaces": [
      "can0"
     ],
-    "standard": 500,
+    "standard": 162593,
     "extended": 0,
     "fd": 0,
     "brs": 0,
@@ -395,7 +473,153 @@
    }
   },
   {
-   "path": "cards/Benign-FastDriving-DrivingSchool-NA-NA.head2000.log",
+   "path": "candid/obd-logger_2012-holden-barina-manual_brakes.meta.json",
+   "source": "candid",
+   "kind": "metadata",
+   "original": {
+    "name": "10_brakes_meta.json"
+   },
+   "sha256": "53cc25bf99c013dfc4caa667fbf02c0782b25a087baadcb79119e269949cab70"
+  },
+  {
+   "path": "cards/tester-t2_2020-ev_read-vin.log",
+   "source": "cards",
+   "class": "B",
+   "device": "commercial electric vehicle (2020; OEM withheld by the publisher), Vector interfaces in T-mode, CANoe",
+   "what": "diagnostic tester T2 on the OBD/diagnostic domain (can9): UDS reads of identification DIDs, ISO-TP multi-frame",
+   "original": {
+    "name": "Benign-Standstill-University-NA-T2_ReadVIN.log",
+    "url": "https://tudatalib.ulb.tu-darmstadt.de/server/api/core/bitstreams/1573e088-6c38-4702-a196-bb35588affee/content",
+    "archive": [
+     "CAN.zip",
+     "CAN/benign.zip",
+     "benign/Benign-Standstill-University-NA-T2_ReadVIN.log"
+    ],
+    "size": 15567071,
+    "sha256": "c58b63e2c56851efdffb5dfe56e135456819d2a92b74f3a11df18035bf1018f0",
+    "frames": 243479
+   },
+   "cut": "none (the whole file; the ISO-TP tests use its can9 lines)",
+   "sha256": "c58b63e2c56851efdffb5dfe56e135456819d2a92b74f3a11df18035bf1018f0",
+   "stats": {
+    "frames": 243479,
+    "interfaces": [
+     "can0",
+     "can1",
+     "can2",
+     "can3",
+     "can4",
+     "can5",
+     "can6",
+     "can7",
+     "can8",
+     "can9"
+    ],
+    "standard": 217342,
+    "extended": 26137,
+    "fd": 173358,
+    "brs": 173358,
+    "esi": 2824,
+    "remote": 0,
+    "error": 0,
+    "tx_marked": 0,
+    "direction_tokens": 243479,
+    "out_of_order": 0
+   }
+  },
+  {
+   "path": "cards/tester-t1_2020-ev_recognize-car.log",
+   "source": "cards",
+   "class": "B",
+   "device": "commercial electric vehicle (2020; OEM withheld by the publisher), Vector interfaces in T-mode, CANoe",
+   "what": "diagnostic tester T1: vehicle recognition, sessions and DIDs of 23 ECUs, ISO-TP multi-frame (515 bytes, sequence wrap)",
+   "original": {
+    "name": "Benign-Standstill-University-NA-T1_RecognizeCar.log",
+    "url": "https://tudatalib.ulb.tu-darmstadt.de/server/api/core/bitstreams/1573e088-6c38-4702-a196-bb35588affee/content",
+    "archive": [
+     "CAN.zip",
+     "CAN/benign.zip",
+     "benign/Benign-Standstill-University-NA-T1_RecognizeCar.log"
+    ],
+    "size": 18089242,
+    "sha256": "6e56d25c98c3367c730387bd6e708d647fa49f7558bbce4fd31ac20babb376e4",
+    "frames": 282980
+   },
+   "cut": "none (the whole file; the ISO-TP tests use its can9 lines)",
+   "sha256": "6e56d25c98c3367c730387bd6e708d647fa49f7558bbce4fd31ac20babb376e4",
+   "stats": {
+    "frames": 282980,
+    "interfaces": [
+     "can0",
+     "can1",
+     "can2",
+     "can3",
+     "can4",
+     "can5",
+     "can6",
+     "can7",
+     "can8",
+     "can9"
+    ],
+    "standard": 252632,
+    "extended": 30348,
+    "fd": 201311,
+    "brs": 201311,
+    "esi": 3297,
+    "remote": 0,
+    "error": 0,
+    "tx_marked": 0,
+    "direction_tokens": 282980,
+    "out_of_order": 0
+   }
+  },
+  {
+   "path": "cards/vector-canoe_2020-ev_bus-silence-wake-up.log",
+   "source": "cards",
+   "class": "B",
+   "device": "commercial electric vehicle (2020; OEM withheld by the publisher), Vector interfaces in T-mode, CANoe",
+   "what": "nine CAN domains at standstill while the buses fall silent and wake up again",
+   "original": {
+    "name": "Benign-Standstill-University-NA-BusSilenceWakeUp.log",
+    "url": "https://tudatalib.ulb.tu-darmstadt.de/server/api/core/bitstreams/1573e088-6c38-4702-a196-bb35588affee/content",
+    "archive": [
+     "CAN.zip",
+     "CAN/benign.zip",
+     "benign/Benign-Standstill-University-NA-BusSilenceWakeUp.log"
+    ],
+    "size": 27088622,
+    "sha256": "1dcace8c13249da9634f3135c6eac0f418f21a5eb424a9320dfddc700bfd77ce",
+    "frames": 436047
+   },
+   "cut": "none (the whole file)",
+   "sha256": "1dcace8c13249da9634f3135c6eac0f418f21a5eb424a9320dfddc700bfd77ce",
+   "stats": {
+    "frames": 436047,
+    "interfaces": [
+     "can0",
+     "can1",
+     "can2",
+     "can3",
+     "can4",
+     "can5",
+     "can6",
+     "can7",
+     "can8"
+    ],
+    "standard": 387439,
+    "extended": 48608,
+    "fd": 289621,
+    "brs": 289621,
+    "esi": 459,
+    "remote": 0,
+    "error": 0,
+    "tx_marked": 0,
+    "direction_tokens": 436047,
+    "out_of_order": 0
+   }
+  },
+  {
+   "path": "cards/vector-canoe_2020-ev_fast-driving.log",
    "source": "cards",
    "class": "B",
    "device": "commercial electric vehicle (2020; OEM withheld by the publisher), Vector interfaces in T-mode, CANoe",
@@ -440,81 +664,7 @@
    }
   },
   {
-   "path": "cards/Benign-Standstill-University-NA-T2_ReadVIN.can9.log",
-   "source": "cards",
-   "class": "B",
-   "device": "commercial electric vehicle (2020; OEM withheld by the publisher), Vector interfaces in T-mode, CANoe",
-   "what": "diagnostic tester T2 on the OBD/diagnostic domain (can9): UDS reads of identification DIDs, ISO-TP multi-frame",
-   "original": {
-    "name": "Benign-Standstill-University-NA-T2_ReadVIN.log",
-    "url": "https://tudatalib.ulb.tu-darmstadt.de/server/api/core/bitstreams/1573e088-6c38-4702-a196-bb35588affee/content",
-    "archive": [
-     "CAN.zip",
-     "CAN/benign.zip",
-     "benign/Benign-Standstill-University-NA-T2_ReadVIN.log"
-    ],
-    "size": 15567071,
-    "sha256": "c58b63e2c56851efdffb5dfe56e135456819d2a92b74f3a11df18035bf1018f0",
-    "frames": 243479
-   },
-   "cut": "grep ' can9 '",
-   "sha256": "ac0cdb7b4c9729821c4e43eccc5e08ea03acff69ffc65b030bce49190c55eb2c",
-   "stats": {
-    "frames": 96,
-    "interfaces": [
-     "can9"
-    ],
-    "standard": 4,
-    "extended": 92,
-    "fd": 0,
-    "brs": 0,
-    "esi": 0,
-    "remote": 0,
-    "error": 0,
-    "tx_marked": 0,
-    "direction_tokens": 96,
-    "out_of_order": 0
-   }
-  },
-  {
-   "path": "cards/Benign-Standstill-University-NA-T1_RecognizeCar.can9.log",
-   "source": "cards",
-   "class": "B",
-   "device": "commercial electric vehicle (2020; OEM withheld by the publisher), Vector interfaces in T-mode, CANoe",
-   "what": "diagnostic tester T1 on can9: vehicle recognition, sessions and DIDs of 23 ECUs, ISO-TP multi-frame (515 bytes, sequence wrap)",
-   "original": {
-    "name": "Benign-Standstill-University-NA-T1_RecognizeCar.log",
-    "url": "https://tudatalib.ulb.tu-darmstadt.de/server/api/core/bitstreams/1573e088-6c38-4702-a196-bb35588affee/content",
-    "archive": [
-     "CAN.zip",
-     "CAN/benign.zip",
-     "benign/Benign-Standstill-University-NA-T1_RecognizeCar.log"
-    ],
-    "size": 18089242,
-    "sha256": "6e56d25c98c3367c730387bd6e708d647fa49f7558bbce4fd31ac20babb376e4",
-    "frames": 282980
-   },
-   "cut": "grep ' can9 '",
-   "sha256": "f335c091e4413d1c4172d8db466c3b4fc0e88cf170fbba19e689e123047fb33b",
-   "stats": {
-    "frames": 299,
-    "interfaces": [
-     "can9"
-    ],
-    "standard": 166,
-    "extended": 133,
-    "fd": 0,
-    "brs": 0,
-    "esi": 0,
-    "remote": 0,
-    "error": 0,
-    "tx_marked": 0,
-    "direction_tokens": 299,
-    "out_of_order": 0
-   }
-  },
-  {
-   "path": "cards/UDS-Standstill-University-NA-CaringCaribou_Auto_1.can9.3700-5300.log",
+   "path": "cards/caringcaribou_2020-ev_uds-scan.log",
    "source": "cards",
    "class": "B",
    "device": "commercial electric vehicle (2020; OEM withheld by the publisher), Vector interfaces in T-mode, CANoe",
@@ -551,28 +701,28 @@
    }
   },
   {
-   "path": "cards/Benign-Standstill-University-NA-T1_RecognizeCar.can9.isotp.json",
+   "path": "cards/caringcaribou_2020-ev_uds-scan.isotp.json",
    "source": "cards",
    "kind": "golden",
-   "derived_from": "cards/Benign-Standstill-University-NA-T1_RecognizeCar.can9.log",
-   "cut": "tshark -r <log> -d can.subdissector=iso15765 (Wireshark 4.6.9): single frames, reassembled messages, flow controls, first frames",
-   "sha256": "d3dd3296a468b1f7d8140cb8f6e113bf2c665d1c8db1f00b49bb4e4427b21083"
+   "derived_from": "cards/caringcaribou_2020-ev_uds-scan.log",
+   "cut": "the log's can9 lines through tshark -d can.subdissector=iso15765 (Wireshark 4.6.9); frame numbers are lines of the whole log",
+   "sha256": "c81a4391a506234f8930748d00bde0f1ae6084d1ccb064923b10e1dd450bf42d"
   },
   {
-   "path": "cards/Benign-Standstill-University-NA-T2_ReadVIN.can9.isotp.json",
+   "path": "cards/tester-t1_2020-ev_recognize-car.isotp.json",
    "source": "cards",
    "kind": "golden",
-   "derived_from": "cards/Benign-Standstill-University-NA-T2_ReadVIN.can9.log",
-   "cut": "tshark -r <log> -d can.subdissector=iso15765 (Wireshark 4.6.9): single frames, reassembled messages, flow controls, first frames",
-   "sha256": "c3907ab6371beb4b57eeb2ca470da1236237e49c7cd0e143f5850e267e69cf84"
+   "derived_from": "cards/tester-t1_2020-ev_recognize-car.log",
+   "cut": "the log's can9 lines through tshark -d can.subdissector=iso15765 (Wireshark 4.6.9); frame numbers are lines of the whole log",
+   "sha256": "c1a7696b52858cea4099c36c7488ca295015221e5bb8ca384438cd24e3bb5eb4"
   },
   {
-   "path": "cards/UDS-Standstill-University-NA-CaringCaribou_Auto_1.can9.3700-5300.isotp.json",
+   "path": "cards/tester-t2_2020-ev_read-vin.isotp.json",
    "source": "cards",
    "kind": "golden",
-   "derived_from": "cards/UDS-Standstill-University-NA-CaringCaribou_Auto_1.can9.3700-5300.log",
-   "cut": "tshark -r <log> -d can.subdissector=iso15765 (Wireshark 4.6.9): single frames, reassembled messages, flow controls, first frames",
-   "sha256": "c763d1bb35378f6e1e63cac8f3dddf75196b44d4b08dbb5dca41753b038b8267"
+   "derived_from": "cards/tester-t2_2020-ev_read-vin.log",
+   "cut": "the log's can9 lines through tshark -d can.subdissector=iso15765 (Wireshark 4.6.9); frame numbers are lines of the whole log",
+   "sha256": "6445df90be2b22bd55617b6eb3773f3ad5bde376d91598b8d4200b6e926822c6"
   },
   {
    "path": "cards/LICENSE.txt",
@@ -583,91 +733,58 @@
     "url": "https://tudatalib.ulb.tu-darmstadt.de/server/api/core/bitstreams/820d116a-9c35-45d4-87ef-b70bf2912dfb/content"
    },
    "sha256": "e8fb767ba9a496ad5a81d52c6abcd4af6d67a63651b3024ddfd1809f8ad23178"
+  },
+  {
+   "path": "tue/cantact_renault-clio_driving.log",
+   "source": "tue",
+   "class": "B",
+   "device": "Renault Clio, OBD-II port, CANtact (slcan0), candump, urban driving",
+   "original": {
+    "name": "RenaultClio/full_data_capture.log",
+    "url": "https://data.4tu.nl/file/efb320d8-c189-4e54-98af-3a79cc14f421/71c7531a-c3b4-4af3-aa91-a33f0b88e45b",
+    "archive": [
+     "data.zip",
+     "RenaultClio/full_data_capture.log"
+    ],
+    "archive_sha256": "2f4a6bafabc1a0df59173b50fd89ad24efaf0a5cd64453c59ddf9500f267e49a",
+    "size": 17138529,
+    "sha256": "42d1bfc8129e8e0df2dcbf80500ac6f7992584a34c88cc8c72ee2d7aa348bda0",
+    "frames": 386567
+   },
+   "cut": "none (the whole file)",
+   "sha256": "42d1bfc8129e8e0df2dcbf80500ac6f7992584a34c88cc8c72ee2d7aa348bda0",
+   "stats": {
+    "frames": 386567,
+    "interfaces": [
+     "slcan0"
+    ],
+    "standard": 386567,
+    "extended": 0,
+    "fd": 0,
+    "brs": 0,
+    "esi": 0,
+    "remote": 0,
+    "error": 0,
+    "tx_marked": 0,
+    "direction_tokens": 0,
+    "out_of_order": 0
+   }
+  },
+  {
+   "path": "tue/README",
+   "source": "tue",
+   "kind": "documentation",
+   "original": {
+    "name": "RenaultClio/README",
+    "url": "https://data.4tu.nl/file/efb320d8-c189-4e54-98af-3a79cc14f421/71c7531a-c3b4-4af3-aa91-a33f0b88e45b"
+   },
+   "sha256": "4a7e43f1911b64b14c4d542aa352ae14a8164333ad6d92bfbd59e1624cc525d0"
   }
  ],
  "extended": [
   {
-   "name": "candid/1_brakes_CAN.log",
-   "source": "candid",
-   "url": "https://ndownloader.figshare.com/files/54551747",
-   "size": 8359774,
-   "sha256": "c6a0439d90682d4d235f2c4c53b1351343bbc2a81feb8b96c2ef3410931ff517",
-   "frames": 193889
-  },
-  {
-   "name": "candid/2_brakes_CAN.log",
-   "source": "candid",
-   "url": "https://ndownloader.figshare.com/files/54551156",
-   "size": 8493164,
-   "sha256": "616472907ce91c839ab95d59ec26a5621fc5a3ff94194600e468d1fd2b149f67",
-   "frames": 184634
-  },
-  {
-   "name": "candid/3_brakes_CAN.log",
-   "source": "candid",
-   "url": "https://ndownloader.figshare.com/files/54551117",
-   "size": 4169146,
-   "sha256": "fb49c7c8b8d1b176e9494d0b6ce1cd85efc0be9293802c3a7ec40da70351b717",
-   "frames": 92009
-  },
-  {
-   "name": "candid/4_brakes_CAN.log",
-   "source": "candid",
-   "url": "https://ndownloader.figshare.com/files/54551558",
-   "size": 8030658,
-   "sha256": "c069ff06343c7ea2b4d03d1917de415b3e6925332585ab263c1ad76835ef1e93",
-   "frames": 186339
-  },
-  {
-   "name": "candid/5_brakes_CAN.log",
-   "source": "candid",
-   "url": "https://ndownloader.figshare.com/files/54551873",
-   "size": 8382488,
-   "sha256": "b424e71755a5dafac2794faa6aa8181c41a611cf649a2a9006d2b44abe8764d5",
-   "frames": 198565
-  },
-  {
-   "name": "candid/6_brakes_CAN.log",
-   "source": "candid",
-   "url": "https://ndownloader.figshare.com/files/54551786",
-   "size": 4155150,
-   "sha256": "4191a400059f37b15e2c6b127348834e041159625a424c0ae013ff7113f9ddef",
-   "frames": 91699
-  },
-  {
-   "name": "candid/7_brakes_CAN.log",
-   "source": "candid",
-   "url": "https://ndownloader.figshare.com/files/54551369",
-   "size": 1153910,
-   "sha256": "326372d482e96649ef5570bca4618ae04504b98867d7fa225da4c37638b10d45",
-   "frames": 25085
-  },
-  {
-   "name": "candid/8_brakes_CAN.log",
-   "source": "candid",
-   "url": "https://ndownloader.figshare.com/files/54551759",
-   "size": 6470820,
-   "sha256": "0bf9ed416c64211026a1b6d2921b13bb9ddc2a63f8a752822b0cf644592e9146",
-   "frames": 140670
-  },
-  {
-   "name": "candid/9_brakes_CAN.log",
-   "source": "candid",
-   "url": "https://ndownloader.figshare.com/files/54551189",
-   "size": 3091762,
-   "sha256": "9cf65cecb04d99cac55adb5ccffa40f4b8ea26198ddc62a9eb684caaa9a4ff05",
-   "frames": 70096
-  },
-  {
-   "name": "candid/10_brakes_CAN.log",
-   "source": "candid",
-   "url": "https://ndownloader.figshare.com/files/54551483",
-   "size": 6993648,
-   "sha256": "b340bb7620abfbb570abb25491e5dd5f08db3aab0ee330f3b07f4117d08ab529",
-   "frames": 162593
-  },
-  {
-   "name": "cards/Benign-FastDriving-DrivingSchool-NA-NA.log",
+   "name": "cards/vector-canoe_2020-ev_fast-driving.log",
+   "original": "Benign-FastDriving-DrivingSchool-NA-NA.log",
    "source": "cards",
    "url": "https://tudatalib.ulb.tu-darmstadt.de/server/api/core/bitstreams/1573e088-6c38-4702-a196-bb35588affee/content",
    "archive": [
@@ -680,33 +797,8 @@
    "frames": 2259923
   },
   {
-   "name": "cards/Benign-Standstill-University-NA-T2_ReadVIN.log",
-   "source": "cards",
-   "url": "https://tudatalib.ulb.tu-darmstadt.de/server/api/core/bitstreams/1573e088-6c38-4702-a196-bb35588affee/content",
-   "archive": [
-    "CAN.zip",
-    "CAN/benign.zip",
-    "benign/Benign-Standstill-University-NA-T2_ReadVIN.log"
-   ],
-   "size": 15567071,
-   "sha256": "c58b63e2c56851efdffb5dfe56e135456819d2a92b74f3a11df18035bf1018f0",
-   "frames": 243479
-  },
-  {
-   "name": "cards/Benign-Standstill-University-NA-T1_RecognizeCar.log",
-   "source": "cards",
-   "url": "https://tudatalib.ulb.tu-darmstadt.de/server/api/core/bitstreams/1573e088-6c38-4702-a196-bb35588affee/content",
-   "archive": [
-    "CAN.zip",
-    "CAN/benign.zip",
-    "benign/Benign-Standstill-University-NA-T1_RecognizeCar.log"
-   ],
-   "size": 18089242,
-   "sha256": "6e56d25c98c3367c730387bd6e708d647fa49f7558bbce4fd31ac20babb376e4",
-   "frames": 282980
-  },
-  {
-   "name": "cards/UDS-Standstill-University-NA-CaringCaribou_Auto_1.log",
+   "name": "cards/caringcaribou_2020-ev_uds-scan.log",
+   "original": "UDS-Standstill-University-NA-CaringCaribou_Auto_1.log",
    "source": "cards",
    "url": "https://tudatalib.ulb.tu-darmstadt.de/server/api/core/bitstreams/1573e088-6c38-4702-a196-bb35588affee/content",
    "archive": [
@@ -719,7 +811,8 @@
    "frames": 9797651
   },
   {
-   "name": "tue/OpelAstra/full_data_capture.log",
+   "name": "tue/cantact_opel-astra_driving.log",
+   "original": "OpelAstra/full_data_capture.log",
    "source": "tue",
    "url": "https://data.4tu.nl/file/efb320d8-c189-4e54-98af-3a79cc14f421/71c7531a-c3b4-4af3-aa91-a33f0b88e45b",
    "archive": [
@@ -730,19 +823,6 @@
    "size": 124262989,
    "sha256": "159216c74445a8b67ffaac83639df579482226b544afdfaeaff3d21f906863bb",
    "frames": 2690069
-  },
-  {
-   "name": "tue/RenaultClio/full_data_capture.log",
-   "source": "tue",
-   "url": "https://data.4tu.nl/file/efb320d8-c189-4e54-98af-3a79cc14f421/71c7531a-c3b4-4af3-aa91-a33f0b88e45b",
-   "archive": [
-    "data.zip",
-    "RenaultClio/full_data_capture.log"
-   ],
-   "archive_sha256": "2f4a6bafabc1a0df59173b50fd89ad24efaf0a5cd64453c59ddf9500f267e49a",
-   "size": 17138529,
-   "sha256": "42d1bfc8129e8e0df2dcbf80500ac6f7992584a34c88cc8c72ee2d7aa348bda0",
-   "frames": 386567
   }
  ],
  "coverage": [
@@ -755,7 +835,7 @@
   },
   {
    "behaviour": "candump write-back byte for byte",
-   "evidence": "candid, cards (committed); candid, cards, tue (extended, 17,006,248 frames)",
+   "evidence": "candid, cards, tue (committed, 2,698,253 frames); the rest of cards and tue (extended)",
    "test": "capture.TestVehicleCapturesCandumpRoundTrip, capture.TestExtendedVehicleCorpus",
    "result": "pass",
    "fixed": "direction tokens were dropped (CandumpWriter.SetDirection)"

@@ -1,7 +1,8 @@
 {
- "source": "UDS-Standstill-University-NA-CaringCaribou_Auto_1.can9.3700-5300.log",
+ "source": "caringcaribou_2020-ev_uds-scan.log",
+ "interface": "can9",
  "dissector": "TShark (Wireshark) 4.6.9 (v4.6.9-0-g2d548b197c75).",
- "command": "tshark -r <file> -d can.subdissector=iso15765",
+ "command": "the lines of <interface> of <file>, then tshark -r <those lines> -d can.subdissector=iso15765; frame = line of the whole file",
  "messages": [
   {"frame":1,"id":1809,"extended":false,"data":"2200d2"},
   {"frame":2,"id":1809,"extended":false,"data":"2200d3"},

@@ -30,7 +30,7 @@ None of this is a conformance claim: there is no ISO or CiA conformance claim an
 | Virtual bus, `canbus.Bus` | ✅ | n/a (local) |
 | slcan serial adapters | ✅ | python-can; the Linux slcan driver (`make test-admin`, micro-VMs) |
 | ISO-TP, userspace and kernel | ✅ | Linux CAN_ISOTP, python-can-isotp; recorded testers and ECUs of a real vehicle, against Wireshark's ISO 15765 dissector (normal addressing, classical frames) |
-| candump logs | ✅ | can-utils, python-can; Wireshark's candump reader on logs recorded on eleven real vehicles (testdata/captures) |
+| candump logs | ✅ | can-utils, python-can; Wireshark's candump reader on logs recorded on twelve real vehicles (testdata/captures) |
 | ASC, BLF, PEAK TRC logs | ✅ | python-can; recorded vehicle frames converted both ways |
 | pcap, pcapng | ✅ | Wireshark's tshark (`capture/wireshark_test.go`, recorded vehicle frames included) and tcpdump, in the CI job on Linux, not in the Interop workflow |
 | DBC read and write | ✅ | cantools, canmatrix |

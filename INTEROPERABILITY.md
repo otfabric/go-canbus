@@ -123,24 +123,26 @@ capture); the 9 new skips are the stacks without CAN XL. Against canbus-interop 
 
 ## Recorded traffic of real vehicles
 
-Excerpts of CAN logs recorded by others on eleven real vehicles are in
-[testdata/captures](testdata/captures/README.md) (sources, licences,
-evidence classes); docs/CAPTURE-COVERAGE.md lists what they exercise. The
-independent decoder is Wireshark 4.6.9: its candump reader and CAN
-dissector for the frames, its ISO 15765 dissector for the diagnostic
-messages. The vehicles and testers are evidence of what real buses carry;
-they did not talk to go-canbus.
+CAN logs recorded by others on twelve real vehicles are in
+[testdata/captures](testdata/captures/README.md) (sources, evidence
+classes), byte for byte as published; docs/CAPTURE-COVERAGE.md lists what
+they exercise. The independent decoder is Wireshark 4.6.9: its candump
+reader and CAN dissector for the frames, its ISO 15765 dissector for the
+diagnostic messages. The vehicles and testers are evidence of what real
+buses carry; they did not talk to go-canbus.
 
 | Recording | Device | Checked |
 |---|---|---|
-| CANdid, `*_brakes_CAN.log`, 500 lines each | 2018 Holden Astra, 2017 Mazda CX-3, 2012 Subaru Impreza (two), 2012 Holden Barina (two), 2012 Holden Cruze, 2013 and 2014 Mazda CX-5, 2016 Toyota Yaris; OBD-II port | candump decode = Wireshark; write-back byte for byte; every format; out-of-order first line |
-| CarDS benign driving, 2000 lines | 2020 EV (OEM withheld), nine CAN CC and CAN FD domains, Vector interfaces | as above, with CAN FD BRS/ESI, 29-bit IDs, direction tokens, nine interfaces |
-| CarDS testers T1 and T2, diagnostic domain | the same EV's ECUs and two workshop testers | ISO-TP reassembly = Wireshark; tester and ECU sides byte for byte (21 pairs) |
+| CANdid brake logs (`candid/obd-logger_<vehicle>_brakes.log`), whole, 1.35 M frames | 2018 Holden Astra, 2017 Mazda CX-3, 2012 Subaru Impreza (two), 2012 Holden Barina (two), 2012 Holden Cruze, 2013 and 2014 Mazda CX-5, 2016 Toyota Yaris; OBD-II port | candump decode = Wireshark; write-back byte for byte; every format; out-of-order first line |
+| CarDS testers T1 and T2, bus silence and wake-up, whole, 0.96 M frames; fast driving, first 2000 lines | 2020 EV (OEM withheld), ten CAN CC and CAN FD domains, Vector interfaces | as above, with CAN FD BRS/ESI, 29-bit IDs, direction tokens, ten interfaces |
+| CarDS testers T1 and T2, diagnostic domain `can9` | the same EV's ECUs and two workshop testers | ISO-TP reassembly = Wireshark; tester and ECU sides byte for byte (21 pairs) |
 | CarDS CaringCaribou enumeration, 1601 lines | the same EV's ECUs and CaringCaribou | ISO-TP reassembly = Wireshark, incomplete first frames end in errors |
+| TU/e Renault Clio, whole, 0.39 M frames | Renault Clio, OBD-II port, CANtact | as the CANdid logs |
 
-The extended corpus (`make captures-extended`) adds the whole recordings and
-TU Eindhoven's Opel Astra and Renault Clio captures: 17.0 million frames,
-all decoded and written back with the SHA-256 the manifest records.
+The extended corpus (`make captures-extended`) adds the three recordings too
+large to commit (CarDS fast driving and CaringCaribou, TU/e Opel Astra):
+14.7 million more frames, all decoded and written back with the SHA-256 the
+manifest records.
 
 Differences that remain, by design or because a format cannot hold it:
 
@@ -148,7 +150,7 @@ Differences that remain, by design or because a format cannot hold it:
 |---|---|
 | pcap | no interface names; pcap and pcapng carry no direction (the CarDS `T` labels) |
 | ASC, BLF, TRC | interfaces become channel numbers (`can4` → 5) |
-| BLF | object times are unsigned offsets from the file's start: the CANdid frames older than their log's first line (258 of 5000) are written at the start time |
+| BLF | object times are unsigned offsets from the file's start: the CANdid frames older than their log's first line (258 in the ten logs) are written at the start time |
 | ISO-TP ECU side | recorded ECUs leave 8–20 ms between consecutive frames where the tester's STmin is 1 or 5 ms; go-canbus sends at STmin |
 
 Not in any recording, so not verified by recorded traffic: remote frames,

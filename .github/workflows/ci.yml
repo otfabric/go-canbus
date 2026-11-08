@@ -69,6 +69,10 @@ jobs:
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq tcpdump tshark
           tcpdump --version | head -2
           tshark --version | head -1
+      - name: Recorded vehicle traffic, whole logs, against Wireshark
+        env:
+          CANBUS_REQUIRE_TSHARK: "1"
+        run: make test-captures
       - name: Tests with the race detector
         env:
           CANBUS_REQUIRE_ISOTP: "1"

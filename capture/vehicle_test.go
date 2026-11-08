@@ -34,14 +34,35 @@ import (
 
 func vehicleManifest(t *testing.T) *corpus.Manifest {
 	t.Helper()
-	m, err := corpus.Load()
+	m, err := corpus.Checked()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := corpus.Verify(m); err != nil {
-		t.Fatal(err)
-	}
 	return m
+}
+
+// raceLines is how many lines of each log a -race build checks.
+const raceLines = 20000
+
+// corpusLog returns a committed log's path and frames and bytes: the whole
+// log, or its first raceLines lines (in a temporary file) in a -race build.
+func corpusLog(t *testing.T, tf corpus.File) (string, []canbus.Frame, []byte) {
+	t.Helper()
+	path := corpus.Path(tf.Path)
+	if raceDetector {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if lines := bytes.SplitAfter(raw, []byte("\n")); len(lines) > raceLines {
+			path = filepath.Join(t.TempDir(), filepath.Base(tf.Path))
+			if err := os.WriteFile(path, bytes.Join(lines[:raceLines], nil), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	frames, raw := readCandumpFile(t, path)
+	return path, frames, raw
 }
 
 // readCandumpFile reads every frame of a candump log.
@@ -115,14 +136,9 @@ func TestVehicleCapturesDecode(t *testing.T) {
 	m := vehicleManifest(t)
 	kinds := map[string]bool{}
 	for _, tf := range m.Traces() {
-		frames, raw := readCandumpFile(t, corpus.Path(tf.Path))
+		_, frames, raw := corpusLog(t, tf)
 		got := statsOf(frames, raw)
 		want := *tf.Stats
-		gj, _ := json.Marshal(got)
-		wj, _ := json.Marshal(want)
-		if !bytes.Equal(gj, wj) {
-			t.Errorf("%s:\n got  %s\n want %s", tf.Path, gj, wj)
-		}
 		if got.ESI > 0 {
 			kinds["esi"] = true
 		}
@@ -134,6 +150,14 @@ func TestVehicleCapturesDecode(t *testing.T) {
 		}
 		if got.TxMarked > 0 {
 			kinds["T"] = true
+		}
+		if raceDetector && got.Frames < want.Frames {
+			continue // a prefix: the counts are checked without -race
+		}
+		gj, _ := json.Marshal(got)
+		wj, _ := json.Marshal(want)
+		if !bytes.Equal(gj, wj) {
+			t.Errorf("%s:\n got  %s\n want %s", tf.Path, gj, wj)
 		}
 	}
 	// The corpus is chosen to hold these: guard against a cut losing them.
@@ -151,7 +175,7 @@ func TestVehicleCapturesDecode(t *testing.T) {
 func TestVehicleCapturesCandumpRoundTrip(t *testing.T) {
 	m := vehicleManifest(t)
 	for _, tf := range m.Traces() {
-		frames, raw := readCandumpFile(t, corpus.Path(tf.Path))
+		_, frames, raw := corpusLog(t, tf)
 		write := func(dir bool) []byte {
 			var buf bytes.Buffer
 			w := NewCandumpWriter(&buf, "")
@@ -167,6 +191,9 @@ func TestVehicleCapturesCandumpRoundTrip(t *testing.T) {
 			return buf.Bytes()
 		}
 		tokens := tf.Stats.Tokens > 0
+		if !bytes.HasSuffix(raw, []byte("\n")) {
+			raw = append(raw, '\n') // the TU/e logs end without one; the writer always writes it
+		}
 		if got := write(tokens); !bytes.Equal(got, raw) {
 			t.Errorf("%s: written back differs from the recording (direction tokens %v)", tf.Path, tokens)
 		}
@@ -188,60 +215,64 @@ func TestVehicleCapturesFormats(t *testing.T) {
 	pinLocalUTC(t)
 	m := vehicleManifest(t)
 	for _, tf := range m.Traces() {
-		frames, _ := readCandumpFile(t, corpus.Path(tf.Path))
-		for _, format := range []Format{FormatJSONL, FormatPCAP, FormatPCAPNG, FormatASC, FormatBLF, FormatTRC} {
-			var buf bytes.Buffer
-			w, err := NewWriter(&buf, format)
-			if err != nil {
-				t.Fatal(err)
+		t.Run(tf.Path, func(t *testing.T) { convertTrace(t, tf) })
+	}
+}
+
+func convertTrace(t *testing.T, tf corpus.File) {
+	_, frames, _ := corpusLog(t, tf)
+	for _, format := range []Format{FormatJSONL, FormatPCAP, FormatPCAPNG, FormatASC, FormatBLF, FormatTRC} {
+		var buf bytes.Buffer
+		w, err := NewWriter(&buf, format)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i := range frames {
+			if err := w.Write(&frames[i]); err != nil {
+				t.Fatalf("%s %s frame %d: %v", tf.Path, format, i+1, err)
 			}
-			for i := range frames {
-				if err := w.Write(&frames[i]); err != nil {
-					t.Fatalf("%s %s frame %d: %v", tf.Path, format, i+1, err)
+		}
+		if err := w.Close(); err != nil {
+			t.Fatal(err)
+		}
+		got, detected, err := readTrace(buf.Bytes())
+		if err != nil || detected != format || len(got) != len(frames) {
+			t.Fatalf("%s %s: read back as %s, %d of %d frames: %v", tf.Path, format, detected, len(got), len(frames), err)
+		}
+		vector := format == FormatASC || format == FormatBLF || format == FormatTRC
+		channels := map[string]string{}
+		start := frames[0].Timestamp.Truncate(time.Millisecond)
+		for i := range frames {
+			w, g := &frames[i], &got[i].f
+			if !same(g, w) {
+				t.Fatalf("%s %s frame %d: %v, want %v", tf.Path, format, i+1, g, w)
+			}
+			wantIf, wantEcho, wantTS := w.Interface, w.Echo, w.Timestamp
+			switch format {
+			case FormatPCAP:
+				wantIf, wantEcho = "", false
+			case FormatPCAPNG:
+				wantEcho = false
+			case FormatBLF:
+				if wantTS.Before(start) {
+					wantTS = start
 				}
+			case FormatCandump, FormatJSONL, FormatASC, FormatTRC:
 			}
-			if err := w.Close(); err != nil {
-				t.Fatal(err)
-			}
-			got, detected, err := readTrace(buf.Bytes())
-			if err != nil || detected != format || len(got) != len(frames) {
-				t.Fatalf("%s %s: read back as %s, %d of %d frames: %v", tf.Path, format, detected, len(got), len(frames), err)
-			}
-			vector := format == FormatASC || format == FormatBLF || format == FormatTRC
-			channels := map[string]string{}
-			start := frames[0].Timestamp.Truncate(time.Millisecond)
-			for i := range frames {
-				w, g := &frames[i], &got[i].f
-				if !same(g, w) {
-					t.Fatalf("%s %s frame %d: %v, want %v", tf.Path, format, i+1, g, w)
+			if vector {
+				wantIf = strconv.Itoa(vectorChannel(w.Interface))
+				if c, ok := channels[g.Interface]; ok && c != w.Interface {
+					t.Fatalf("%s %s: interfaces %s and %s both written as channel %s", tf.Path, format, c, w.Interface, g.Interface)
 				}
-				wantIf, wantEcho, wantTS := w.Interface, w.Echo, w.Timestamp
-				switch format {
-				case FormatPCAP:
-					wantIf, wantEcho = "", false
-				case FormatPCAPNG:
-					wantEcho = false
-				case FormatBLF:
-					if wantTS.Before(start) {
-						wantTS = start
-					}
-				case FormatCandump, FormatJSONL, FormatASC, FormatTRC:
-				}
-				if vector {
-					wantIf = strconv.Itoa(vectorChannel(w.Interface))
-					if c, ok := channels[g.Interface]; ok && c != w.Interface {
-						t.Fatalf("%s %s: interfaces %s and %s both written as channel %s", tf.Path, format, c, w.Interface, g.Interface)
-					}
-					channels[g.Interface] = w.Interface
-				}
-				if g.Interface != wantIf || g.Echo != wantEcho || !g.Timestamp.Equal(wantTS) {
-					t.Fatalf("%s %s frame %d: %q echo %v at %v, want %q echo %v at %v", tf.Path, format, i+1,
-						g.Interface, g.Echo, g.Timestamp, wantIf, wantEcho, wantTS)
-				}
+				channels[g.Interface] = w.Interface
 			}
-			if vector && len(channels) != len(tf.Stats.Interfaces) {
-				t.Errorf("%s %s: %d channels for %d recorded interfaces", tf.Path, format, len(channels), len(tf.Stats.Interfaces))
+			if g.Interface != wantIf || g.Echo != wantEcho || !g.Timestamp.Equal(wantTS) {
+				t.Fatalf("%s %s frame %d: %q echo %v at %v, want %q echo %v at %v", tf.Path, format, i+1,
+					g.Interface, g.Echo, g.Timestamp, wantIf, wantEcho, wantTS)
 			}
+		}
+		if n := len(statsOf(frames, nil).Interfaces); vector && len(channels) != n {
+			t.Errorf("%s %s: %d channels for %d recorded interfaces", tf.Path, format, len(channels), n)
 		}
 	}
 }
@@ -259,7 +290,7 @@ func TestVehicleCapturesBLFStart(t *testing.T) {
 		if tf.Source != "candid" {
 			continue
 		}
-		frames, _ := readCandumpFile(t, corpus.Path(tf.Path))
+		_, frames, _ := corpusLog(t, tf)
 		if tf.Stats.OutOfOrder != 1 || !frames[1].Timestamp.Before(frames[0].Timestamp) {
 			t.Fatalf("%s: the first line is not the out-of-order one", tf.Path)
 		}
@@ -276,16 +307,18 @@ func TestVehicleCapturesBLFStart(t *testing.T) {
 	t.Logf("%d CANdid frames are older than their trace's BLF start", clamped)
 }
 
-// TestVehicleCapturesReplay replays a recording with its out-of-order first
-// frame at 20 times its speed: every frame is sent once, in file order.
+// TestVehicleCapturesReplay replays the start of a recording with its
+// out-of-order first frame at 20 times its speed: every frame is sent once,
+// in file order.
 func TestVehicleCapturesReplay(t *testing.T) {
-	path := corpus.Path("candid/9_brakes_CAN.head500.log")
+	path := corpus.Path("candid/obd-logger_2016-toyota-yaris_brakes.log")
 	frames, raw := readCandumpFile(t, path)
+	frames = frames[:500]
 	vb := virtual.New(virtual.Config{})
 	defer vb.Close()
 	tx, _ := vb.Open(virtual.WithQueueSize(4096))
 	rx, _ := vb.Open(virtual.WithQueueSize(4096))
-	st, err := Replay(t.Context(), NewCandumpReader(bytes.NewReader(raw)), tx, ReplayOptions{Speed: 20})
+	st, err := Replay(t.Context(), NewCandumpReader(bytes.NewReader(raw)), tx, ReplayOptions{Speed: 20, MaxFrames: len(frames)})
 	if err != nil || st.Sent != len(frames) {
 		t.Fatalf("sent %d of %d: %v", st.Sent, len(frames), err)
 	}
@@ -312,29 +345,94 @@ func TestWiresharkReadsVehicleCaptures(t *testing.T) {
 	bin := tshark(t)
 	m := vehicleManifest(t)
 	for _, tf := range m.Traces() {
-		frames, _ := readCandumpFile(t, corpus.Path(tf.Path))
-		want := make([]string, len(frames))
-		for i := range frames {
-			want[i] = frames[i].Interface + " " + frames[i].String()
-		}
-		out, err := exec.Command(bin, "-r", corpus.Path(tf.Path), "-T", "json").Output()
-		if err != nil {
-			t.Fatalf("tshark %s: %v", tf.Path, err)
-		}
-		if got := tsharkFrames(t, out); !sameFrames(got, want) {
-			t.Errorf("%s: Wireshark's candump reader differs:\n%s", tf.Path, firstDiff(got, want))
-		}
-		got := wiresharkFrames(t, FormatPCAPNG, func(w XLWriter) {
-			for i := range frames {
-				if err := w.Write(&frames[i]); err != nil {
-					t.Fatal(err)
-				}
-			}
+		t.Run(tf.Path, func(t *testing.T) {
+			t.Parallel()
+			wiresharkTrace(t, bin, tf)
 		})
-		if !sameFrames(got, want) {
-			t.Errorf("%s: Wireshark dissects the pcapng differently:\n%s", tf.Path, firstDiff(got, want))
+	}
+}
+
+func wiresharkTrace(t *testing.T, bin string, tf corpus.File) {
+	path, frames, _ := corpusLog(t, tf)
+	want := make([]string, len(frames))
+	for i := range frames {
+		want[i] = frames[i].Interface + " " + frames[i].String()
+	}
+	if got := tsharkFieldFrames(t, bin, path); !sameFrames(got, want) {
+		t.Errorf("%s: Wireshark's candump reader differs:\n%s", tf.Path, firstDiff(got, want))
+	}
+	path = filepath.Join(t.TempDir(), "trace.pcapng")
+	fh, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w, _ := NewPCAPNGWriter(fh)
+	for i := range frames {
+		if err := w.Write(&frames[i]); err != nil {
+			t.Fatal(err)
 		}
 	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	_ = fh.Close()
+	if got := tsharkFieldFrames(t, bin, path); !sameFrames(got, want) {
+		t.Errorf("%s: Wireshark dissects the pcapng differently:\n%s", tf.Path, firstDiff(got, want))
+	}
+}
+
+// tsharkFieldFrames returns every packet of a trace as Wireshark dissects
+// it, as frame text ("can0 123#DEADBEEF"): field output, which stays small
+// for recordings of hundreds of thousands of frames. The payload goes to
+// Wireshark's data dissector, not to a heuristic one.
+func tsharkFieldFrames(t *testing.T, bin, path string) []string {
+	t.Helper()
+	out, err := exec.Command(bin, "-r", path, "-d", "can.subdissector=data", "-T", "fields", "-E", "separator=|",
+		"-e", "frame.interface_name", "-e", "can.id", "-e", "can.flags.xtd", "-e", "canfd.flags.fdf",
+		"-e", "canfd.flags.brs", "-e", "canfd.flags.esi", "-e", "can.len", "-e", "can.flags.rtr",
+		"-e", "can.flags.err", "-e", "can.len8dlc", "-e", "data.data").Output()
+	if err != nil {
+		t.Fatalf("tshark %s: %v", path, err)
+	}
+	yes := func(v string) bool { return v == "True" || v == "1" }
+	var got []string
+	for line := range strings.SplitSeq(strings.TrimRight(string(out), "\n"), "\n") {
+		c := strings.Split(line, "|")
+		if len(c) != 11 {
+			t.Fatalf("tshark %s: %q", path, line)
+		}
+		id, err1 := strconv.ParseUint(c[1], 10, 32)
+		n, err2 := strconv.Atoi(c[6])
+		data, err3 := hex.DecodeString(strings.ReplaceAll(c[10], ":", ""))
+		if err1 != nil || err2 != nil || err3 != nil {
+			t.Fatalf("tshark %s: %q", path, line)
+		}
+		var f canbus.Frame
+		switch {
+		case yes(c[8]):
+			got = append(got, c[0]+" error")
+			continue
+		case yes(c[3]):
+			f, err = canbus.NewFD(canbus.ID(id), yes(c[2]), yes(c[4]), data)
+			if yes(c[5]) {
+				f.Flags |= canbus.FlagESI
+			}
+		case yes(c[7]):
+			f, err = canbus.NewRemote(canbus.ID(id), yes(c[2]), uint8(n))
+		case yes(c[2]):
+			f, err = canbus.NewExtended(canbus.ID(id), data[:min(n, len(data))])
+		default:
+			f, err = canbus.NewStandard(canbus.ID(id), data[:min(n, len(data))])
+		}
+		if err != nil {
+			t.Fatalf("tshark %s: %q: %v", path, line, err)
+		}
+		if d, _ := strconv.Atoi(c[9]); d > 8 && !f.IsFD() {
+			f.Len8DLC = uint8(d)
+		}
+		got = append(got, c[0]+" "+f.String())
+	}
+	return got
 }
 
 func tsharkFrames(t *testing.T, out []byte) []string {
@@ -467,7 +565,7 @@ func (w *holdLast) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// vehicleSeeds adds the first lines of every recorded excerpt to a fuzz
+// vehicleSeeds adds the first lines of every recorded log to a fuzz
 // target's corpus: real candump lines of ten cars and the CarDS vehicle
 // (CAN FD with BRS and ESI, 29-bit identifiers, direction tokens, a first
 // line newer than the second).

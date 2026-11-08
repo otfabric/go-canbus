@@ -1,0 +1,22 @@
+{
+    "Capture Description": "Depressing and releasing brakes in 10s intervals",
+    "Capture Duration (seconds)": 80,
+    "Capture Type": "Brakes",
+    "Car Info": {
+        "Fuel Level (Approx.)": "100%",
+        "Fuel Type": "Petrol",
+        "Handbrake Type": "Lever",
+        "Make": "Holden",
+        "Model": "Astra",
+        "Month": "Nov",
+        "Odometer (m)": 112638,
+        "Start Type": "Key",
+        "Transmission": "Auto",
+        "UID": 1,
+        "Year": 2018
+    },
+    "Weather Info": {
+        "Road Conditions": "Dry",
+        "Temperature (C)": 18
+    }
+}

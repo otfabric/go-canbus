@@ -1,0 +1,22 @@
+{
+    "Capture Description": "Depressing and releasing brakes in 10s intervals",
+    "Capture Duration (seconds)": 81,
+    "Capture Type": "Brakes",
+    "Car Info": {
+        "Fuel Level (Approx.)": "50%",
+        "Fuel Type": "Petrol",
+        "Handbrake Type": "Lever",
+        "Make": "Subaru",
+        "Model": "Impreza",
+        "Month": "Apr",
+        "Odometer (m)": 103827,
+        "Start Type": "Key",
+        "Transmission": "Auto",
+        "UID": 3,
+        "Year": 2012
+    },
+    "Weather Info": {
+        "Road Conditions": "Dry",
+        "Temperature (C)": 20
+    }
+}

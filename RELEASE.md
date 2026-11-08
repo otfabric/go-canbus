@@ -12,13 +12,14 @@ that version as the release notes. Add the section, headed exactly
 
 ### Summary
 
-go-canbus is now tested against CAN logs recorded by others on eleven real
-vehicles ([testdata/captures](testdata/captures/README.md); evidence class B):
-ten passenger cars at their OBD-II port (CANdid) and the ten CAN domains of a
-2020 electric vehicle with two workshop testers and CaringCaribou on its
-diagnostic bus (CarDS). 14 committed excerpts (8,996 frames) run offline in
-`go test ./...`; `make captures-extended` checks the whole recordings
-(17.0 million frames, TU Eindhoven's Opel Astra and Renault Clio included).
+go-canbus is now tested against CAN logs recorded by others on twelve real
+vehicles ([testdata/captures](testdata/captures/README.md); evidence class B),
+committed byte for byte as published: ten passenger cars at their OBD-II port
+(CANdid), the ten CAN domains of a 2020 electric vehicle with two workshop
+testers and CaringCaribou on its diagnostic bus (CarDS), and a Renault Clio
+(TU Eindhoven). 16 logs, 2.7 million frames, 131 MB, run offline in
+`go test ./...`; `make captures-extended` checks the three recordings too
+large to commit (14.7 million more frames, TU/e's Opel Astra included).
 Wireshark 4.6.9 is the independent decoder. The recordings showed two
 losses in the trace writers, both fixed. The ISO-TP connection reproduces
 the frames of the 21 recorded tester–ECU pairs byte for byte; replaying
@@ -35,7 +36,7 @@ N_Cr timeout, fixed.
 ### Added
 
 - `capture`: `CandumpWriter.SetDirection`.
-- `testdata/captures`: excerpts of CANdid (CC BY 4.0) and CarDS (CC BY-SA 4.0, which the excerpts keep), `manifest.json` (sources, licences, originals with SHA-256, cuts, expected counts, a machine-readable coverage list), `SHA256SUMS`, Wireshark's ISO 15765 dissection of the diagnostic excerpts; `internal/corpus`; `internal/cmd/fetchcaptures` and `make captures-extended` for the whole recordings (HTTP range reads of CarDS's 3.6 GB archive).
+- `testdata/captures`: recordings of CANdid, CarDS and TU/e under clean names (`<tool-or-tester>_<vehicle>_<what-it-holds>.log`), `manifest.json` (sources, licences, original names, URLs and SHA-256, cuts, expected counts, a machine-readable coverage list), `SHA256SUMS`, Wireshark's ISO 15765 dissection of the CarDS diagnostic bus; `internal/corpus`; `internal/cmd/fetchcaptures` and `make captures-extended` for the whole recordings (HTTP range reads of CarDS's 3.6 GB archive).
 
 ### Tests
 
@@ -46,7 +47,7 @@ N_Cr timeout, fixed.
 
 ### Known differences
 
-pcap carries no interface names and pcap/pcapng no direction; BLF writes frames older than the first frame at its start time (258 of the 5,000 CANdid frames); recorded ECUs send consecutive frames 8–20 ms apart where go-canbus uses the STmin asked for. Not in any recording, so verified against software peers only: remote and error frames, classical DLC 9..15, CAN XL, ISO-TP extended/mixed addressing, CAN FD ISO-TP, WAIT/OVERFLOW, multi-frame requests.
+pcap carries no interface names and pcap/pcapng no direction; BLF writes frames older than the first frame at its start time (258 CANdid frames); recorded ECUs send consecutive frames 8–20 ms apart where go-canbus uses the STmin asked for. Not in any recording, so verified against software peers only: remote and error frames, classical DLC 9..15, CAN XL, ISO-TP extended/mixed addressing, CAN FD ISO-TP, WAIT/OVERFLOW, multi-frame requests.
 
 ### Documentation
 

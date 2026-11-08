@@ -105,7 +105,7 @@ Grouped into gaps and follow-ups, with what is not verified:
 
 ## Recorded vehicle traffic
 
-go-canbus is tested against CAN logs recorded on eleven real vehicles by
+go-canbus is tested against CAN logs recorded on twelve real vehicles by
 others (testdata/captures; class B evidence, the publishers' word for the
 vehicles). That shows go-canbus reads, writes and converts what real buses
 carried, and that its ISO-TP connection reproduces real testers' and ECUs'

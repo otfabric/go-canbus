@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 
 // Package corpus gives the tests access to the recorded vehicle traffic in
-// testdata/captures: its manifest (sources, licences, excerpt cuts and the
-// statistics every excerpt must decode to), the SHA256SUMS check, and the
+// testdata/captures: its manifest (sources, licences, original names, cuts and the
+// statistics every log must decode to), the SHA256SUMS check, and the
 // optional extended corpus of whole recordings fetched by
 // internal/cmd/fetchcaptures.
 //
@@ -23,9 +23,10 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
 )
 
-// Stats are the frame counts an excerpt decodes to.
+// Stats are the frame counts a log decodes to.
 type Stats struct {
 	Frames     int      `json:"frames"`
 	Interfaces []string `json:"interfaces"`
@@ -41,7 +42,7 @@ type Stats struct {
 	OutOfOrder int      `json:"out_of_order"`     // frames older than the one before
 }
 
-// Original describes the recording an excerpt was cut from.
+// Original describes the publisher's file a committed file is (or was cut from).
 type Original struct {
 	Name    string   `json:"name"`
 	URL     string   `json:"url"`
@@ -68,7 +69,8 @@ type File struct {
 
 // Extended is one whole recording of the extended corpus.
 type Extended struct {
-	Name          string   `json:"name"` // path below the cache directory
+	Name          string   `json:"name"`     // clean path below the cache directory
+	Original      string   `json:"original"` // the publisher's file name
 	Source        string   `json:"source"`
 	URL           string   `json:"url"`
 	Archive       []string `json:"archive,omitempty"`
@@ -130,6 +132,23 @@ func load(dir string) (*Manifest, error) {
 	return &m, nil
 }
 
+var checked struct {
+	once sync.Once
+	m    *Manifest
+	err  error
+}
+
+// Checked loads and verifies the manifest once per test binary.
+func Checked() (*Manifest, error) {
+	checked.once.Do(func() {
+		checked.m, checked.err = Load()
+		if checked.err == nil {
+			checked.err = Verify(checked.m)
+		}
+	})
+	return checked.m, checked.err
+}
+
 // SHA256File returns the hex SHA-256 of a file.
 func SHA256File(path string) (string, error) {
 	fh, err := os.Open(path)
@@ -167,7 +186,7 @@ func verify(dir string, m *Manifest) error {
 	var onDisk []string
 	for _, src := range m.Sources {
 		if _, err := os.Stat(path(src.ID)); err != nil {
-			continue // a source with no committed excerpt
+			continue // a source with no committed file
 		}
 		_ = filepath.WalkDir(path(src.ID), func(p string, d os.DirEntry, err error) error {
 			if err == nil && !d.IsDir() {

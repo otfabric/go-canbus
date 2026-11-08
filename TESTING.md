@@ -102,13 +102,14 @@ the coverage run), and kernel error paths vcan cannot produce.
 
 ## Recorded vehicle traffic
 
-[testdata/captures](testdata/captures/README.md) holds excerpts of CAN logs
-recorded by others on real cars (evidence class B: origin documented by the
-publisher, not independently verified): ten passenger cars at their OBD-II
-port (CANdid, CC BY 4.0) and the ten CAN domains of a 2020 electric vehicle
-with two workshop testers and CaringCaribou on its diagnostic bus (CarDS,
-CC BY-SA 4.0). 14 excerpts, 8,996 frames, about 800 KB, checked by SHA256SUMS and
-`manifest.json`. They run in the ordinary `go test ./...`, offline:
+[testdata/captures](testdata/captures/README.md) holds CAN logs recorded by
+others on twelve real vehicles (evidence class B: origin documented by the
+publisher, not independently verified), byte for byte as published: ten
+passenger cars at their OBD-II port (CANdid), the ten CAN domains of a 2020
+electric vehicle with two workshop testers and CaringCaribou on its
+diagnostic bus (CarDS), and a Renault Clio (TU Eindhoven). 16 logs, 2.7
+million frames, 131 MB, checked by SHA256SUMS and `manifest.json`. They run
+in the ordinary `go test ./...`, offline:
 
 - `capture`: every line decodes to the counts in the manifest; Wireshark's
   own candump reader decodes it to the same frames (`CANBUS_REQUIRE_TSHARK`
@@ -116,20 +117,27 @@ CC BY-SA 4.0). 14 excerpts, 8,996 frames, about 800 KB, checked by SHA256SUMS an
   format and back nothing is lost but what the format cannot carry; the
   CANdid logs' out-of-order first line through BLF and replay; cut and
   corrupted lines; real lines seed `FuzzReaders`.
-- `isotp`: a listen-only connection reassembles exactly the messages
-  Wireshark's ISO 15765 dissector finds (`*.isotp.json`); a connection set
-  up as each of the 21 recorded testers and ECUs sends their frames byte for
-  byte (requests, flow control, single, first and consecutive frames) and
-  receives the recorded peer's messages. Recorded frames seed
-  `FuzzReceiver`.
+- `isotp`: on the diagnostic bus of the CarDS recordings, a listen-only
+  connection reassembles exactly the messages Wireshark's ISO 15765
+  dissector finds (`*.isotp.json`); a connection set up as each of the 21
+  recorded testers and ECUs sends their frames byte for byte (requests,
+  flow control, single, first and consecutive frames) and receives the
+  recorded peer's messages. Recorded frames seed `FuzzReceiver`.
 
-`make captures-extended` fetches the whole recordings (about 1.2 GB, also
-the TU/e Opel Astra and Renault Clio captures, whose licence forbids
-committing them) and checks 17.0 million frames: each recording decodes
-and is written back with the SHA-256 the manifest records (the TU/e logs lack a final
-newline, which the comparison ignores). `CANBUS_CAPTURES` names another
-cache directory; `CANBUS_REQUIRE_CAPTURES=1` fails instead of skipping.
-docs/CAPTURE-COVERAGE.md is the matrix.
+A `-race` build (`make test`, `make coverage`) checks the first 20,000
+lines of each log: the codecs run in one goroutine and the whole corpus
+under the race detector takes longer than a test binary's 10 minutes. The
+whole corpus runs in the tests without `-race`: `make test-captures` (in
+CI's vcan jobs, with Wireshark required) and CI's Test jobs on Linux, macOS
+and Windows.
+
+`make captures-extended` fetches the three recordings too large to commit
+(about 1.1 GB to download: CarDS fast driving and CaringCaribou, TU/e Opel
+Astra) and checks 14.7 million more frames: each recording decodes and is
+written back with the SHA-256 the manifest records (the TU/e logs lack a
+final newline, which the comparison ignores). `CANBUS_CAPTURES` names
+another cache directory; `CANBUS_REQUIRE_CAPTURES=1` fails instead of
+skipping. docs/CAPTURE-COVERAGE.md is the matrix.
 
 ## End-to-end
 

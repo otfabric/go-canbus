@@ -2,8 +2,9 @@
 
 // Command fetchcaptures downloads the extended corpus of whole vehicle
 // recordings listed in testdata/captures/manifest.json into a cache
-// directory (default .cache/captures, or $CANBUS_CAPTURES) and checks each
-// file's SHA-256. The committed excerpts do not need it; `make
+// directory (default .cache/captures, or $CANBUS_CAPTURES) under the clean
+// names of the manifest (testdata/captures/README.md, "Names"; each entry
+// keeps the publisher's original name) and checks each file's SHA-256. The committed recordings do not need it; `make
 // captures-extended` runs it and then the extended test.
 //
 // CarDS publishes its CAN logs in a 3.6 GB ZIP of ZIPs: the tool reads the
