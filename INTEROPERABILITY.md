@@ -5,7 +5,7 @@ go-canbus is tested against independent implementations published by
 its container contract only (no code of those stacks is linked or vendored).
 The suite is `interop/` (build tag `interop`), run with `make interop` on
 Linux with Docker and `vcan0`, and in CI by the Interop workflow on amd64 and
-arm64, against the published images of canbus-interop v0.2.0 (contract 1.1) pinned by digest in `interop/harness_test.go`. It writes a result matrix (`bin/interop-report.json`): every scenario
+arm64, against the published images of canbus-interop v0.6.0 (contract 1.3) pinned by digest in `interop/harness_test.go`. It writes a result matrix (`bin/interop-report.json`): every scenario
 is `pass`, `fail`, `skip` (with the reason) or, for individual frames,
 `known-difference` (with the reason below). A skipped scenario is never
 counted as passed.
@@ -32,7 +32,7 @@ evidence: the image declares `independentEngine: false`.
 | socketcan-rs 4.0.0 | Rust | MIT | raw CAN | frame encoding |
 | Scapy 2.8.0 | Python | GPL-2.0 | raw CAN | frame encoding |
 | python-can-isotp 2.0.7 | Python | MIT | ISO-TP (userspace) | the whole ISO-TP state machine |
-| cantools 45.1.0 | Python | MIT | DBC oracle | DBC parsing, signal codec |
+| cantools 45.1.1 | Python | MIT | DBC oracle | DBC parsing, signal codec |
 | canmatrix 1.3.3 | Python | BSD-2-Clause | DBC and KCD oracle | DBC/KCD parsing, signal codec |
 
 All raw-CAN stacks, go-canbus included, use the same Linux SocketCAN kernel

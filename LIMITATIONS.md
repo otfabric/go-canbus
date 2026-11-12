@@ -49,7 +49,7 @@ Grouped into gaps and follow-ups, with what is not verified:
   are reported as diagnostics. Multiplexed PDUs are read as cantools reads
   them (selector `<frame>_selector<n>`); their SEGMENT-POSITIONS are not
   applied. A PDU at a byte offset in its frame is placed at
-  that offset (AUTOSAR); cantools 45.1.0 and canmatrix 1.3.3 place it at 0.
+  that offset (AUTOSAR); cantools 45.1.1 and canmatrix 1.3.3 place it at 0.
 - ASC and BLF carry no Linux error class: error frames read from them are
   protocol errors. python-can reads a classical frame's DLC 9..15 in ASC as
   a length and a 0-byte CAN FD frame as remote; go-canbus follows Vector's
