@@ -29,18 +29,18 @@ import (
 // digest. Override one with CANBUS_INTEROP_<ADAPTER>_IMAGE (upper case),
 // e.g. a local build (make interop-images builds canbus-interop's source
 // at INTEROP_REF as ghcr.io/otfabric/canbus-interop-<adapter>:dev).
-const InteropRelease = "v0.6.0"
+const InteropRelease = "v0.7.0"
 
 var adapters = []string{"canutils", "pythoncan", "socketcanrs", "scapy", "pythoncanisotp", "cantools", "canmatrix"}
 
 var defaultImages = map[string]string{
-	"canutils":       "ghcr.io/otfabric/canbus-interop-canutils@sha256:647a2f8a0155bb322a5069c63d0158097f504675553090c0c439fd5c0fdf95f4",
-	"pythoncan":      "ghcr.io/otfabric/canbus-interop-pythoncan@sha256:22f466b4ca9591cad3e483669b275bfa6cc4b340cb8288cbaa037c66be7af0df",
-	"socketcanrs":    "ghcr.io/otfabric/canbus-interop-socketcanrs@sha256:2c525da8ec4119faa42462f8e968a73f1ff968042085d93ebe20c46684d6b204",
-	"scapy":          "ghcr.io/otfabric/canbus-interop-scapy@sha256:53bad2e5d29c4bdd4be46cfdf48014c15e32669f344c34341221f97275a24d1e",
-	"pythoncanisotp": "ghcr.io/otfabric/canbus-interop-pythoncanisotp@sha256:5874f0531ad02cd1efc619020f22034cda842bc64eeb0ff175630b4fe70c28ba",
-	"cantools":       "ghcr.io/otfabric/canbus-interop-cantools@sha256:5489f766adcf54b2b1fb986b1e70fcaafff5ac3fcd57c67577aa0ce43a965c80",
-	"canmatrix":      "ghcr.io/otfabric/canbus-interop-canmatrix@sha256:b41694fac10643f9e345b6191eb1156fe4bb325e2905702e6df6f36f52148647",
+	"canutils":       "ghcr.io/otfabric/canbus-interop-canutils@sha256:3e4205d83fbef4cae75d3cfbce62acad8ba7fa630fc92d813cd601cb47de8711",
+	"pythoncan":      "ghcr.io/otfabric/canbus-interop-pythoncan@sha256:856630670a2555c33f08d668c7c1d60dab1520f6fb9ec997a349aa98492892fb",
+	"socketcanrs":    "ghcr.io/otfabric/canbus-interop-socketcanrs@sha256:b276be238c81d9ba07ebf98990ede1662dfa1934cc67d3d6e6153d1e1e8643c0",
+	"scapy":          "ghcr.io/otfabric/canbus-interop-scapy@sha256:7a00c77fe0f9053d3c9e0599b6acdcc7173230663bd402a1cb9348747db6f011",
+	"pythoncanisotp": "ghcr.io/otfabric/canbus-interop-pythoncanisotp@sha256:fac7bc71813f5b07353604ca70b6ef2bca87700c8f88a328d8c6750d371ac73f",
+	"cantools":       "ghcr.io/otfabric/canbus-interop-cantools@sha256:baf73da0bce6dda31ed6f262d94065e471935ebae2e96b54f6d08dde96c5478e",
+	"canmatrix":      "ghcr.io/otfabric/canbus-interop-canmatrix@sha256:1139bf9dba5717c27254764aa6a703a8bb9bb4a94f7ceacdc57af8834bb093ed",
 }
 
 // Adapter order: raw CAN stacks, ISO-TP stacks, database oracles.

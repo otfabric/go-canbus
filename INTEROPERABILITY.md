@@ -5,7 +5,7 @@ go-canbus is tested against independent implementations published by
 its container contract only (no code of those stacks is linked or vendored).
 The suite is `interop/` (build tag `interop`), run with `make interop` on
 Linux with Docker and `vcan0`, and in CI by the Interop workflow on amd64 and
-arm64, against the published images of canbus-interop v0.6.0 (contract 1.3) pinned by digest in `interop/harness_test.go`. It writes a result matrix (`bin/interop-report.json`): every scenario
+arm64, against the published images of canbus-interop v0.7.0 (contract 1.4) pinned by digest in `interop/harness_test.go`. It writes a result matrix (`bin/interop-report.json`): every scenario
 is `pass`, `fail`, `skip` (with the reason) or, for individual frames,
 `known-difference` (with the reason below). A skipped scenario is never
 counted as passed.
@@ -64,7 +64,10 @@ selector values). Against canbus-interop v0.5.0 (contract 1.3, 2026-10-28):
 additions are CAN XL with can-utils (both directions and a candump
 capture); the 9 new skips are the stacks without CAN XL. Against canbus-interop v0.6.0
 (contract 1.3, 2026-11-04, go-canbus v0.8.0): the same 170 passed, 0 failed,
-13 skipped, 132 known.
+13 skipped, 132 known. Against canbus-interop v0.7.0 (contract 1.4, 2026-11-12,
+go-canbus v0.9.1; the contract adds the `independentEngine` field and no
+scenario): the same 170 passed, 0 failed, 13 skipped, 132 known, on amd64
+and arm64.
 
 | Area | Scenario | can-utils / kernel | python-can | socketcan-rs | Scapy | python-can-isotp | cantools | canmatrix |
 |------|----------|---|---|---|---|---|---|---|
