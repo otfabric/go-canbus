@@ -4,7 +4,7 @@ run-name: "Interop (${{ github.event_name }}) on ${{ github.ref_name }} by @${{ 
 # Runs go-canbus against the independent implementations of
 # otfabric/canbus-interop on a vcan interface: can-utils and the kernel's
 # ISO-TP, python-can, socketcan-rs, Scapy, python-can-isotp, cantools and
-# canmatrix. The images of canbus-interop v0.1.0 are pulled by digest
+# canmatrix. The images of canbus-interop v0.7.0 are pulled by digest
 # (interop/harness_test.go); nothing of canbus-interop is built here.
 
 on:
