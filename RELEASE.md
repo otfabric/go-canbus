@@ -5,6 +5,33 @@ it computes the version, tags it and publishes this file's section of
 that version as the release notes. Add the section, headed exactly
 `## vX.Y.Z` and closed by a line `---`, before running it.
 
+## v0.9.1
+
+**Date:** 2026-11-12
+**Previous release:** v0.9.0
+
+### Summary
+
+Dependency and interop pin update; no change to go-canbus's own code.
+Interoperability against canbus-interop v0.7.0 (contract 1.4), amd64 and
+arm64: 170 passed, 0 failed, 13 skipped, 132 known-difference records
+(unchanged from v0.6.0).
+
+### Dependencies
+
+- go-serial v0.3.0 (used by the slcan transport): Go 1.26 minimum; data
+  and stop bits outside their range and RS-485 RTS delays above
+  `serial.MaxRS485Delay` are rejected instead of wrapping.
+- canbus-interop v0.7.0 images, pinned by digest (contract 1.4 adds the
+  version document's `independentEngine` field; no new scenario).
+  `make interop-images` builds the same tag (`INTEROP_REF`, was `main`).
+
+### Documentation
+
+INTEROPERABILITY.md, docs/FEATURE-STATUS.md.
+
+---
+
 ## v0.9.0
 
 **Date:** 2026-11-08
