@@ -93,9 +93,9 @@ TRC/slcan ESI readings.
 
 ## Housekeeping
 
-- go-canbus **v0.6.0** and **v0.6.1** are the same commit: the go-serial
-  v0.1.8 update. v0.6.0 was published by a release run meant for the CAN
-  XL work, which became v0.7.0; both releases' notes say so.
+- go-canbus **v0.6.0** is the go-serial v0.1.8 update, published by a
+  release run meant for the CAN XL work, which became v0.7.0; its notes say
+  so. A v0.6.1 tag on the same commit was removed on 2026-11-13.
 - [docs/WEBSITE-INTEGRATION.md](docs/WEBSITE-INTEGRATION.md), the proposal
   for otfabric.io, is reviewed as of v0.9.1. The site has had the CAN
   projects since 2026-10-29 (otfabric/website #39); its texts are the
