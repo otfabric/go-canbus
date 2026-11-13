@@ -3,8 +3,10 @@
 What the CAN ecosystem (go-canbus, [canbusctl](https://github.com/otfabric/canbusctl),
 [canbus-interop](https://github.com/otfabric/canbus-interop)) does not do
 yet, what is not verified, and the follow-ups worth doing, as of go-canbus
-v0.7.0, canbusctl v0.6.0 and canbus-interop v0.5.0 (2026-10-29). Work
-paused here; nothing below is in progress.
+v0.9.1, canbusctl v0.11.1 and canbus-interop v0.7.0 (contract 1.4),
+reviewed 2026-11-13. Since v0.7.0 the work has been hardening (v0.8.0:
+SAST review, Go 1.26), recorded vehicle traffic (v0.9.0) and dependency
+and interop pin updates (v0.9.1); none of the gaps below is in progress.
 
 [LIMITATIONS.md](LIMITATIONS.md) lists every limitation in detail; this
 page groups them into decisions. Effort: **S** about a day, **M** a few
@@ -18,8 +20,8 @@ days, **L** a week or more.
 | CAN XL | SocketCAN, `canbus.Bus`, virtual bus, candump/JSON Lines/pcap/pcapng traces, replay, chaos bridge | Linux kernel 6.2+ (VCIDs 6.9+), can-utils, tcpdump/libpcap, Wireshark 4.6 |
 | SocketCAN, netlink administration, kernel ISO-TP | Complete for vcan | Linux kernel in microVMs (6.1, 6.6, 6.8, 6.12, 6.18) |
 | slcan adapters | Classical and CAN FD, status records | Linux slcan driver (on a pty), python-can |
-| ISO-TP (userspace) | Normal, extended, mixed addressing, CAN FD, > 4095 bytes | Linux kernel ISO-TP, python-can-isotp, can-utils |
-| Traces | candump, JSON Lines, pcap, pcapng, ASC, BLF, TRC | python-can, can-utils, tcpdump, Wireshark |
+| ISO-TP (userspace) | Normal, extended, mixed addressing, CAN FD, > 4095 bytes | Linux kernel ISO-TP, python-can-isotp, can-utils; the frames of 21 recorded tester–ECU pairs of a real vehicle (normal addressing, classical CAN) |
+| Traces | candump, JSON Lines, pcap, pcapng, ASC, BLF, TRC | python-can, can-utils, tcpdump, Wireshark; CAN logs recorded on twelve real vehicles (testdata/captures) |
 | Databases | DBC, KCD read/write, ARXML (CAN subset of AUTOSAR 4) read, code generation | cantools, canmatrix |
 | canbusctl | Every library feature above as commands | In-process and e2e tests, interop images |
 
@@ -28,7 +30,7 @@ days, **L** a week or more.
 | # | Gap | Impact | Follow-up | Effort |
 |---|-----|--------|-----------|--------|
 | 1 | No vendor hardware adapters (PEAK PCAN-Basic, Kvaser CANlib, Vector XL). gs_usb and most USB adapters work through SocketCAN on Linux; slcan adapters work everywhere | On Windows and macOS only slcan adapters can be used | One `canbus.Transport` per vendor. PCAN-Basic and CANlib need their vendor libraries (cgo or dynamic loading), which breaks the pure-Go rule: put each in its own module | L each |
-| 2 | No higher-layer protocols: CANopen, SAE J1939, UDS (ISO 14229), NMEA 2000, ISOBUS, DroneCAN/Cyphal | Users build them on `canbus.Bus` and `isotp` themselves | Separate modules. J1939 (address claim, transport protocol) and UDS on `isotp` are the most asked for | L each |
+| 2 | No higher-layer protocols other than CANopen: SAE J1939, UDS (ISO 14229), NMEA 2000, ISOBUS, DroneCAN/Cyphal. CANopen is done, as its own module on `canbus.Bus`: [go-canopen](https://github.com/otfabric/go-canopen) (with canopenctl and canopen-interop) | Users build the others on `canbus.Bus` and `isotp` themselves | Separate modules. J1939 (address claim, transport protocol) and UDS on `isotp` are the most asked for | L each |
 | 3 | CAN XL is missing from slcan, ISO-TP, the message databases, and ASC/BLF/TRC traces | CAN XL works only on SocketCAN and the virtual bus, and only candump, JSON Lines, pcap and pcapng traces carry it | Follow the upstreams: no slcan CAN XL protocol, no CAN XL ISO-TP in Linux, no CAN XL in DBC/ASC/BLF exist yet | wait |
 | 4 | ARXML: no writer; no AUTOSAR 3.x, container, secured or diagnostic PDUs, nested multiplexing, signal groups, end-to-end protection; SEGMENT-POSITIONS of multiplexed PDUs not applied | AUTOSAR projects with those constructs get diagnostics, not data | Container and secured PDUs first (most common after plain I-PDUs) | M |
 | 5 | DBC: environment variables, signal types, relation attributes, categories and filters skipped (with a diagnostic) | Round trips through DBC lose them | Model them in `candb` only if a user needs them | M |
@@ -42,7 +44,7 @@ days, **L** a week or more.
 
 | # | Gap | Why it matters | Follow-up |
 |---|-----|----------------|-----------|
-| V1 | No test on real CAN hardware: bit rates and sample points, CAN FD data phase and transceiver delay compensation, error counters, bus-off and `restart-ms`, ESI from an error-passive transmitter, arbitration and timing under load | vcan is a perfect medium: it proves frame encoding and protocol logic, not electrical or timing behaviour | A bench with two USB adapters (gs_usb on Linux), a self-hosted CI runner; CAN XL needs a CAN XL controller, of which few exist |
+| V1 | No test on real CAN hardware (the recorded vehicle logs of v0.9.0 are replayed offline: they show what real buses carried, not how a controller behaves): bit rates and sample points, CAN FD data phase and transceiver delay compensation, error counters, bus-off and `restart-ms`, ESI from an error-passive transmitter, arbitration and timing under load | vcan is a perfect medium: it proves frame encoding and protocol logic, not electrical or timing behaviour | A bench with two USB adapters (gs_usb on Linux), a self-hosted CI runner; CAN XL needs a CAN XL controller, of which few exist |
 | V2 | One kernel CAN stack: the four raw-CAN oracles (python-can, socketcan-rs, can-utils, Scapy) are all clients of Linux `CAN_RAW` | They catch encoding and socket-option mistakes, not controller differences | Comes with V1 |
 | V3 | CAN XL has one independent stack (can-utils); python-can, socketcan-rs and Scapy have no CAN XL (13 interop skips) | Fewer oracles for CAN XL than for CAN FD | Add each stack when it gains CAN XL; canbus-interop's weekly upstream check reports new versions |
 | V4 | ISO-TP WAIT and OVERFLOW flow controls cannot be provoked in the reference stacks (neither isotprecv nor python-can-isotp sends them); tested against go-canbus's own receiver only | Their handling is not cross-checked | A scripted ISO-TP peer in canbus-interop that answers with WAIT/OVFLW on request |
@@ -95,7 +97,8 @@ TRC/slcan ESI readings.
   v0.1.8 update. v0.6.0 was published by a release run meant for the CAN
   XL work, which became v0.7.0; both releases' notes say so.
 - [docs/WEBSITE-INTEGRATION.md](docs/WEBSITE-INTEGRATION.md), the proposal
-  for otfabric.io, is current as of v0.7.0; nothing from it has been
-  applied to the site.
+  for otfabric.io, is reviewed as of v0.9.1. The site has had the CAN
+  projects since 2026-10-29 (otfabric/website #39); its texts are the
+  site's own, not copies of the proposal.
 - canbusctl gaps: [canbusctl ROADMAP.md](https://github.com/otfabric/canbusctl/blob/main/ROADMAP.md).
   canbus-interop gaps: [canbus-interop LIMITATIONS.md](https://github.com/otfabric/canbus-interop/blob/main/LIMITATIONS.md).

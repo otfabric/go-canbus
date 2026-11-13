@@ -1,9 +1,13 @@
 # otfabric.io integration proposal
 
 A proposal for adding the CAN projects to otfabric.io
-(`otfabric/website`). Nothing here has been applied to the website. Current
-as of go-canbus v0.7.0, canbusctl v0.6.0 and canbus-interop v0.5.0
-(2026-10-29).
+(`otfabric/website`). The site has had them since 2026-10-29 (otfabric/website
+#39: `projects.json`, `ecosystem.json`, the CLI installer, the CAN bus
+protocol pages and an introduction post), written in the site's own words
+rather than copied from here: for example go-canbus is in the `transport`
+category with the standard `can-bus`. This file stays as the proposal and
+its facts are kept current. Reviewed as of go-canbus v0.9.1, canbusctl
+v0.11.1 and canbus-interop v0.7.0 (contract 1.4), 2026-11-13.
 
 ## Positioning
 
@@ -12,14 +16,15 @@ as of go-canbus v0.7.0, canbusctl v0.6.0 and canbus-interop v0.5.0
 | CAN bus / CAN FD / CAN XL | Industrial fieldbus and transport technologies, next to Modbus RTU and PROFINET | A data-link technology: frames, identifiers, arbitration. Not an application protocol. CAN XL (ISO 11898-1:2024) carries up to 2048 bytes. |
 | ISO-TP (ISO 15765-2) | Transport protocols, next to COTP/TPKT | Segmentation of messages up to 4095 bytes (4 GiB with the escape) over CAN |
 | DBC, KCD, ARXML | Information models and message definitions, next to SunSpec models and IEC 61850 SCL | Database formats describing messages and signals. **Not network protocols.** |
-| CANopen, J1939, UDS | Future higher-level protocol implementations (roadmap) | Planned as separate modules on top of `canbus.Bus` and `isotp` |
+| CANopen | Higher-level protocol on CAN | Implemented as its own module on `canbus.Bus`: go-canopen, canopenctl, canopen-interop |
+| J1939, UDS | Future higher-level protocol implementations (roadmap) | Planned as separate modules on top of `canbus.Bus` and `isotp` |
 
 ## Repository descriptions and topics
 
 | Repository | Description | Topics |
 |------------|-------------|--------|
 | go-canbus | Pure Go CAN, CAN FD and CAN XL: Linux SocketCAN, slcan adapters on every OS, a virtual bus, ISO-TP, capture and replay (candump, JSON Lines, pcap/pcapng, ASC, BLF, TRC), DBC/KCD/ARXML codec and Go code generator | `can-bus`, `canbus`, `can-fd`, `can-xl`, `socketcan`, `slcan`, `iso-tp`, `iso15765`, `dbc`, `kcd`, `arxml`, `autosar`, `pcap`, `code-generation`, `golang`, `industrial-automation`, `automotive`, `ot-security`, `otfabric` |
-| canbus-interop | Containerized independent CAN implementations (can-utils, python-can, socketcan-rs, Scapy, python-can-isotp, cantools, canmatrix) with one contract, for interoperability testing on vcan | `can-bus`, `socketcan`, `vcan`, `can-xl`, `interoperability`, `iso-tp`, `dbc`, `arxml`, `docker`, `testing`, `otfabric` |
+| canbus-interop | Containerized independent CAN implementations (can-utils, python-can, socketcan-rs, Scapy, python-can-isotp, cantools, canmatrix) with one contract (1.4), for interoperability testing on vcan; also a go-canbus image for self-checks, not a reference | `can-bus`, `socketcan`, `vcan`, `can-xl`, `interoperability`, `iso-tp`, `dbc`, `arxml`, `docker`, `testing`, `otfabric` |
 | canbusctl | CAN command-line toolkit: monitor, send, record, replay, trace conversion, DBC/KCD/ARXML decode/encode/generate, ISO-TP, CAN XL, fault injection and virtual simulation with safety guards | `can-bus`, `cli`, `socketcan`, `slcan`, `candump`, `can-xl`, `dbc`, `iso-tp`, `golang`, `otfabric` |
 
 ## Proposed `src/data/projects.json` entries
@@ -97,19 +102,24 @@ generated from a database; a fault-injecting bridge for testing real stacks.
 **How it is tested**: against the Linux kernel (CAN_RAW, ISO-TP, slcan
 driver; kernels 6.1 to 6.18 in microVMs, and 7.0), can-utils, python-can,
 socketcan-rs, Scapy, python-can-isotp, cantools and canmatrix on vcan (315
-interop results per architecture: 170 pass, 132 documented differences
-between DBC/ARXML tools, 13 capability skips, 0 failures), traces against
-tcpdump/libpcap captures and Wireshark; plus race, fuzz, chaos-monkey and
-end-to-end tests; ≥ 90 % coverage (93 %).
+interop results per architecture with canbus-interop v0.7.0: 170 pass, 132
+documented differences between DBC/ARXML tools, 13 capability skips, 0
+failures), traces against tcpdump/libpcap captures and Wireshark; CAN logs
+recorded on twelve real vehicles (16 logs, 2.7 million frames, Wireshark
+4.6.9 as independent decoder), whose ISO-TP tester–ECU exchanges go-canbus
+reproduces byte for byte; plus race, fuzz, chaos-monkey and end-to-end
+tests; ≥ 90 % coverage gate (94.4 % at v0.8.0, the latest measurement).
 
 **Limitations to state**: no ISO or CiA conformance claim (the standards are
 not public); SocketCAN only on Linux, slcan adapters everywhere, no vendor
 adapters (PEAK, Kvaser, Vector) yet; CAN XL on SocketCAN (Linux ≥ 6.2) and
 the virtual bus, not over slcan or ISO-TP; ARXML read-only, CAN subset;
 vcan proves interoperability of frames and protocol logic, not electrical
-behaviour or timing, and nothing has been tested on real CAN hardware; a
+behaviour or timing, and nothing has been tested on real CAN hardware (the
+vehicle logs are recordings replayed offline); a
 CAN identifier names a message, not a device: no device discovery.
 
-**Roadmap**: CANopen, SAE J1939 and UDS as separate libraries on top of
-go-canbus; vendor adapter transports; validation on real hardware. Details:
+**Roadmap**: SAE J1939 and UDS as separate libraries on top of go-canbus
+(CANopen already is one: go-canopen); vendor adapter transports; validation
+on real hardware. Details:
 [ROADMAP.md](../ROADMAP.md).
