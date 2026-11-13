@@ -95,6 +95,6 @@ canbusctl). Newest first within each section.
 
 ## Next actions
 
-1. Paused on 2026-10-29 at the owner's request. Gaps and follow-ups, in
-   suggested order: [ROADMAP.md](ROADMAP.md).
-2. otfabric.io: the owner's, after approval (docs/WEBSITE-INTEGRATION.md).
+1. Gaps and follow-ups, in suggested order: [ROADMAP.md](ROADMAP.md).
+2. otfabric.io has the CAN projects since 2026-10-29 (otfabric/website#39);
+   keep it in step with releases (docs/WEBSITE-INTEGRATION.md).
