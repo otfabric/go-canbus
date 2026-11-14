@@ -158,7 +158,7 @@ ISOTPConn is a kernel ISO-TP socket (CAN\_ISOTP, Linux ≥ 5.10 or the can-isotp
 func DialISOTP(ifname string, cfg isotp.Config) (*ISOTPConn, error)
 ```
 
-DialISOTP opens a kernel ISO-TP socket on the interface with the same configuration the userspace isotp.Conn takes. The kernel does not support Config.SendFlowWait, MaxWait other than its default, or the N\_Bs/N\_Cr values (it uses 1 s); a Config asking for them is rejected.
+DialISOTP opens a kernel ISO-TP socket on the interface with the same configuration the userspace isotp.Conn takes. The kernel does not support Config.SendFlowWait, MaxWait other than its default (10), or N\_Bs/N\_Cr values other than its fixed 1 s; a Config asking for them is rejected with [canbus.ErrUnsupported](https://pkg.go.dev/github.com/otfabric/go-canbus#ErrUnsupported). MaxMessageSize (default 4095) is at most 1025 KiB, the kernel's own bound; a larger one is rejected with [canbus.ErrInvalidOption](https://pkg.go.dev/github.com/otfabric/go-canbus#ErrInvalidOption).
 
 #### func (ISOTPConn) Close
 
@@ -184,7 +184,7 @@ func (c *ISOTPConn) Send(ctx context.Context, payload []byte) error
 
 Send transmits one message and returns when the kernel has finished the transfer (or failed it: no flow control, overflow).
 
-The kernel waits for the transfer inside sendmsg, interruptibly. Go's runtime signals its threads (SIGURG, for preemption); a signal would abort the transfer, and the syscall, restarted (SA\_RESTART), would send the whole message again. Send therefore runs the write on a locked OS thread with all signals blocked; they are delivered when it returns. The write cannot be cancelled once started: ctx is checked before, and the kernel's own timeouts (N\_Bs, 1 s per flow control) bound it.
+The kernel waits for the transfer inside sendmsg, interruptibly. Go's runtime signals its threads (SIGURG, for preemption); a signal would abort the transfer, and the syscall, restarted (SA\_RESTART), would send the whole message again. Send therefore runs the write on a locked OS thread with all signals blocked; they are delivered when it returns. The write cannot be cancelled once started: ctx is checked before only. The kernel's N\_Bs (1 s) bounds each wait for a flow control, not the transfer: a peer that keeps sending WAIT flow controls, or announces a long STmin, can extend it, and neither ctx nor Close ends it meanwhile.
 
 ### type Option
 

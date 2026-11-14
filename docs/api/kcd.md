@@ -12,6 +12,8 @@ Supported: Document (version, notes), Node, Bus (all buses are merged into one d
 
 The offset of a big-endian signal is taken as the index of its most significant bit counted from the most significant bit of byte 0, the interpretation of canmatrix, which serves as the reference (see INTEROPERABILITY.md). Unknown elements and attributes produce warnings.
 
+A LabelGroup expands to one value description per value. Groups of more than 256 values are not expanded, and at most 1048576 (2^20) values are expanded from LabelGroups per database; groups beyond either bound are ignored with a warning.
+
 ## Functions
 
 ### func Parse

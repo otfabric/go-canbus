@@ -30,6 +30,15 @@
 // PDUs, signal groups, end-to-end protection, other bus types) is reported
 // as a diagnostic and skipped: no ARXML compatibility beyond these
 // elements is claimed.
+//
+// Bounds on untrusted input: elements nested deeper than 256 levels end
+// Parse with an error, as does a database of more than 262144 (2^18)
+// signals or 2097152 (2^21) value descriptions (each triggering of a frame
+// counts its signals again). A PDU mapped more than once into one frame is
+// an error and is read once. TEXTTABLE scales are expanded only for
+// finite limits of at most 2^53 in magnitude and at most 256 values. At
+// most 1000 diagnostics are returned; a final diagnostic, as severe as the
+// worst one left out, counts the rest.
 package arxml
 
 import (
@@ -47,6 +56,16 @@ import (
 	"github.com/otfabric/go-canbus/candb"
 )
 
+// Bounds on untrusted input (see the package documentation).
+const (
+	maxDepth       = 256     // XML element nesting
+	maxSignals     = 1 << 18 // signals in the database
+	maxValues      = 1 << 21 // value descriptions in the database
+	maxDiagnostics = 1000    // diagnostics returned before the summary
+	maxExact       = 1 << 53 // largest TEXTTABLE limit magnitude expanded
+	maxBitPosition = 1 << 24 // largest START-POSITION, as in package candb
+)
+
 // node is a generic XML element.
 type node struct {
 	name     string
@@ -55,6 +74,9 @@ type node struct {
 	children []*node
 	parent   *node
 	line     int
+	short    string // trimmed SHORT-NAME of an indexed element
+	scope    *node  // nearest indexed ancestor (or the AUTOSAR element)
+	named    bool   // the element has a SHORT-NAME
 }
 
 func (n *node) child(name string) *node {
@@ -85,11 +107,15 @@ func (n *node) textOf(names ...string) string {
 	return ""
 }
 
+// parseTree reads the document into a tree. Character data is collected
+// per open element (linear in the input) and nesting is bounded by
+// maxDepth.
 func parseTree(r io.Reader) (*node, string, error) {
 	dec := xml.NewDecoder(r)
 	root := &node{name: "#root"}
 	cur := root
 	ns := ""
+	texts := [][]byte{nil} // character data of the open elements, root first
 	for {
 		tok, err := dec.Token()
 		if err == io.EOF {
@@ -111,14 +137,21 @@ func parseTree(r io.Reader) (*node, string, error) {
 				}
 				n.attrs[a.Name.Local] = a.Value
 			}
+			if len(texts) > maxDepth {
+				return nil, "", fmt.Errorf("line %d: elements nested deeper than %d levels", line, maxDepth)
+			}
 			cur.children = append(cur.children, n)
 			cur = n
+			texts = append(texts, nil)
 		case xml.EndElement:
+			cur.text = string(texts[len(texts)-1])
+			texts = texts[:len(texts)-1]
 			cur = cur.parent
 		case xml.CharData:
-			cur.text += string(t)
+			texts[len(texts)-1] = append(texts[len(texts)-1], t...)
 		}
 	}
+	root.text = string(texts[0])
 	return root, ns, nil
 }
 
@@ -151,7 +184,7 @@ func ParseFile(path string) (*candb.Database, []candb.Diagnostic, error) {
 // any is an error, a *[ParseError].
 func Parse(r io.Reader) (*candb.Database, []candb.Diagnostic, error) {
 	root, ns, err := parseTree(r)
-	p := &parser{db: &candb.Database{}, paths: map[string]*node{}}
+	p := &parser{db: &candb.Database{}, scopes: map[scopeKey]*node{}, msgs: map[msgKey]bool{}, compus: map[*node]*compuResult{}}
 	if err != nil {
 		p.diag(candb.Error, 0, "", "XML: %v", err)
 		return p.db, p.diags, &ParseError{Diagnostics: p.diags}
@@ -163,11 +196,18 @@ func Parse(r io.Reader) (*candb.Database, []candb.Diagnostic, error) {
 	case !strings.Contains(ns, "/r4.") && ns != "":
 		p.diag(candb.Error, ar.line, "", "AUTOSAR schema %q is not supported (AUTOSAR 4.x only)", ns)
 	default:
-		p.index(ar, "")
+		p.top = ar
+		p.index(ar, ar)
 		p.run()
 	}
-	p.diags = append(p.diags, p.db.Validate()...)
+	for _, d := range p.db.Validate() {
+		p.keep(d)
+	}
 	sort.SliceStable(p.diags, func(i, j int) bool { return p.diags[i].Line < p.diags[j].Line })
+	if p.dropped > 0 {
+		p.diags = append(p.diags, candb.Diagnostic{Severity: p.droppedSev,
+			Message: fmt.Sprintf("%d more diagnostics not reported", p.dropped)})
+	}
 	if candb.HasErrors(p.diags) {
 		return p.db, p.diags, &ParseError{Diagnostics: p.diags}
 	}
@@ -175,11 +215,34 @@ func Parse(r io.Reader) (*candb.Database, []candb.Diagnostic, error) {
 }
 
 type parser struct {
-	db    *candb.Database
-	diags []candb.Diagnostic
-	paths map[string]*node // absolute reference path → element
-	ports map[string]port  // frame port path → ECU and direction
-	nodes map[string]bool
+	db         *candb.Database
+	diags      []candb.Diagnostic
+	dropped    int            // diagnostics beyond maxDiagnostics
+	droppedSev candb.Severity // worst severity among them
+	top        *node          // the AUTOSAR element
+	scopes     map[scopeKey]*node
+	indexed    []*node        // elements with a SHORT-NAME, in document order
+	ports      map[*node]port // frame port → ECU and direction
+	nodes      map[string]bool
+	msgs       map[msgKey]bool // identifiers of the messages added
+	sigs       map[string]*candb.Signal
+	muxes      int // multiplexer switches of the current message
+	compus     map[*node]*compuResult
+	signals    int  // signals built
+	values     int  // value descriptions built
+	over       bool // a database bound was reached: stop reading
+}
+
+// scopeKey names an element by its nearest indexed ancestor and its
+// SHORT-NAME: the reference path /A/B/C resolves one segment at a time.
+type scopeKey struct {
+	scope *node
+	name  string
+}
+
+type msgKey struct {
+	id       canbus.ID
+	extended bool
 }
 
 type port struct {
@@ -188,19 +251,85 @@ type port struct {
 }
 
 func (p *parser) diag(sev candb.Severity, line int, obj, format string, args ...any) {
+	if len(p.diags) >= maxDiagnostics {
+		p.drop(sev)
+		return
+	}
 	p.diags = append(p.diags, candb.Diagnostic{Severity: sev, Line: line, Object: obj, Message: fmt.Sprintf(format, args...)})
 }
 
-// index records every element with a SHORT-NAME under its reference path.
-func (p *parser) index(n *node, prefix string) {
-	for _, c := range n.children {
-		pre := prefix
-		if sn := c.child("SHORT-NAME"); sn != nil {
-			pre = prefix + "/" + strings.TrimSpace(sn.text)
-			p.paths[pre] = c
-		}
-		p.index(c, pre)
+// keep adds d unless maxDiagnostics are kept already.
+func (p *parser) keep(d candb.Diagnostic) {
+	if len(p.diags) >= maxDiagnostics {
+		p.drop(d.Severity)
+		return
 	}
+	p.diags = append(p.diags, d)
+}
+
+func (p *parser) drop(sev candb.Severity) {
+	p.dropped++
+	p.droppedSev = max(p.droppedSev, sev)
+}
+
+// overflow reports a database bound once and stops reading.
+func (p *parser) overflow(what string, limit int) {
+	if !p.over {
+		p.over = true
+		p.diag(candb.Error, 0, "", "more than %d %s in the database: the rest of the file is not read", limit, what)
+	}
+}
+
+// index records every element with a SHORT-NAME under its nearest indexed
+// ancestor. A later element of the same reference path replaces an
+// earlier one.
+func (p *parser) index(n, scope *node) {
+	for _, c := range n.children {
+		sc := scope
+		if sn := c.child("SHORT-NAME"); sn != nil {
+			c.short, c.scope, c.named = strings.TrimSpace(sn.text), scope, true
+			p.scopes[scopeKey{scope, c.short}] = c
+			p.indexed = append(p.indexed, c)
+			sc = c
+		}
+		p.index(c, sc)
+	}
+}
+
+// live reports whether n is the element its reference path resolves to.
+func (p *parser) live(n *node) bool {
+	return n.named && p.scopes[scopeKey{n.scope, n.short}] == n
+}
+
+// resolve finds the element of an absolute reference path.
+func (p *parser) resolve(path string) *node {
+	rest, ok := strings.CutPrefix(path, "/")
+	if !ok {
+		return nil
+	}
+	cur := p.top
+	for cur != nil {
+		seg, tail, more := strings.Cut(rest, "/")
+		cur = p.scopes[scopeKey{cur, seg}]
+		if !more {
+			return cur
+		}
+		rest = tail
+	}
+	return nil
+}
+
+// pathOf returns the reference path of an indexed element.
+func (p *parser) pathOf(n *node) string {
+	var segs []string
+	for ; n != nil && n != p.top; n = n.scope {
+		segs = append(segs, n.short)
+	}
+	var b strings.Builder
+	for i := len(segs) - 1; i >= 0; i-- {
+		b.WriteString("/" + segs[i])
+	}
+	return b.String()
 }
 
 func (p *parser) ref(n *node, name string) *node {
@@ -208,7 +337,7 @@ func (p *parser) ref(n *node, name string) *node {
 	if r == nil {
 		return nil
 	}
-	target := p.paths[strings.TrimSpace(r.text)]
+	target := p.resolve(strings.TrimSpace(r.text))
 	if target == nil {
 		p.diag(candb.Warning, r.line, "", "reference %s does not resolve", strings.TrimSpace(r.text))
 	}
@@ -231,22 +360,20 @@ var unsupportedElements = map[string]string{
 
 func (p *parser) run() {
 	seen := map[string]bool{}
-	for path, n := range p.paths {
-		if what, ok := unsupportedElements[n.name]; ok && !seen[n.name] {
+	for _, n := range p.indexed {
+		if what, ok := unsupportedElements[n.name]; ok && !seen[n.name] && p.live(n) {
 			seen[n.name] = true
-			p.diag(candb.Warning, n.line, "", "%s (%s, e.g. %s) are not supported: ignored", what, n.name, path)
+			p.diag(candb.Warning, n.line, "", "%s (%s, e.g. %s) are not supported: ignored", what, n.name, p.pathOf(n))
 		}
 	}
 	p.collectPorts()
-	var paths []string
-	for path, n := range p.paths {
-		if n.name == "CAN-FRAME-TRIGGERING" {
-			paths = append(paths, path)
+	for _, n := range p.indexed { // document order
+		if p.over {
+			break
 		}
-	}
-	sort.Strings(paths) // deterministic order
-	for _, path := range paths {
-		p.triggering(p.paths[path])
+		if n.name == "CAN-FRAME-TRIGGERING" && p.live(n) {
+			p.triggering(n)
+		}
 	}
 	sort.SliceStable(p.db.Messages, func(i, j int) bool {
 		a, b := p.db.Messages[i], p.db.Messages[j]
@@ -257,20 +384,29 @@ func (p *parser) run() {
 	})
 }
 
-// collectPorts maps frame ports to their ECU and direction.
+// collectPorts maps frame ports to their ECU and direction, walking each
+// ECU-INSTANCE's subtree once.
 func (p *parser) collectPorts() {
-	p.ports = map[string]port{}
+	p.ports = map[*node]port{}
 	p.nodes = map[string]bool{}
-	for path, n := range p.paths {
-		if n.name != "ECU-INSTANCE" {
+	for _, n := range p.indexed {
+		if n.name == "ECU-INSTANCE" && p.live(n) {
+			p.portsUnder(n, shortName(n))
+		}
+	}
+}
+
+// portsUnder records the frame ports below n for ecu; a nested
+// ECU-INSTANCE records its own.
+func (p *parser) portsUnder(n *node, ecu string) {
+	for _, c := range n.children {
+		switch {
+		case c.name == "ECU-INSTANCE" && p.live(c):
 			continue
+		case c.name == "FRAME-PORT" && p.live(c):
+			p.ports[c] = port{ecu: ecu, out: c.textOf("COMMUNICATION-DIRECTION") == "OUT"}
 		}
-		ecu := shortName(n)
-		for portPath, pn := range p.paths {
-			if pn.name == "FRAME-PORT" && strings.HasPrefix(portPath, path+"/") {
-				p.ports[portPath] = port{ecu: ecu, out: pn.textOf("COMMUNICATION-DIRECTION") == "OUT"}
-			}
-		}
+		p.portsUnder(c, ecu)
 	}
 }
 
@@ -297,6 +433,7 @@ func (p *parser) triggering(t *node) {
 		return
 	}
 	m := &candb.Message{ID: canbus.ID(id), Name: shortName(frame)}
+	p.sigs, p.muxes = map[string]*candb.Signal{}, 0
 	switch mode := t.textOf("CAN-ADDRESSING-MODE"); mode {
 	case "", "STANDARD":
 	case "EXTENDED":
@@ -325,7 +462,7 @@ func (p *parser) triggering(t *node) {
 	var receivers []string
 	if refs := t.child("FRAME-PORT-REFS"); refs != nil {
 		for _, r := range refs.children {
-			pt, ok := p.ports[strings.TrimSpace(r.text)]
+			pt, ok := p.ports[p.resolve(strings.TrimSpace(r.text))]
 			if !ok {
 				continue
 			}
@@ -341,23 +478,41 @@ func (p *parser) triggering(t *node) {
 	if maps == nil {
 		p.diag(candb.Warning, frame.line, "frame "+m.Name, "frame without PDUs")
 	} else {
+		mappedPDUs := map[*node]bool{}
 		for _, pm := range maps.children {
-			p.pdu(m, pm, receivers)
+			if p.over {
+				return
+			}
+			pdu := p.ref(pm, "PDU-REF")
+			if pdu == nil {
+				continue
+			}
+			if mappedPDUs[pdu] {
+				p.diag(candb.Error, pm.line, "message "+m.Name, "PDU %s mapped more than once: read once", shortName(pdu))
+				continue
+			}
+			mappedPDUs[pdu] = true
+			p.pdu(m, pm, pdu, receivers)
 		}
 	}
-	if p.db.Message(m.ID, m.Extended) != nil {
+	if p.over {
+		return
+	}
+	key := msgKey{m.ID, m.Extended}
+	if p.msgs[key] {
 		p.diag(candb.Error, t.line, obj, "identifier 0x%X triggered twice", id)
 		return
 	}
+	p.msgs[key] = true
 	p.db.Messages = append(p.db.Messages, m)
 }
 
-func (p *parser) pdu(m *candb.Message, pm *node, receivers []string) {
-	pdu := p.ref(pm, "PDU-REF")
-	if pdu == nil {
+func (p *parser) pdu(m *candb.Message, pm, pdu *node, receivers []string) {
+	offset, _ := strconv.Atoi(pm.textOf("START-POSITION"))
+	if offset < 0 || offset > maxBitPosition {
+		p.diag(candb.Error, pm.line, "message "+m.Name, "PDU at bit %d: beyond %d", offset, maxBitPosition)
 		return
 	}
-	offset, _ := strconv.Atoi(pm.textOf("START-POSITION"))
 	if offset%8 != 0 {
 		p.diag(candb.Error, pm.line, "message "+m.Name, "PDU at bit %d: only byte offsets are supported", offset)
 		return
@@ -389,6 +544,9 @@ func (p *parser) pduSignals(m *candb.Message, pdu *node, offset int, receivers [
 	}
 	var out []mapped
 	for _, sm := range mappings.children {
+		if p.over {
+			return out
+		}
 		if s := p.signal(m, sm, offset, receivers); s != nil {
 			out = append(out, mapped{s, sm.line})
 		}
@@ -400,8 +558,9 @@ func (p *parser) pduSignals(m *candb.Message, pdu *node, offset int, receivers [
 // unless both are multiplexed by the same switch with the same layout:
 // then the first is present for the second's switch values too.
 func (p *parser) add(m *candb.Message, s mapped) {
-	prev := m.Signal(s.Name)
+	prev := p.sigs[s.Name]
 	if prev == nil {
+		p.sigs[s.Name] = s.Signal
 		m.Signals = append(m.Signals, s.Signal)
 		return
 	}
@@ -423,12 +582,7 @@ func (p *parser) multiplexed(m *candb.Message, pdu *node, offset int, receivers 
 			pdu.textOf("SELECTOR-FIELD-START-POSITION"), pdu.textOf("SELECTOR-FIELD-LENGTH"))
 		return
 	}
-	n := 1
-	for _, s := range m.Signals {
-		if s.IsMultiplexer {
-			n++
-		}
-	}
+	n := p.muxes + 1
 	sel := &candb.Signal{Name: fmt.Sprintf("%s_selector%d", m.Name, n), StartBit: start + offset, Length: length,
 		Factor: 1, IsMultiplexer: true, Receivers: append([]string(nil), receivers...)}
 	switch o := pdu.textOf("SELECTOR-FIELD-BYTE-ORDER"); o {
@@ -439,10 +593,12 @@ func (p *parser) multiplexed(m *candb.Message, pdu *node, offset int, receivers 
 		p.diag(candb.Error, pdu.line, obj, "unknown SELECTOR-FIELD-BYTE-ORDER %q", o)
 		return
 	}
-	if m.Signal(sel.Name) != nil {
+	if p.sigs[sel.Name] != nil {
 		p.diag(candb.Error, pdu.line, obj, "duplicate signal %s", sel.Name)
 		return
 	}
+	p.sigs[sel.Name] = sel
+	p.muxes++
 	m.Signals = append(m.Signals, sel)
 	var alts []*node
 	if parts := pdu.child("DYNAMIC-PARTS"); parts != nil { // AUTOSAR 4.1 and later
@@ -459,6 +615,9 @@ func (p *parser) multiplexed(m *candb.Message, pdu *node, offset int, receivers 
 	}
 	seen := map[string]bool{}
 	for _, alt := range alts {
+		if p.over {
+			return
+		}
 		code, err := strconv.ParseUint(alt.textOf("SELECTOR-FIELD-CODE"), 0, 64)
 		if err != nil || length < 64 && code >= 1<<uint(length) {
 			p.diag(candb.Error, alt.line, obj, "bad SELECTOR-FIELD-CODE %q", alt.textOf("SELECTOR-FIELD-CODE"))
@@ -502,6 +661,9 @@ func (p *parser) multiplexed(m *candb.Message, pdu *node, offset int, receivers 
 		statics = []*node{part}
 	}
 	for _, part := range statics {
+		if p.over {
+			return
+		}
 		ipdu := p.ref(part, "I-PDU-REF")
 		if ipdu == nil {
 			continue
@@ -527,10 +689,15 @@ func (p *parser) signal(m *candb.Message, sm *node, offset int, receivers []stri
 	if is == nil {
 		return nil
 	}
+	if p.signals >= maxSignals {
+		p.overflow("signals", maxSignals)
+		return nil
+	}
+	p.signals++
 	s := &candb.Signal{Name: shortName(is), Factor: 1, Receivers: append([]string(nil), receivers...)}
 	obj := "signal " + m.Name + "." + s.Name
 	start, err := strconv.Atoi(sm.textOf("START-POSITION"))
-	if err != nil {
+	if err != nil || start < 0 || start > maxBitPosition {
 		p.diag(candb.Error, sm.line, obj, "bad START-POSITION %q", sm.textOf("START-POSITION"))
 		return nil
 	}
@@ -579,7 +746,7 @@ func (p *parser) signal(m *candb.Message, sm *node, offset int, receivers []stri
 		props := ss.path("PHYSICAL-PROPS", "SW-DATA-DEF-PROPS-VARIANTS", "SW-DATA-DEF-PROPS-CONDITIONAL")
 		if props != nil {
 			if cm := p.ref(props, "COMPU-METHOD-REF"); cm != nil {
-				p.compu(s, cm, obj)
+				p.applyCompu(s, cm, obj)
 			}
 			if u := p.ref(props, "UNIT-REF"); u != nil && s.Unit == "" {
 				s.Unit = unitName(u)
@@ -623,23 +790,58 @@ func coeffs(n *node, name string) []float64 {
 	return out
 }
 
-func (p *parser) compu(s *candb.Signal, cm *node, obj string) {
+// compuResult is what a COMPU-METHOD contributes to a signal; it is
+// computed once per COMPU-METHOD and copied to every signal using it.
+type compuResult struct {
+	unit           *string
+	linear         bool
+	offset, factor float64
+	values         []candb.ValueDescription
+}
+
+// applyCompu applies the COMPU-METHOD cm to s.
+func (p *parser) applyCompu(s *candb.Signal, cm *node, obj string) {
+	c := p.compus[cm]
+	if c == nil {
+		c = p.compu(cm, obj)
+		p.compus[cm] = c
+	}
+	if c.unit != nil {
+		s.Unit = *c.unit
+	}
+	if c.linear {
+		s.Offset, s.Factor = c.offset, c.factor
+	}
+	if len(c.values) == 0 {
+		return
+	}
+	if p.values+len(c.values) > maxValues {
+		p.overflow("value descriptions", maxValues)
+		return
+	}
+	p.values += len(c.values)
+	s.Values = append([]candb.ValueDescription(nil), c.values...)
+}
+
+func (p *parser) compu(cm *node, obj string) *compuResult {
+	c := &compuResult{}
 	if u := p.ref(cm, "UNIT-REF"); u != nil {
-		s.Unit = unitName(u)
+		name := unitName(u)
+		c.unit = &name
 	}
 	scales := cm.path("COMPU-INTERNAL-TO-PHYS", "COMPU-SCALES")
 	cat := cm.textOf("CATEGORY")
 	switch cat {
 	case "IDENTICAL", "":
-		return
+		return c
 	case "LINEAR", "TEXTTABLE", "SCALE_LINEAR_AND_TEXTTABLE":
 	default:
 		p.diag(candb.Warning, cm.line, obj, "COMPU-METHOD category %s not supported: identity used", cat)
-		return
+		return c
 	}
 	if scales == nil {
 		p.diag(candb.Warning, cm.line, obj, "COMPU-METHOD %s without scales", shortName(cm))
-		return
+		return c
 	}
 	linear := 0
 	for _, sc := range scales.children {
@@ -658,20 +860,24 @@ func (p *parser) compu(s *candb.Signal, cm *node, obj string) {
 				p.diag(candb.Warning, sc.line, obj, "more than one linear scale: the first is used")
 				continue
 			}
-			s.Offset, s.Factor = num[0]/d, num[1]/d
+			c.linear, c.offset, c.factor = true, num[0]/d, num[1]/d
 			continue
 		}
 		if vt := sc.textOf("COMPU-CONST", "VT"); vt != "" {
 			lo, err1 := strconv.ParseFloat(sc.textOf("LOWER-LIMIT"), 64)
 			hi, err2 := strconv.ParseFloat(sc.textOf("UPPER-LIMIT"), 64)
-			if err1 != nil || err2 != nil || hi < lo || hi-lo > 255 {
+			// NaN, infinities and limits beyond 2^53 have no exact int64
+			// conversion; the comparisons below are false for NaN.
+			if err1 != nil || err2 != nil || !(math.Abs(lo) <= maxExact) || !(math.Abs(hi) <= maxExact) || hi < lo || hi-lo > 255 {
 				p.diag(candb.Warning, sc.line, obj, "text scale %q with limits %q..%q not supported", vt, sc.textOf("LOWER-LIMIT"), sc.textOf("UPPER-LIMIT"))
 				continue
 			}
-			for v := int64(lo); v <= int64(hi); v++ {
-				s.Values = append(s.Values, candb.ValueDescription{Value: v, Description: vt})
+			first, last := int64(lo), int64(hi)
+			for i := int64(0); i <= last-first; i++ { // at most 256 values
+				c.values = append(c.values, candb.ValueDescription{Value: first + i, Description: vt})
 			}
 		}
 	}
-	candb.SortValues(s.Values)
+	candb.SortValues(c.values)
+	return c
 }

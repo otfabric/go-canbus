@@ -30,12 +30,20 @@ bench bus.
 
 ### Untrusted input
 
-DBC/KCD files, capture files and received frames are untrusted input. The
-parsers and decoders are fuzzed (see TESTING.md), bounded (line length
-1 MiB for text traces, 64 KiB pcap records, 1 MiB pcapng blocks, ISO-TP
-`MaxMessageSize`, default 4095 bytes) and report errors instead of
-panicking. A first frame announcing more than `MaxMessageSize` is answered
-with OVERFLOW and nothing is allocated for it.
+DBC/KCD/ARXML files, capture files, slcan byte streams and received frames
+are untrusted input. The parsers and decoders are fuzzed (see TESTING.md),
+bounded (line length 1 MiB for text traces, 64 KiB pcap records, 1 MiB
+pcapng blocks, ISO-TP `MaxMessageSize`, default 4095 bytes; the database
+bounds in LIMITATIONS.md) and report errors instead of panicking. Parsing
+and validating a database takes time and memory roughly linear in its
+size. A first frame announcing more than `MaxMessageSize` is answered with
+OVERFLOW and nothing is allocated for it. An ISO-TP sender uses a flow
+control only while it waits for one; others are dropped.
+
+Writers never let a name or string from their input change the structure
+of their output: `dbc.Write` rejects names that are not DBC identifiers
+(`dbc.ErrName`), and the candump writer refuses interface names it cannot
+carry (`capture.ErrUnrepresentable`).
 
 ### Privileges
 
@@ -47,4 +55,6 @@ reconfigures an interface.
 
 Generated Go embeds names and comments from the database as identifiers
 (sanitized) and comments; it contains no string evaluated at run time.
+Comments replace line terminators and control characters with spaces, and
+names in error messages are emitted only as quoted Go string literals.
 Review generated code from untrusted databases like any other code.

@@ -5,6 +5,53 @@ it computes the version, tags it and publishes this file's section of
 that version as the release notes. Add the section, headed exactly
 `## vX.Y.Z` and closed by a line `---`, before running it.
 
+## v0.10.0
+
+**Date:** 2026-11-14
+**Previous release:** v0.9.1
+
+### Summary
+
+Input bounds and output encoding across the database, capture and
+transport packages: database strings can no longer change the structure of
+generated Go, DBC or candump output; KCD and ARXML expansions are bounded;
+parsing and validating databases is near-linear in their size; two DBC
+inputs that panicked return diagnostics; ISO-TP senders use a flow control
+only while waiting for one; slcan `Send` and `Close` no longer wait on a
+byte-stream peer that stopped reading.
+
+### Fixed
+
+- `codegen`: database names, units, senders, multiplexer text and the `Source` option were written into generated comments and `fmt.Errorf` literals as they were. Comments now replace line terminators and control characters with spaces, and names in error messages are quoted Go string literals passed as arguments. Generated error texts are unchanged. Generator `Version` is now `2`.
+- `codegen`: resolving many colliding enum constant, type and field names took quadratic time; names are now resolved with a per-name counter (output unchanged for databases without such collisions).
+- `dbc`: `Write` wrote node, message, signal, sender, receiver, multiplexer, value-table and signal-group names as they were, so a name from a KCD/ARXML database could start new DBC statements. **Behaviour change**: `Write` now returns `dbc.ErrName` (and writes nothing) for a name that is not a DBC identifier, or a node or receiver name that is a DBC keyword.
+- `dbc`: a negative `VFrameFormat`/`CANFD_BRS` value of an INT or HEX attribute, and an invalid duplicate `BO_` of a valid message combined with a mapped attribute default, panicked. Both now parse. **Behaviour change**: an invalid `BO_` repeating the identifier of a valid message is reported as a duplicate and no longer hides the valid message from later statements.
+- `dbc`: parsing was quadratic in the number of messages, nodes, senders, signals, attribute statements and diagnostics; it is now near-linear.
+- `candb`: `Validate` reported every overlapping signal pair and recomputed multiplexer conditions per pair. It now reports at most 64 overlapping pairs per message plus a summary, and computes conditions once per message.
+- `kcd`: a LabelGroup ending at the int64 maximum or wider than 2^63 values never ended. Widths are computed without overflow; at most 2^20 LabelGroup values are expanded per database.
+- `arxml`: TEXTTABLE scales with NaN, infinite or out-of-range limits never ended; they are now reported as unsupported. Frames, PDUs and COMPU-METHODs referenced many times were expanded again per reference; COMPU-METHODs are now computed once, a PDU mapped twice into one frame is an error and read once, and a database holds at most 2^18 signals and 2^21 value descriptions. Element text, nesting (now at most 256 levels) and ECU port collection are linear in the input. At most 1000 diagnostics are returned plus a summary. **Behaviour change**: frame triggerings are processed in document order, so "triggered twice" names the later triggering in the document.
+- `capture`: the candump writer wrote interface names as they were, so a name from a JSON Lines or pcapng trace could add records. **Behaviour change**: interface names containing a space, control byte or DEL are `ErrUnrepresentable`.
+- `capture`: the ASC reader accepted a date plus offset after the year 9999; it is now a `*ParseError`. The BLF reader copied an object split over many small containers once per container; its buffer now grows geometrically.
+- `isotp`: a flow control that arrived while the sender was not waiting for one (mid-block, a duplicate, after `Send` returned) was queued and applied to the next block. It is now dropped (logged at Debug).
+- `slcan`: `Send` checked its context only before writing, and `Close` wrote its closing `C` without a deadline, so a byte-stream peer that stopped reading blocked `Send`, `Close`, and `Bus` and `isotp.Conn` on top. `Send` now ends at its context on streams with write deadlines; `Close` gives the closing `C` at most 100 ms, skips it while a `Send` is writing, and closes the stream regardless.
+- `socketcan`: **Behaviour change**: `DialISOTP` now rejects what its documentation said it rejects: `MaxWait` other than 0 or 10 and `TimeoutBs`/`TimeoutCr` other than 0 or 1 s (`ErrUnsupported`), and `MaxMessageSize` above the kernel's 1025 KiB (`ErrInvalidOption`). The documentation of kernel ISO-TP `Send` now states that N_Bs bounds each flow-control wait, not the transfer.
+- `chaos`: corrupting a raw frame with a length above 64 (from `virtual.Bus.InjectRaw`) panicked.
+
+### Added
+
+- `dbc.ErrName`.
+
+### Tests
+
+Regression tests for each fix: escaped generated code checked with go/parser for every string field (`codegen`); identifier checks at every `dbc.Write` position; linear-growth tests for DBC, candb, KCD and ARXML parsing; LabelGroup and TEXTTABLE limit tables; ARXML nesting, fan-out and diagnostic bounds; candump interface names, ASC year range, BLF split-object allocation; stray, duplicated and late ISO-TP flow controls; slcan `Send`, `Close`, `Bus.Close` and `isotp.Conn.Close` against a stream peer that stops reading.
+
+### Documentation
+
+SECURITY.md, LIMITATIONS.md, ERRORS.md, API docs (`docs/api`), package docs of `arxml`, `kcd`, `slcan` and `socketcan`.
+
+---
+
+
 ## v0.9.1
 
 **Date:** 2026-11-12

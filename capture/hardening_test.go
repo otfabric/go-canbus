@@ -504,6 +504,7 @@ func TestReaderTimestampRange(t *testing.T) {
 		`{"type":"frame","timestamp":"253402300800.0","id":1,"len":0,"data":""}` + "\n",
 		"date Mon Oct 27 08:15:00.123 pm 2026\nbase hex timestamps absolute\n 1e300 1 123 Rx d 0\n",
 		"date Mon Oct 27 08:15:00.123 pm 2026\nbase hex timestamps absolute\n NaN 1 123 Rx d 0\n",
+		"date Fri Dec 31 11:59:59.000 pm 9999\nbase hex timestamps absolute\n 8000000000.0 1 123 Rx d 1 AA\n",
 		";$FILEVERSION=2.1\n;$STARTTIME=1e300\n;$COLUMNS=N,O,T,I,d,l,D\n 1 1.0 DT 0001 Rx 0\n",
 		";$FILEVERSION=2.1\n;$STARTTIME=NaN\n;$COLUMNS=N,O,T,I,d,l,D\n 1 1.0 DT 0001 Rx 0\n",
 		";$FILEVERSION=2.1\n;$STARTTIME=46000\n;$COLUMNS=N,O,T,I,d,l,D\n 1 1e300 DT 0001 Rx 0\n",
@@ -691,5 +692,75 @@ func TestReadersMemoryBounded(t *testing.T) {
 		}
 	}); n > 8<<20 {
 		t.Errorf("2 MiB line: %d bytes allocated", n)
+	}
+}
+
+// TestCandumpInterfaceName checks that the candump writer refuses
+// interface names that would split a line into other fields or lines.
+func TestCandumpInterfaceName(t *testing.T) {
+	f, _ := canbus.NewStandard(0x123, []byte{1})
+	x := canbus.XLFrame{Priority: 0x123, SDT: 1, Data: []byte{1}}
+	for _, c := range []struct {
+		frame, def string
+		ok         bool
+	}{
+		{"vcan0", "", true},
+		{"", "can-1_a.b", true},
+		{"can0\n(0000000000.000000) can1 7FF#FF", "", false},
+		{"can 0", "", false},
+		{"can0\t", "", false},
+		{"can\x7f", "", false},
+		{"\x00", "", false},
+		{"", "can0\r", false},
+	} {
+		for _, xl := range []bool{false, true} {
+			var b bytes.Buffer
+			w := NewCandumpWriter(&b, c.def)
+			var err error
+			if xl {
+				g := x
+				g.Interface = c.frame
+				err = w.WriteXL(&g)
+			} else {
+				g := f
+				g.Interface = c.frame
+				err = w.Write(&g)
+			}
+			if cerr := w.Close(); cerr != nil {
+				t.Fatal(cerr)
+			}
+			if c.ok {
+				if err != nil {
+					t.Errorf("%q/%q xl=%v: %v", c.frame, c.def, xl, err)
+				}
+				continue
+			}
+			if !errors.Is(err, ErrUnrepresentable) || b.Len() != 0 {
+				t.Errorf("%q/%q xl=%v: err %v, wrote %q", c.frame, c.def, xl, err, b.String())
+			}
+		}
+	}
+}
+
+// TestBLFSplitObjectMemory splits one 16 MiB object across a large
+// container and hundreds of 1-byte containers: the bytes kept for it are
+// not copied again for every container.
+func TestBLFSplitObjectMemory(t *testing.T) {
+	le := binary.LittleEndian
+	const usize = blfObjectMax - 64<<10
+	first := make([]byte, usize)
+	copy(first, blfObjSig)
+	le.PutUint32(first[8:], blfObjectMax)
+	le.PutUint32(first[12:], 0xFFFF) // unknown type
+	file := append(blfHeader(t), blfContainer(first, true, usize)...)
+	for range 300 {
+		file = append(file, blfContainer([]byte{0}, false, 1)...)
+	}
+	if n := allocated(func() {
+		if _, _, err := readTrace(file); err == nil {
+			t.Error("object cut at the end of the file accepted")
+		}
+	}); n > 64<<20 {
+		t.Errorf("object split across 301 containers: %d bytes allocated", n)
 	}
 }

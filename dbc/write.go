@@ -4,6 +4,7 @@ package dbc
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"strconv"
@@ -18,12 +19,28 @@ var newSymbols = []string{"NS_DESC_", "CM_", "BA_DEF_", "BA_", "VAL_", "CAT_DEF_
 	"VAL_TABLE_", "SIG_GROUP_", "SIG_VALTYPE_", "SIGTYPE_VALTYPE_", "BO_TX_BU_", "BA_DEF_REL_", "BA_REL_",
 	"BA_DEF_DEF_REL_", "BU_SG_REL_", "BU_EV_REL_", "BU_BO_REL_", "SG_MUL_VAL_"}
 
+// ErrName reports a name [Write] cannot write: DBC writes the names of
+// nodes, value tables, messages, signals, senders, receivers, multiplexer
+// switches and signal groups as bare identifiers, so they must be DBC
+// identifiers (a letter, '_' or a byte from 0x80 up, then those or
+// digits); node and receiver names must not be DBC keywords either.
+// Names from KCD or ARXML may be any text.
+var ErrName = errors.New("dbc: name is not a DBC identifier")
+
 // Write writes db as a DBC file. The model's cycle times, initial values
 // and CAN FD flags are written as the attributes GenMsgCycleTime,
 // GenSigStartValue, VFrameFormat and CANFD_BRS when the database does not
 // carry them already. Multiplexing is written with mN indicators and, when
 // it is not simple (more than one switch or ranges), SG_MUL_VAL_.
+//
+// Every name written as an identifier is checked first; when one is not
+// a DBC identifier, Write writes nothing and returns an error wrapping
+// [ErrName]. Strings (comments, units, value descriptions, attributes)
+// are quoted and escaped.
 func Write(w io.Writer, db *candb.Database) error {
+	if err := checkNames(db); err != nil {
+		return err
+	}
 	bw := bufio.NewWriter(w)
 	wr := &writer{w: bw, db: augment(db)}
 	wr.all()
@@ -43,6 +60,83 @@ func (w *writer) p(format string, args ...any) {
 	if w.err == nil {
 		_, w.err = fmt.Fprintf(w.w, format, args...)
 	}
+}
+
+// identifier reports whether s reads back as one identifier token.
+func identifier(s string) bool {
+	if s == "" || !isIdentStart(s[0]) {
+		return false
+	}
+	for i := 1; i < len(s); i++ {
+		if !isIdentPart(s[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+// checkNames reports the first name of db that is not a DBC identifier.
+func checkNames(db *candb.Database) error {
+	check := func(what, name string) error {
+		if !identifier(name) {
+			return fmt.Errorf("%w: %s %q", ErrName, what, name)
+		}
+		return nil
+	}
+	// The BU_ and receiver lists end at a keyword, so a node or receiver
+	// named like one would not read back.
+	listItem := func(what, name string) error {
+		if keywords[name] || name == "SG_" {
+			return fmt.Errorf("%w: %s %q is a DBC keyword", ErrName, what, name)
+		}
+		return check(what, name)
+	}
+	for _, n := range db.Nodes {
+		if err := listItem("node", n.Name); err != nil {
+			return err
+		}
+	}
+	for _, vt := range db.ValueTables {
+		if err := check("value table", vt.Name); err != nil {
+			return err
+		}
+	}
+	for _, m := range db.Messages {
+		if err := check("message", m.Name); err != nil {
+			return err
+		}
+		for _, s := range m.Senders {
+			if err := check("sender of message "+strconv.Quote(m.Name), s); err != nil {
+				return err
+			}
+		}
+		for _, s := range m.Signals {
+			if err := check("signal of message "+strconv.Quote(m.Name), s.Name); err != nil {
+				return err
+			}
+			for _, r := range s.Receivers {
+				if err := listItem("receiver of signal "+strconv.Quote(s.Name), r); err != nil {
+					return err
+				}
+			}
+			if s.Multiplexer != "" {
+				if err := check("multiplexer of signal "+strconv.Quote(s.Name), s.Multiplexer); err != nil {
+					return err
+				}
+			}
+		}
+		for _, g := range m.SignalGroups {
+			if err := check("signal group of message "+strconv.Quote(m.Name), g.Name); err != nil {
+				return err
+			}
+			for _, s := range g.Signals {
+				if err := check("signal of group "+strconv.Quote(g.Name), s); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
 }
 
 func quote(s string) string {

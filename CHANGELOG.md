@@ -2,6 +2,15 @@
 
 Release notes with details are in [RELEASE.md](RELEASE.md).
 
+## v0.10.0 (2026-11-14)
+
+Input bounds and output encoding: generated Go, DBC and candump output
+escape or reject names from their input (`dbc.ErrName`); KCD LabelGroups
+and ARXML expansions bounded; near-linear DBC/candb/ARXML parsing; two DBC
+panics fixed; ISO-TP senders ignore flow controls they are not waiting
+for; slcan `Send`/`Close` no longer wait on a stalled stream peer;
+`socketcan.DialISOTP` enforces its documented options.
+
 ## v0.9.0 (2026-11-08)
 
 Tested against CAN logs recorded on twelve real vehicles (CANdid, CarDS,

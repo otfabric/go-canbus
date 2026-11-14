@@ -36,6 +36,15 @@ const (
 	isotpWaitTxDone = 0x400
 )
 
+// maxKernelISOTPMessage is the largest Config.MaxMessageSize DialISOTP
+// accepts: the kernel's upper bound for its max_pdu_size module
+// parameter (MAX_PDU_SIZE, 1025 KiB in net/can/isotp.c). The kernel
+// itself refuses messages beyond max_pdu_size (default 8300 bytes).
+const maxKernelISOTPMessage = 1025 * 1024
+
+// kernelTimeout is the kernel's fixed N_Bs and N_Cr.
+const kernelTimeout = time.Second
+
 // ISOTPConn is a kernel ISO-TP socket (CAN_ISOTP, Linux ≥ 5.10 or the
 // can-isotp module). It implements [isotp.Endpoint].
 type ISOTPConn struct {
@@ -50,12 +59,26 @@ type ISOTPConn struct {
 
 // DialISOTP opens a kernel ISO-TP socket on the interface with the same
 // configuration the userspace isotp.Conn takes. The kernel does not
-// support Config.SendFlowWait, MaxWait other than its default, or the
-// N_Bs/N_Cr values (it uses 1 s); a Config asking for them is rejected.
+// support Config.SendFlowWait, MaxWait other than its default (10), or
+// N_Bs/N_Cr values other than its fixed 1 s; a Config asking for them is
+// rejected with [canbus.ErrUnsupported]. MaxMessageSize (default 4095)
+// is at most 1025 KiB, the kernel's own bound; a larger one is rejected
+// with [canbus.ErrInvalidOption].
 func DialISOTP(ifname string, cfg isotp.Config) (*ISOTPConn, error) {
 	opErr := func(err error) error { return &canbus.OpError{Op: "open isotp", Interface: ifname, Err: err} }
 	if cfg.SendFlowWait != 0 {
 		return nil, opErr(fmt.Errorf("%w: the kernel cannot send WAIT flow controls", canbus.ErrUnsupported))
+	}
+	if cfg.MaxWait != 0 && cfg.MaxWait != 10 {
+		return nil, opErr(fmt.Errorf("%w: the kernel's WAIT limit is fixed, MaxWait %d", canbus.ErrUnsupported, cfg.MaxWait))
+	}
+	for _, d := range []time.Duration{cfg.TimeoutBs, cfg.TimeoutCr} {
+		if d != 0 && d != kernelTimeout {
+			return nil, opErr(fmt.Errorf("%w: the kernel's N_Bs and N_Cr are fixed at %v, got %v", canbus.ErrUnsupported, kernelTimeout, d))
+		}
+	}
+	if cfg.MaxMessageSize > maxKernelISOTPMessage {
+		return nil, opErr(fmt.Errorf("%w: MaxMessageSize %d exceeds %d", canbus.ErrInvalidOption, cfg.MaxMessageSize, maxKernelISOTPMessage))
 	}
 	ifi, err := net.InterfaceByName(ifname)
 	if err != nil {
@@ -117,10 +140,7 @@ func DialISOTP(ifname string, cfg isotp.Config) (*ISOTPConn, error) {
 			return nil, opErr(fmt.Errorf("CAN_ISOTP_TX_STMIN: %w", err))
 		}
 	}
-	wft := cfg.MaxWait
-	if wft <= 0 || wft > 255 {
-		wft = 10
-	}
+	const wft = 10 // MaxWait is 0 or 10 (checked above)
 	if err := syscall.SetsockoptString(fd, solCANISOTP, isotpRecvFC, string([]byte{cfg.BlockSize, st, byte(wft)})); err != nil {
 		return nil, opErr(fmt.Errorf("CAN_ISOTP_RECV_FC: %w", err))
 	}
@@ -207,8 +227,11 @@ func (c *ISOTPConn) finish(ctx context.Context, op string, err error) error {
 // abort the transfer, and the syscall, restarted (SA_RESTART), would send
 // the whole message again. Send therefore runs the write on a locked OS
 // thread with all signals blocked; they are delivered when it returns.
-// The write cannot be cancelled once started: ctx is checked before, and
-// the kernel's own timeouts (N_Bs, 1 s per flow control) bound it.
+// The write cannot be cancelled once started: ctx is checked before
+// only. The kernel's N_Bs (1 s) bounds each wait for a flow control, not
+// the transfer: a peer that keeps sending WAIT flow controls, or
+// announces a long STmin, can extend it, and neither ctx nor Close ends
+// it meanwhile.
 func (c *ISOTPConn) Send(ctx context.Context, payload []byte) error {
 	if c.closed.Load() {
 		return canbus.ErrClosed
@@ -272,6 +295,8 @@ func (c *ISOTPConn) Receive(ctx context.Context) ([]byte, error) {
 	defer c.rmu.Unlock()
 	stop := watch(ctx, c.file, true)
 	defer stop()
+	// maxMsg is at most maxKernelISOTPMessage (DialISOTP): the extra
+	// byte detects a longer message without overflowing on 32-bit.
 	buf := make([]byte, c.maxMsg+1)
 	var n int
 	var rerr error

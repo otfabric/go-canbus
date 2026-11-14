@@ -13,7 +13,7 @@ The output is deterministic (no timestamps, the database's order), gofmt-formatt
 ## Constants
 
 ```go
-const Version = "1"
+const Version = "2"
 ```
 
 Version identifies the generator in the provenance header. It changes when the generated code changes.

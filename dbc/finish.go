@@ -14,19 +14,30 @@ import (
 // types, multiplexing, attributes and the attributes mapped onto the
 // model; then validates the result.
 func (p *parser) finish() {
+	p.attrDefs = make(map[attrDefKey]*candb.AttributeDefinition, len(p.db.AttributeDefinitions))
+	for i := range p.db.AttributeDefinitions {
+		d := &p.db.AttributeDefinitions[i]
+		if k := (attrDefKey{d.Name, d.Object}); p.attrDefs[k] == nil {
+			p.attrDefs[k] = d // the first definition wins, as in candb.Database.AttributeDefinition
+		}
+	}
 	for k, vt := range p.valTypes {
-		m := p.msgs[k.msg]
-		if m == nil || m.Signal(k.sig) == nil {
+		s := p.sig(k.msg, k.sig)
+		if s == nil {
 			p.diag(candb.Warning, 0, "", "SIG_VALTYPE_ for unknown signal %d %s ignored", uint32(k.msg), k.sig)
 			continue
 		}
-		m.Signal(k.sig).ValueType = vt
+		s.ValueType = vt
+	}
+	keys := make(map[*candb.Message]msgKey, len(p.msgs))
+	for k, m := range p.msgs {
+		keys[m] = k
 	}
 	for _, m := range p.db.Messages {
-		p.resolveMux(m)
+		p.resolveMux(m, keys[m])
 	}
 	for k := range p.muxVals {
-		if m := p.msgs[k.msg]; m == nil || m.Signal(k.sig) == nil {
+		if p.sig(k.msg, k.sig) == nil {
 			p.diag(candb.Warning, p.muxVals[k][0].line, "", "SG_MUL_VAL_ for unknown signal %d %s ignored", uint32(k.msg), k.sig)
 		}
 	}
@@ -46,13 +57,7 @@ func (p *parser) finish() {
 	p.diags = append(p.diags, p.db.Validate()...)
 }
 
-func (p *parser) resolveMux(m *candb.Message) {
-	var key msgKey
-	for k, v := range p.msgs {
-		if v == m {
-			key = k
-		}
-	}
+func (p *parser) resolveMux(m *candb.Message, key msgKey) {
 	var switches []*candb.Signal
 	for _, s := range m.Signals {
 		if ind := p.muxInd[sigKey{key, s.Name}]; strings.HasSuffix(ind, "M") {
@@ -96,13 +101,16 @@ func (p *parser) resolveMux(m *candb.Message) {
 }
 
 func (p *parser) applyDefaults() {
+	byName := map[string][]*candb.AttributeDefinition{}
+	for i := range p.db.AttributeDefinitions {
+		d := &p.db.AttributeDefinitions[i]
+		if _, ok := p.defaults[d.Name]; ok {
+			byName[d.Name] = append(byName[d.Name], d)
+		}
+	}
 	for name, def := range p.defaults {
 		found := false
-		for i := range p.db.AttributeDefinitions {
-			d := &p.db.AttributeDefinitions[i]
-			if d.Name != name {
-				continue
-			}
+		for _, d := range byName[name] {
 			found = true
 			a, ok := p.convert(d, token{kind: kindOf(def.String), text: def.String})
 			if !ok {
@@ -144,7 +152,7 @@ func (p *parser) convert(d *candb.AttributeDefinition, v token) (candb.Attribute
 					return a, true
 				}
 			}
-			if i, err := strconv.ParseInt(v.text, 10, 64); err == nil && i >= 0 && int(i) < len(d.Enum) {
+			if i, err := strconv.ParseInt(v.text, 10, 64); err == nil && i >= 0 && i < int64(len(d.Enum)) {
 				a.Int = i
 				return a, true
 			}
@@ -152,7 +160,7 @@ func (p *parser) convert(d *candb.AttributeDefinition, v token) (candb.Attribute
 		}
 		i, err := strconv.ParseInt(v.text, 10, 64)
 		a.Int = i
-		return a, err == nil && i >= 0 && (len(d.Enum) == 0 || int(i) < len(d.Enum))
+		return a, err == nil && i >= 0 && (len(d.Enum) == 0 || i < int64(len(d.Enum)))
 	default: // int, hex
 		i, err := strconv.ParseInt(v.text, 0, 64)
 		if err != nil {
@@ -168,7 +176,7 @@ func (p *parser) convert(d *candb.AttributeDefinition, v token) (candb.Attribute
 }
 
 func (p *parser) applyAttr(pa pendingAttr) {
-	d := p.db.AttributeDefinition(pa.attr.Name, pa.obj)
+	d := p.attrDefs[attrDefKey{pa.attr.Name, pa.obj}]
 	if d == nil {
 		p.diag(candb.Warning, pa.line, "", "value of undefined %s attribute %s ignored", pa.obj, pa.attr.Name)
 		return
@@ -182,7 +190,7 @@ func (p *parser) applyAttr(pa pendingAttr) {
 	case candb.ObjectNetwork:
 		p.db.Attributes = append(p.db.Attributes, a)
 	case candb.ObjectNode:
-		n := p.db.Node(pa.node)
+		n := p.nodes[pa.node]
 		if n == nil {
 			p.diag(candb.Warning, pa.line, "", "attribute %s of unknown node %s ignored", a.Name, pa.node)
 			return
@@ -198,14 +206,14 @@ func (p *parser) applyAttr(pa pendingAttr) {
 		case "GenMsgCycleTime":
 			m.CycleTime = int(a.Int)
 		case "VFrameFormat":
-			if int(a.Int) < len(d.Enum) {
-				if strings.HasSuffix(d.Enum[a.Int], "CAN_FD") {
-					m.FD = true
-				}
+			// INT and HEX definitions carry any integer: index the enum
+			// only within its bounds, compared in int64 (no truncation).
+			if enumIndex(d, a.Int) && strings.HasSuffix(d.Enum[a.Int], "CAN_FD") {
+				m.FD = true
 			}
 		case "CANFD_BRS":
 			label := strconv.FormatInt(a.Int, 10)
-			if int(a.Int) < len(d.Enum) {
+			if enumIndex(d, a.Int) {
 				label = d.Enum[a.Int]
 			}
 			m.BRS = label == "1"
@@ -215,7 +223,7 @@ func (p *parser) applyAttr(pa pendingAttr) {
 		if m == nil {
 			return
 		}
-		s := m.Signal(pa.sig)
+		s := p.sig(pa.msg, pa.sig)
 		if s == nil {
 			p.diag(candb.Warning, pa.line, "", "attribute %s of unknown signal %s.%s ignored", a.Name, m.Name, pa.sig)
 			return
@@ -244,19 +252,20 @@ func (p *parser) applyMappedDefaults() {
 		return false
 	}
 	for _, name := range []string{"GenMsgCycleTime", "VFrameFormat", "CANFD_BRS"} {
-		d := p.db.AttributeDefinition(name, candb.ObjectMessage)
+		d := p.attrDefs[attrDefKey{name, candb.ObjectMessage}]
 		if d == nil || d.Default == nil {
 			continue
 		}
 		for key, m := range p.msgs {
 			if !has(m.Attributes, name) {
+				n := len(m.Attributes)
 				p.applyAttr(pendingAttr{obj: candb.ObjectMessage, msg: key, attr: candb.Attribute{Name: name},
 					raw: defaultToken(d), line: 0})
-				m.Attributes = m.Attributes[:len(m.Attributes)-1] // a default is not an explicit value
+				m.Attributes = m.Attributes[:n] // a default is not an explicit value
 			}
 		}
 	}
-	if d := p.db.AttributeDefinition("GenSigStartValue", candb.ObjectSignal); d != nil && d.Default != nil {
+	if d := p.attrDefs[attrDefKey{"GenSigStartValue", candb.ObjectSignal}]; d != nil && d.Default != nil {
 		for _, m := range p.db.Messages {
 			for _, s := range m.Signals {
 				if s.Initial == nil {
@@ -269,6 +278,11 @@ func (p *parser) applyMappedDefaults() {
 			}
 		}
 	}
+}
+
+// enumIndex reports whether i indexes the labels of d.
+func enumIndex(d *candb.AttributeDefinition, i int64) bool {
+	return i >= 0 && i < int64(len(d.Enum))
 }
 
 func defaultToken(d *candb.AttributeDefinition) token {

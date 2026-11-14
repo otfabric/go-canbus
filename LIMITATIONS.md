@@ -65,11 +65,40 @@ Grouped into gaps and follow-ups, with what is not verified:
   categories and filters are skipped with a warning diagnostic. Value
   descriptions of environment variables likewise.
 - KCD: remote frame definitions are noted, not modelled; LabelGroups
-  wider than 256 values are not expanded.
+  wider than 256 values are not expanded, and at most 2^20 LabelGroup
+  values are expanded per database (further groups are ignored with a
+  warning).
+- ARXML input bounds: elements nested deeper than 256 levels end the
+  parse with an error; at most 2^18 signals and 2^21 value descriptions
+  per database (a frame triggered several times counts its signals each
+  time), beyond which the rest of the file is not read and Parse returns a
+  `*ParseError`; a PDU mapped twice into one frame is an error and read
+  once; TEXTTABLE limits must be finite, within ±2^53 and span at most 256
+  values; START-POSITION and PDU offsets lie in 0..2^24. At most 1000
+  diagnostics are returned, followed by one summary diagnostic with the
+  number left out (and the worst severity among them).
+- DBC/KCD/ARXML validation reports at most 64 overlapping signal pairs per
+  message, followed by one summary warning with the remaining count.
 - ISO-TP: functional addressing helpers, N_As/N_Ar confirmation timing
   (frames are handed to the transport immediately), and half-duplex mode
   of the kernel. Kernel sockets use the kernel's fixed 1 s timeouts and
-  cannot send WAIT flow controls.
+  cannot send WAIT flow controls; `socketcan.DialISOTP` rejects other
+  `MaxWait` (0 or 10 only), `TimeoutBs` or `TimeoutCr` (0 or 1 s only)
+  values with `ErrUnsupported`, and a `MaxMessageSize` above the kernel's
+  1025 KiB with `ErrInvalidOption`.
+- Kernel ISO-TP `Send` (`socketcan.ISOTPConn`) cannot be cancelled once
+  the transfer has started: the context is checked before the write only,
+  and `Close` does not end it. The kernel's N_Bs of 1 s bounds each wait
+  for a flow control, not the transfer: a peer that keeps answering with
+  WAIT flow controls (the kernel sender applies no WAIT limit) or
+  announces a long STmin extends the transfer for as long as it does so.
+  Use the userspace `isotp.Conn` when a transfer must be bounded by a
+  context or by `MaxWait`.
+- slcan: on a byte stream without write deadlines (`SetWriteDeadline`), a
+  write blocked on a peer that stopped reading ends only at `Close`. With
+  write deadlines (`net.Conn`, ptys), `Send` ends at its context. `Close`
+  never waits on the peer: the closing `C` gets at most 100 ms and is
+  skipped while a `Send` is writing; the stream is then closed.
 - Higher layers: CANopen, J1939, UDS, NMEA 2000, ISOBUS, DroneCAN/Cyphal.
 
 ## Behaviour to know

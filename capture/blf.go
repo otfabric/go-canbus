@@ -231,12 +231,18 @@ func (r *BLFReader) container(body []byte) error {
 	}
 	// Keep the bytes left from the previous container (an incomplete
 	// object, less than blfObjectMax) and make room for this one's.
+	// The store grows geometrically (bounded by 2*blfObjectMax, the most
+	// keep+add can be) so that an object split across many small
+	// containers is not copied again for each of them.
 	keep, need := len(r.cont), len(r.cont)+add
-	if cap(r.store) < need {
-		grown := make([]byte, keep, need)
+	switch {
+	case cap(r.store) < need:
+		grown := make([]byte, keep, max(need, min(2*cap(r.store), 2*blfObjectMax)))
 		copy(grown, r.cont)
 		r.store = grown
-	} else {
+	case keep > 0 && cap(r.store)-cap(r.cont) == 0:
+		// The bytes kept are already at the start of the store.
+	default:
 		r.store = append(r.store[:0], r.cont...) // overlapping copy is a memmove
 	}
 	r.cont, r.store = r.store[:keep], r.store[:need]

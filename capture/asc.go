@@ -119,7 +119,11 @@ func (r *ASCReader) Read(f *canbus.Frame) error {
 		if !(math.Abs(ts) <= maxOffsetSec) { // also NaN
 			return r.fail("timestamp %q out of range", fields[0])
 		}
-		f.Timestamp = r.start.Add(time.Duration(ts * float64(time.Second)).Round(time.Microsecond))
+		t := r.start.Add(time.Duration(ts * float64(time.Second)).Round(time.Microsecond))
+		if t.Unix() > maxUnixSec {
+			return r.fail("timestamp %q after the year 9999", fields[0])
+		}
+		f.Timestamp = t
 		return nil
 	}
 	if err := r.s.Err(); err != nil {

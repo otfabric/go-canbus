@@ -12,6 +12,14 @@ Supported: VERSION, BU\_, VAL\_TABLE\_, BO\_ and SG\_ (Intel and Motorola, signe
 
 Everything else (environment variables, signal types, relation attributes, categories, filters) is skipped with a warning diagnostic; nothing is dropped silently. There is no public specification of the format: behaviour follows the de facto Vector conventions and is cross-checked against cantools and canmatrix (see INTEROPERABILITY.md).
 
+## Variables
+
+```go
+var ErrName = errors.New("dbc: name is not a DBC identifier")
+```
+
+ErrName reports a name [Write](#func-write) cannot write: DBC writes the names of nodes, value tables, messages, signals, senders, receivers, multiplexer switches and signal groups as bare identifiers, so they must be DBC identifiers (a letter, '\_' or a byte from 0x80 up, then those or digits); node and receiver names must not be DBC keywords either. Names from KCD or ARXML may be any text.
+
 ## Functions
 
 ### func Parse
@@ -45,6 +53,8 @@ func Write(w io.Writer, db *candb.Database) error
 ```
 
 Write writes db as a DBC file. The model's cycle times, initial values and CAN FD flags are written as the attributes GenMsgCycleTime, GenSigStartValue, VFrameFormat and CANFD\_BRS when the database does not carry them already. Multiplexing is written with mN indicators and, when it is not simple (more than one switch or ranges), SG\_MUL\_VAL\_.
+
+Every name written as an identifier is checked first; when one is not a DBC identifier, Write writes nothing and returns an error wrapping ErrName. Strings (comments, units, value descriptions, attributes) are quoted and escaped.
 
 ## Types
 

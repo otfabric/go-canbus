@@ -1,5 +1,5 @@
 {
-  "generator": "go-canbus codegen 1",
+  "generator": "go-canbus codegen 2",
   "source": "full.dbc",
   "sourceSha256": "af177bea745e821822a3ba523e1b048ef99059f640c0e8babb956a0d87051a9e",
   "database": {

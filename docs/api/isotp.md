@@ -174,6 +174,12 @@ type Conn struct {
 
 	// 1 with extended or mixed addressing
 
+	// awaitFC is set while Send waits for a flow control: from just
+	// before the frame that solicits one (the first frame, the last
+	// consecutive frame of a block) until a CTS, OVERFLOW or invalid
+	// status ends the wait or the transfer ends. Flow control frames
+	// that arrive while it is clear are stray and dropped.
+
 	// serializes Send
 
 	// Reception state, owned by the reader goroutine.

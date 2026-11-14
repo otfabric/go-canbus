@@ -126,8 +126,10 @@ var ErrUnknownFormat = errors.New("capture: unknown trace format")
 
 // ErrUnrepresentable reports a frame a writer cannot store in its format
 // without corrupting it: a timestamp outside the format's range (before
-// 1970 or after 2106 in pcap, for example), or a channel number or name
-// too large for its field. Nothing is written for that frame.
+// 1970 or after 2106 in pcap, for example), a channel number or name
+// too large for its field, or an interface name holding a byte the format
+// cannot store (a space or control byte in a candump line). Nothing is
+// written for that frame.
 var ErrUnrepresentable = errors.New("capture: frame not representable in the format")
 
 // maxUnixSec is the last second of the year 9999 (UTC). Readers reject

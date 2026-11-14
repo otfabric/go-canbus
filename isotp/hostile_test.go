@@ -288,3 +288,108 @@ func abs(n int) int {
 	}
 	return n
 }
+
+// TestStrayFlowControl: a flow control that arrives while the sender
+// does not wait for one (mid-block, duplicated, or after Send returned)
+// is dropped and cannot change the block size, STmin or outcome.
+func TestStrayFlowControl(t *testing.T) {
+	leakcheck.Check(t)
+	cts := []byte{0x30, 4, 10} // one block of 4, STmin 10 ms
+	cases := []struct {
+		name     string
+		fcs      [][]byte // answer to the first frame
+		midBlock []byte   // sent after the first consecutive frame
+	}{
+		{"stray CTS mid-block", [][]byte{cts}, []byte{0x30, 0, 0}},
+		{"duplicated CTS", [][]byte{cts, cts}, nil},
+		{"stray OVERFLOW mid-block", [][]byte{cts}, []byte{0x32, 0, 0}},
+		{"stray WAIT mid-block", [][]byte{cts}, []byte{0x31, 0, 0}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c, p := hostile(t, Config{TimeoutBs: 150 * time.Millisecond})
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			errc := make(chan error, 1)
+			go func() { errc <- c.Send(ctx, payload(200)) }() // FF + 28 CFs
+			f, err := peerNext(ctx, p)
+			if err != nil || f.Data[0]>>4 != pciFF {
+				t.Fatalf("no first frame: % X, %v", f.Payload(), err)
+			}
+			for _, fc := range tc.fcs {
+				peerSend(t, p, fc)
+			}
+			cfs := 0
+			if tc.midBlock != nil {
+				if _, err := peerNext(ctx, p); err != nil {
+					t.Fatal(err)
+				}
+				cfs++
+				peerSend(t, p, tc.midBlock)
+			}
+			if err := <-errc; !errors.Is(err, ErrTimeout) {
+				t.Fatalf("Send: %v, want ErrTimeout after one block", err)
+			}
+			for {
+				rctx, rcancel := context.WithTimeout(ctx, 50*time.Millisecond)
+				f, err := peerNext(rctx, p)
+				rcancel()
+				if err != nil {
+					break
+				}
+				if f.Data[0]>>4 != pciCF {
+					t.Fatalf("unexpected frame % X", f.Payload())
+				}
+				cfs++
+			}
+			if cfs != 4 {
+				t.Fatalf("sent %d consecutive frames, want the block size 4", cfs)
+			}
+		})
+	}
+	t.Run("after Send returned", func(t *testing.T) {
+		c, p := hostile(t, Config{TimeoutBs: 150 * time.Millisecond})
+		ctx := ctxT(t)
+		if err := sendAgainstConn(t, c, p, 20, []byte{0x30, 0, 0}); err != nil {
+			t.Fatal(err)
+		}
+		peerSend(t, p, []byte{0x32, 0, 0})
+		// The goroutine handles frames in order: once this single frame
+		// is received, the stray flow control was handled.
+		peerSend(t, p, []byte{0x01, 0xAA})
+		if _, err := c.Receive(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if n := len(c.fc); n != 0 {
+			t.Fatalf("%d flow controls queued while not sending", n)
+		}
+		if err := sendAgainstConn(t, c, p, 20, []byte{0x30, 0, 0}); err != nil {
+			t.Fatalf("next Send: %v", err)
+		}
+	})
+}
+
+// sendAgainstConn sends n bytes on c; the peer answers the first frame
+// with fcs and drains the consecutive frames.
+func sendAgainstConn(t *testing.T, c *Conn, p *virtual.Port, n int, fcs ...[]byte) error {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	errc := make(chan error, 1)
+	go func() { errc <- c.Send(ctx, payload(n)) }()
+	if f, err := peerNext(ctx, p); err != nil || f.Data[0]>>4 != pciFF {
+		t.Fatalf("no first frame: % X, %v", f.Payload(), err)
+	}
+	for _, fc := range fcs {
+		peerSend(t, p, fc)
+	}
+	err := <-errc
+	for {
+		rctx, rcancel := context.WithTimeout(ctx, 20*time.Millisecond)
+		_, rerr := peerNext(rctx, p)
+		rcancel()
+		if rerr != nil {
+			return err
+		}
+	}
+}

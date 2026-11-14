@@ -4,6 +4,7 @@ package kcd
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -91,5 +92,62 @@ func TestHostileKCD(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestLabelGroupBounds: LabelGroup widths are computed without int64
+// wrap-around, groups at the int64 limits terminate, and groups wider
+// than 256 values are not expanded.
+func TestLabelGroupBounds(t *testing.T) {
+	cases := []struct {
+		from, to string
+		values   int
+		warn     string
+	}{
+		{"9223372036854775807", "9223372036854775807", 1, ""},
+		{"9223372036854775552", "9223372036854775807", 256, ""},
+		{"-9223372036854775808", "-9223372036854775808", 1, ""},
+		{"-9223372036854775808", "9223372036854775807", 0, "(18446744073709551616 values) not expanded"},
+		{"-4611686018427387904", "4611686018427387905", 0, "(9223372036854775810 values) not expanded"},
+		{"0", "255", 256, ""},
+		{"0", "256", 0, "(257 values) not expanded"},
+	}
+	for _, c := range cases {
+		t.Run(c.from+".."+c.to, func(t *testing.T) {
+			src := `<NetworkDefinition><Bus><Message id="1" name="M"><Signal name="S" offset="0" length="64"><Value type="signed"/><LabelSet><LabelGroup name="g" from="` +
+				c.from + `" to="` + c.to + `"/></LabelSet></Signal></Message></Bus></NetworkDefinition>`
+			db, diags, err := Parse(strings.NewReader(src))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if n := len(db.Messages[0].Signals[0].Values); n != c.values {
+				t.Fatalf("%d values, want %d", n, c.values)
+			}
+			if c.warn != "" && !strings.Contains(fmt.Sprint(diags), c.warn) {
+				t.Fatalf("diagnostics %v, want %q", diags, c.warn)
+			}
+		})
+	}
+}
+
+// TestLabelGroupDatabaseBound: LabelGroup expansion stops at
+// maxExpandedLabelValues per database.
+func TestLabelGroupDatabaseBound(t *testing.T) {
+	var b strings.Builder
+	b.WriteString(`<NetworkDefinition><Bus><Message id="1" name="M"><Signal name="S" offset="0" length="64"><LabelSet>`)
+	groups := maxExpandedLabelValues/maxLabelGroupValues + 1
+	for i := 0; i < groups; i++ {
+		fmt.Fprintf(&b, `<LabelGroup name="g%d" from="%d" to="%d"/>`, i, i*256, i*256+255)
+	}
+	b.WriteString(`</LabelSet></Signal></Message></Bus></NetworkDefinition>`)
+	db, diags, err := Parse(strings.NewReader(b.String()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := len(db.Messages[0].Signals[0].Values); n != maxExpandedLabelValues {
+		t.Fatalf("%d values, want %d", n, maxExpandedLabelValues)
+	}
+	if !strings.Contains(fmt.Sprint(diags), "more than 1048576 LabelGroup values") {
+		t.Fatalf("diagnostics %v", diags)
 	}
 }

@@ -12,6 +12,8 @@ Frames are text records ended by "\\r": "t1232A1B2" is a standard data frame 123
 
 Adapters that report their status send "e" records (bus errors, such as "e1a" for an ACK error) and "s" records (controller state and error counters, such as "sp130012"); a Conn turns them into error frames exactly as the Linux slcan driver does, delivered when the filters' ErrorMask selects them. The protocol has no error state indicator and no echo of sent frames; receive timestamps are taken on arrival.
 
+A peer that stops reading cannot hold up a Conn: when the byte stream has write deadlines (SetWriteDeadline, as a net.Conn or a pollable \*os.File has), Send ends at its context's deadline or cancellation; on any stream, Close gives the closing "C" at most 100 ms and then closes the stream, which ends a blocked write. On a stream without write deadlines a write blocked on such a peer ends only when Close closes the stream.
+
 ## Variables
 
 ```go
@@ -107,6 +109,12 @@ type Conn struct {
 
 	// closed by Close
 	// closed when the reader stops
+	// wsem is held by the one write in progress; a channel rather than
+	// a mutex so that waiting for it honours a context, and Close can
+	// skip it.
+
+	// partial: a write ended part way through a record, so the next
+	// record starts with "\r" to end the fragment.
 
 	// guards state, txErrs, rxErrs
 
@@ -151,7 +159,7 @@ Capabilities describes slcan: CAN FD (with adapters that support it) and error f
 func (c *Conn) Close() error
 ```
 
-Close sends "C" (unless NoCommands) and closes the device. Once the device is gone, errors of closing it are not reported.
+Close sends "C" (unless NoCommands) and closes the device. It does not wait on the peer: the "C" is skipped while a Send is writing and given at most 100 ms otherwise; the device is closed regardless, which ends a write still blocked. Once the device is gone, errors of closing it are not reported.
 
 #### func (Conn) Drops
 

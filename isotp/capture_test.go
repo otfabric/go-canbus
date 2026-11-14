@@ -539,21 +539,21 @@ func ecuSide(t *testing.T, rec recorded, x diagExchange) {
 	t.Logf("%d consecutive frames", cfs)
 }
 
-// blockingWarn blocks the connection's goroutine in Logger.Warn until
-// released.
-type blockingWarn struct {
+// blockingLog blocks the connection's goroutine in its next log call
+// until released.
+type blockingLog struct {
 	entered chan struct{}
 	release chan struct{}
 }
 
-func (h *blockingWarn) Enabled(_ context.Context, l slog.Level) bool { return l >= slog.LevelWarn }
-func (h *blockingWarn) Handle(context.Context, slog.Record) error {
+func (h *blockingLog) Enabled(context.Context, slog.Level) bool { return true }
+func (h *blockingLog) Handle(context.Context, slog.Record) error {
 	h.entered <- struct{}{}
 	<-h.release
 	return nil
 }
-func (h *blockingWarn) WithAttrs([]slog.Attr) slog.Handler { return h }
-func (h *blockingWarn) WithGroup(string) slog.Handler      { return h }
+func (h *blockingLog) WithAttrs([]slog.Attr) slog.Handler { return h }
+func (h *blockingLog) WithGroup(string) slog.Handler      { return h }
 
 // TestQueuedConsecutiveFrameBeatsNCr: a consecutive frame that arrived
 // before N_Cr ran out continues the transfer even when the connection's
@@ -564,7 +564,7 @@ func (h *blockingWarn) WithGroup(string) slog.Handler      { return h }
 // timer half the time.
 func TestQueuedConsecutiveFrameBeatsNCr(t *testing.T) {
 	for range 20 {
-		h := &blockingWarn{entered: make(chan struct{}), release: make(chan struct{})}
+		h := &blockingLog{entered: make(chan struct{}), release: make(chan struct{})}
 		vb := virtual.New(virtual.Config{})
 		raw, _ := vb.Open(virtual.WithQueueSize(256))
 		port, _ := vb.Open(virtual.WithQueueSize(256))
@@ -575,10 +575,8 @@ func TestQueuedConsecutiveFrameBeatsNCr(t *testing.T) {
 		}
 		ctx := t.Context()
 		inject(t, raw, "78B#100962F1A2303031") // first frame, 9 bytes
-		for range 65 {                         // fill the flow control buffer, then one more
-			inject(t, raw, "78B#3000000000000000")
-		}
-		<-h.entered // the goroutine is held
+		inject(t, raw, "78B#3000000000000000") // a stray flow control: its drop is logged
+		<-h.entered                            // the goroutine is held
 		inject(t, raw, "78B#21303032AAAAAAAA")
 		time.Sleep(60 * time.Millisecond) // N_Cr runs out while the frame waits
 		close(h.release)

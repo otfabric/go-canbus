@@ -44,7 +44,7 @@ ErrUnknownFormat reports input whose format could not be recognised.
 var ErrUnrepresentable = errors.New("capture: frame not representable in the format")
 ```
 
-ErrUnrepresentable reports a frame a writer cannot store in its format without corrupting it: a timestamp outside the format's range (before 1970 or after 2106 in pcap, for example), or a channel number or name too large for its field. Nothing is written for that frame.
+ErrUnrepresentable reports a frame a writer cannot store in its format without corrupting it: a timestamp outside the format's range (before 1970 or after 2106 in pcap, for example), a channel number or name too large for its field, or an interface name holding a byte the format cannot store (a space or control byte in a candump line). Nothing is written for that frame.
 
 ## Functions
 
@@ -319,7 +319,7 @@ SetDirection makes the writer end every line with the direction token that candu
 func (w *CandumpWriter) Write(f *canbus.Frame) error
 ```
 
-Write writes one line. The timestamp is truncated to microseconds, as candump writes it; frames without timestamp are written at time 0.
+Write writes one line. The timestamp is truncated to microseconds, as candump writes it; frames without timestamp are written at time 0. An interface name containing a space, a control byte or DEL is an ErrUnrepresentable error.
 
 #### func (CandumpWriter) WriteXL
 
