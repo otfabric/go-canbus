@@ -20,6 +20,11 @@ inputs that panicked return diagnostics; ISO-TP senders use a flow control
 only while waiting for one; slcan `Send` and `Close` no longer wait on a
 byte-stream peer that stopped reading.
 
+### Breaking
+
+- `codegen.Version` is now `"2"` (was `"1"`): the generated code changed (names in error messages are quoted arguments; error texts are unchanged), and the constant names the generator in the provenance header. Consumer assessment: canbusctl prints it in `dbc generate --json` and its test checks only the `go-canbus codegen` prefix; go-canopen and canopenctl do not use go-canbus's generator. Code that compares the constant or golden headers sees the new value.
+- Behaviour changes listed under Fixed (`dbc.Write` and `dbc.ErrName`, candump interface names, `socketcan.DialISOTP` options, ARXML triggering order and bounds) can turn inputs that were accepted into errors.
+
 ### Fixed
 
 - `codegen`: database names, units, senders, multiplexer text and the `Source` option were written into generated comments and `fmt.Errorf` literals as they were. Comments now replace line terminators and control characters with spaces, and names in error messages are quoted Go string literals passed as arguments. Generated error texts are unchanged. Generator `Version` is now `2`.
