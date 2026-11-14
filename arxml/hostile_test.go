@@ -314,22 +314,40 @@ func TestNestingBound(t *testing.T) {
 }
 
 // TestManyECUInstances: frame ports are collected in one walk of each
-// ECU-INSTANCE, not by scanning every element per ECU.
+// ECU-INSTANCE, not by scanning every element per ECU: four times the
+// ECUs take well under 10 times as long (a ratio holds on slow runners and
+// under the race detector, a fixed budget does not).
 func TestManyECUInstances(t *testing.T) {
-	const n = 64000
-	var b strings.Builder
-	b.WriteString(`<AUTOSAR xmlns="http://autosar.org/schema/r4.0"><AR-PACKAGES><AR-PACKAGE><SHORT-NAME>E</SHORT-NAME><ELEMENTS>`)
-	for i := 0; i < n; i++ {
-		fmt.Fprintf(&b, `<ECU-INSTANCE><SHORT-NAME>e%d</SHORT-NAME><CONNECTORS><CAN-COMMUNICATION-CONNECTOR><SHORT-NAME>c</SHORT-NAME><ECU-COMM-PORT-INSTANCES><FRAME-PORT><SHORT-NAME>fp</SHORT-NAME><COMMUNICATION-DIRECTION>OUT</COMMUNICATION-DIRECTION></FRAME-PORT></ECU-COMM-PORT-INSTANCES></CAN-COMMUNICATION-CONNECTOR></CONNECTORS></ECU-INSTANCE>`, i)
+	doc := func(n int) string {
+		var b strings.Builder
+		b.WriteString(`<AUTOSAR xmlns="http://autosar.org/schema/r4.0"><AR-PACKAGES><AR-PACKAGE><SHORT-NAME>E</SHORT-NAME><ELEMENTS>`)
+		for i := 0; i < n; i++ {
+			fmt.Fprintf(&b, `<ECU-INSTANCE><SHORT-NAME>e%d</SHORT-NAME><CONNECTORS><CAN-COMMUNICATION-CONNECTOR><SHORT-NAME>c</SHORT-NAME><ECU-COMM-PORT-INSTANCES><FRAME-PORT><SHORT-NAME>fp</SHORT-NAME><COMMUNICATION-DIRECTION>OUT</COMMUNICATION-DIRECTION></FRAME-PORT></ECU-COMM-PORT-INSTANCES></CAN-COMMUNICATION-CONNECTOR></CONNECTORS></ECU-INSTANCE>`, i)
+		}
+		fmt.Fprintf(&b, `<CAN-FRAME-TRIGGERING><SHORT-NAME>t</SHORT-NAME><FRAME-REF>/E/f</FRAME-REF><IDENTIFIER>1</IDENTIFIER><FRAME-PORT-REFS><FRAME-PORT-REF>/E/e%d/c/fp</FRAME-PORT-REF></FRAME-PORT-REFS></CAN-FRAME-TRIGGERING>`, n-1)
+		b.WriteString(`<CAN-FRAME><SHORT-NAME>f</SHORT-NAME><FRAME-LENGTH>8</FRAME-LENGTH></CAN-FRAME>`)
+		b.WriteString(`</ELEMENTS></AR-PACKAGE></AR-PACKAGES></AUTOSAR>`)
+		return b.String()
 	}
-	b.WriteString(`<CAN-FRAME-TRIGGERING><SHORT-NAME>t</SHORT-NAME><FRAME-REF>/E/f</FRAME-REF><IDENTIFIER>1</IDENTIFIER><FRAME-PORT-REFS><FRAME-PORT-REF>/E/e63999/c/fp</FRAME-PORT-REF></FRAME-PORT-REFS></CAN-FRAME-TRIGGERING>`)
-	b.WriteString(`<CAN-FRAME><SHORT-NAME>f</SHORT-NAME><FRAME-LENGTH>8</FRAME-LENGTH></CAN-FRAME>`)
-	b.WriteString(`</ELEMENTS></AR-PACKAGE></AR-PACKAGES></AUTOSAR>`)
-	db, diags, err := parseWithin(t, b.String(), 20*time.Second)
+	timed := func(src string) (time.Duration, *candb.Database, []candb.Diagnostic, error) {
+		start := time.Now()
+		db, diags, err := Parse(strings.NewReader(src))
+		return time.Since(start), db, diags, err
+	}
+	const n = 16000
+	small := doc(n / 4)
+	ts, _, _, _ := timed(small)
+	if again, _, _, _ := timed(small); again < ts {
+		ts = again
+	}
+	tb, db, diags, err := timed(doc(n))
 	if err != nil {
 		t.Fatalf("%v %v", err, diags)
 	}
-	if m := db.Message(1, false); m == nil || len(m.Senders) != 1 || m.Senders[0] != "e63999" {
+	if tb > 10*ts+200*time.Millisecond {
+		t.Fatalf("%d ECUs took %v, %d took %v: growth above linear", n, tb, n/4, ts)
+	}
+	if m := db.Message(1, false); m == nil || len(m.Senders) != 1 || m.Senders[0] != fmt.Sprintf("e%d", n-1) {
 		t.Fatalf("message %+v", m)
 	}
 }

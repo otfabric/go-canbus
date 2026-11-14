@@ -149,47 +149,60 @@ func TestWriteRejectsNonIdentifiers(t *testing.T) {
 	}
 }
 
-// parseWithin parses src and fails when it takes longer than budget. The
-// budgets are far above the linear cost and far below the quadratic one
-// the inputs needed before.
-func parseWithin(t *testing.T, src string, budget time.Duration) (*candb.Database, []candb.Diagnostic) {
+// parseGrowth parses gen(n/4) and gen(n) and fails when the larger input
+// takes more than 10 times as long as the smaller one (linear work gives
+// about 4, the quadratic work these inputs needed before about 16). A
+// ratio, unlike a fixed budget, holds on slow runners and under the race
+// detector and coverage.
+func parseGrowth(t *testing.T, gen func(n int) string, n int) (*candb.Database, []candb.Diagnostic) {
 	t.Helper()
-	start := time.Now()
-	db, diags, _ := ParseBytes([]byte(src))
-	if d := time.Since(start); d > budget {
-		t.Fatalf("parsing %d bytes took %v (budget %v)", len(src), d, budget)
+	timed := func(src string) (time.Duration, *candb.Database, []candb.Diagnostic) {
+		start := time.Now()
+		db, diags, _ := ParseBytes([]byte(src))
+		return time.Since(start), db, diags
+	}
+	small := gen(n / 4)
+	ts, _, _ := timed(small)
+	if again, _, _ := timed(small); again < ts {
+		ts = again
+	}
+	big := gen(n)
+	tb, db, diags := timed(big)
+	if tb > 10*ts+200*time.Millisecond {
+		t.Fatalf("parsing %d bytes took %v, %d bytes %v: growth above linear", len(big), tb, len(small), ts)
 	}
 	return db, diags
 }
 
 // TestParseLinearGrowth: inputs that drove quadratic work in the parser
-// parse in time linear in their size. Before, each took 10 s or more:
-// 40000 messages (each message's key was searched in all messages), 80000
-// line-0 diagnostics (insertion sort), 128000 BU_ names, 160000
-// BO_TX_BU_ statements and 70000 node and definition attributes (linear
-// lookups per name). Now each takes well under a second.
+// (each message's key searched in all messages, insertion sort of line-0
+// diagnostics, linear lookups per BU_ name, BO_TX_BU_ sender, attribute
+// and signal) parse in time linear in their size.
 func TestParseLinearGrowth(t *testing.T) {
 	if testing.Short() {
 		t.Skip("large inputs")
 	}
-	const budget = 5 * time.Second
-	var b strings.Builder
-
 	t.Run("messages", func(t *testing.T) {
-		b.Reset()
-		for i := range 40000 {
-			b.WriteString("BO_ " + strconv.Itoa(i) + " M" + strconv.Itoa(i) + ": 8 A\n")
+		gen := func(n int) string {
+			var b strings.Builder
+			for i := range n {
+				b.WriteString("BO_ " + strconv.Itoa(i) + " M" + strconv.Itoa(i) + ": 8 A\n")
+			}
+			return b.String()
 		}
-		if db, _ := parseWithin(t, b.String(), budget); len(db.Messages) != 40000 {
+		if db, _ := parseGrowth(t, gen, 40000); len(db.Messages) != 40000 {
 			t.Fatal(len(db.Messages))
 		}
 	})
 	t.Run("diagnostics", func(t *testing.T) {
-		b.Reset()
-		for i := range 80000 {
-			b.WriteString("FILTER ;\nSIG_VALTYPE_ " + strconv.Itoa(i) + " S : 1;\n")
+		gen := func(n int) string {
+			var b strings.Builder
+			for i := range n {
+				b.WriteString("FILTER ;\nSIG_VALTYPE_ " + strconv.Itoa(i) + " S : 1;\n")
+			}
+			return b.String()
 		}
-		_, diags := parseWithin(t, b.String(), budget)
+		_, diags := parseGrowth(t, gen, 80000)
 		if len(diags) != 160000 {
 			t.Fatal(len(diags))
 		}
@@ -200,41 +213,50 @@ func TestParseLinearGrowth(t *testing.T) {
 		}
 	})
 	t.Run("nodes", func(t *testing.T) {
-		b.Reset()
-		b.WriteString("BU_:")
-		for i := range 128000 {
-			b.WriteString(" N" + strconv.Itoa(i))
+		gen := func(n int) string {
+			var b strings.Builder
+			b.WriteString("BU_:")
+			for i := range n {
+				b.WriteString(" N" + strconv.Itoa(i))
+			}
+			b.WriteString(" N0 N1\n")
+			return b.String()
 		}
-		b.WriteString(" N0 N1\n")
-		if db, _ := parseWithin(t, b.String(), budget); len(db.Nodes) != 128000 {
+		if db, _ := parseGrowth(t, gen, 128000); len(db.Nodes) != 128000 {
 			t.Fatal(len(db.Nodes))
 		}
 	})
 	t.Run("senders", func(t *testing.T) {
-		b.Reset()
-		b.WriteString("BO_ 1 M: 8 A\n")
-		for i := range 160000 {
-			b.WriteString("BO_TX_BU_ 1 : A,S" + strconv.Itoa(i) + ";\n")
+		gen := func(n int) string {
+			var b strings.Builder
+			b.WriteString("BO_ 1 M: 8 A\n")
+			for i := range n {
+				b.WriteString("BO_TX_BU_ 1 : A,S" + strconv.Itoa(i) + ";\n")
+			}
+			return b.String()
 		}
-		if db, _ := parseWithin(t, b.String(), budget); len(db.Messages[0].Senders) != 160001 {
+		if db, _ := parseGrowth(t, gen, 160000); len(db.Messages[0].Senders) != 160001 {
 			t.Fatal(len(db.Messages[0].Senders))
 		}
 	})
 	t.Run("attributes", func(t *testing.T) {
 		const n = 70000
-		b.Reset()
-		b.WriteString("BU_:")
-		for i := range n {
-			b.WriteString(" N" + strconv.Itoa(i))
+		gen := func(n int) string {
+			var b strings.Builder
+			b.WriteString("BU_:")
+			for i := range n {
+				b.WriteString(" N" + strconv.Itoa(i))
+			}
+			b.WriteString("\n")
+			for i := range n {
+				b.WriteString("BA_DEF_ BU_ \"A" + strconv.Itoa(i) + "\" INT 0 10;\nBA_DEF_DEF_ \"A" + strconv.Itoa(i) + "\" 1;\n")
+			}
+			for i := range n {
+				b.WriteString("BA_ \"A" + strconv.Itoa(i) + "\" BU_ N" + strconv.Itoa(i) + " 2;\n")
+			}
+			return b.String()
 		}
-		b.WriteString("\n")
-		for i := range n {
-			b.WriteString("BA_DEF_ BU_ \"A" + strconv.Itoa(i) + "\" INT 0 10;\nBA_DEF_DEF_ \"A" + strconv.Itoa(i) + "\" 1;\n")
-		}
-		for i := range n {
-			b.WriteString("BA_ \"A" + strconv.Itoa(i) + "\" BU_ N" + strconv.Itoa(i) + " 2;\n")
-		}
-		db, _ := parseWithin(t, b.String(), budget)
+		db, _ := parseGrowth(t, gen, n)
 		if a := db.Nodes[n-1].Attributes; len(a) != 1 || a[0].Int != 2 || db.AttributeDefinitions[n-1].Default.Int != 1 {
 			t.Fatal(a)
 		}
@@ -242,15 +264,18 @@ func TestParseLinearGrowth(t *testing.T) {
 	// Signal lookups by name go through the parser's index.
 	t.Run("signals", func(t *testing.T) {
 		const n = 2000
-		b.Reset()
-		b.WriteString("BO_ 1 M: 64 A\n")
-		for i := range n {
-			b.WriteString(" SG_ S" + strconv.Itoa(i) + " : " + strconv.Itoa(i%512) + "|1@1+ (1,0) [0|0] \"\" A\n")
+		gen := func(n int) string {
+			var b strings.Builder
+			b.WriteString("BO_ 1 M: 64 A\n")
+			for i := range n {
+				b.WriteString(" SG_ S" + strconv.Itoa(i) + " : " + strconv.Itoa(i%512) + "|1@1+ (1,0) [0|0] \"\" A\n")
+			}
+			for i := range n {
+				b.WriteString("VAL_ 1 S" + strconv.Itoa(i) + " 1 \"on\" ;\nCM_ SG_ 1 S" + strconv.Itoa(i) + " \"c\";\n")
+			}
+			return b.String()
 		}
-		for i := range n {
-			b.WriteString("VAL_ 1 S" + strconv.Itoa(i) + " 1 \"on\" ;\nCM_ SG_ 1 S" + strconv.Itoa(i) + " \"c\";\n")
-		}
-		db, _ := parseWithin(t, b.String(), budget)
+		db, _ := parseGrowth(t, gen, n)
 		if s := db.Messages[0].Signals[n-1]; s.Comment != "c" || len(s.Values) != 1 {
 			t.Fatal(s)
 		}
