@@ -12,4 +12,4 @@
 | [capture-replay](capture-replay) | nothing | Recording to candump format and replaying at 2× |
 | [vcan-pingpong](vcan-pingpong) | Linux, vcan | Two processes talking over vcan |
 
-`make examples` runs the ones that need nothing (in CI on every push).
+`make examples` runs the ones that need nothing (in CI on every pull request).
