@@ -245,15 +245,30 @@ func (m *Message) overlaps() []Diagnostic {
 				bs = append(bs, pos+i)
 			}
 		}
-		sort.Ints(bs)
+		sort.Ints(bs) // layout succeeded, so Length >= 1
 		spans = append(spans, span{s, bs})
 	}
+	// Sweep the spans in order of their lowest bit: a span can only share
+	// bits with the spans that start before its highest bit ends, so
+	// signals that do not overlap cost O(n log n), not O(n^2).
+	order := make([]int, len(spans))
+	for i := range order {
+		order[i] = i
+	}
+	sort.SliceStable(order, func(x, y int) bool { return spans[order[x]].bits[0] < spans[order[y]].bits[0] })
 	list, set := m.conditions()
 	var ds []Diagnostic
 	suppressed := 0
-	for i := range spans {
-		for j := i + 1; j < len(spans); j++ {
+	for x, i := range order {
+		hi := spans[i].bits[len(spans[i].bits)-1]
+		for _, j := range order[x+1:] {
+			if spans[j].bits[0] > hi {
+				break
+			}
 			a, b := spans[i], spans[j]
+			if j < i {
+				a, b = b, a // report the later signal of the database
+			}
 			if !intersects(a.bits, b.bits) {
 				continue
 			}
