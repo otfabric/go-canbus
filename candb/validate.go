@@ -156,26 +156,55 @@ func (m *Message) validateSignals() []Diagnostic {
 	return ds
 }
 
-// coexist reports whether two signals can be present in the same payload.
-func (m *Message) coexist(a, b *Signal) bool {
-	ca, cb := m.conditions(a), m.conditions(b)
-	for sw, ra := range ca {
-		if rb, ok := cb[sw]; ok && !rangesIntersect(ra, rb) {
+// muxCond is one switch on the path from a signal to the root and the
+// values it must have for the signal to be present.
+type muxCond struct {
+	sw     string
+	ranges []MuxRange
+}
+
+// conditions returns, for every signal, the switches on its path to the
+// root (as a list and as a map) in one pass with a name index, so the
+// pairwise overlap check does not rebuild them per pair.
+func (m *Message) conditions() (map[*Signal][]muxCond, map[*Signal]map[string][]MuxRange) {
+	byName := make(map[string]*Signal, len(m.Signals))
+	for _, s := range m.Signals {
+		if _, dup := byName[s.Name]; !dup {
+			byName[s.Name] = s
+		}
+	}
+	list := make(map[*Signal][]muxCond, len(m.Signals))
+	set := make(map[*Signal]map[string][]MuxRange, len(m.Signals))
+	for _, s := range m.Signals {
+		if s.Multiplexer == "" {
+			continue
+		}
+		var cs []muxCond
+		cm := map[string][]MuxRange{}
+		for depth, c := 0, s; c != nil && c.Multiplexer != "" && depth < len(m.Signals); depth++ {
+			if _, seen := cm[c.Multiplexer]; !seen {
+				cs = append(cs, muxCond{c.Multiplexer, nil})
+			}
+			cm[c.Multiplexer] = c.MuxValues
+			c = byName[c.Multiplexer]
+		}
+		for i := range cs {
+			cs[i].ranges = cm[cs[i].sw]
+		}
+		list[s], set[s] = cs, cm
+	}
+	return list, set
+}
+
+// coexist reports whether two signals can be present in the same payload,
+// from their precomputed conditions.
+func coexist(ca []muxCond, cb map[string][]MuxRange) bool {
+	for _, c := range ca {
+		if rb, ok := cb[c.sw]; ok && !rangesIntersect(c.ranges, rb) {
 			return false
 		}
 	}
 	return true
-}
-
-// conditions maps every switch on the path from s to the root to the
-// values it must have for s to be present.
-func (m *Message) conditions(s *Signal) map[string][]MuxRange {
-	out := map[string][]MuxRange{}
-	for depth := 0; s != nil && s.Multiplexer != "" && depth < len(m.Signals); depth++ {
-		out[s.Multiplexer] = s.MuxValues
-		s = m.Signal(s.Multiplexer)
-	}
-	return out
 }
 
 func rangesIntersect(a, b []MuxRange) bool {
@@ -189,7 +218,13 @@ func rangesIntersect(a, b []MuxRange) bool {
 	return false
 }
 
-// overlaps reports signals that share bits while both present.
+// maxOverlapDiagnostics bounds the overlap warnings listed per message;
+// the rest are counted in one summary warning, so the diagnostics stay
+// linear in the size of the database.
+const maxOverlapDiagnostics = 64
+
+// overlaps reports signals that share bits while both present: at most
+// maxOverlapDiagnostics pairs, then a count of the others.
 func (m *Message) overlaps() []Diagnostic {
 	type span struct {
 		s    *Signal
@@ -213,16 +248,30 @@ func (m *Message) overlaps() []Diagnostic {
 		sort.Ints(bs)
 		spans = append(spans, span{s, bs})
 	}
+	list, set := m.conditions()
 	var ds []Diagnostic
+	suppressed := 0
 	for i := range spans {
 		for j := i + 1; j < len(spans); j++ {
 			a, b := spans[i], spans[j]
-			if !intersects(a.bits, b.bits) || !m.coexist(a.s, b.s) {
+			if !intersects(a.bits, b.bits) {
+				continue
+			}
+			// Walk the shorter path, look up in the longer one.
+			if la, lb := list[a.s], list[b.s]; len(la) <= len(lb) && !coexist(la, set[b.s]) || len(la) > len(lb) && !coexist(lb, set[a.s]) {
+				continue
+			}
+			if len(ds) >= maxOverlapDiagnostics {
+				suppressed++
 				continue
 			}
 			ds = append(ds, Diagnostic{Severity: Warning, Object: "signal " + m.Name + "." + b.s.Name,
 				Message: "overlaps signal " + a.s.Name})
 		}
+	}
+	if suppressed > 0 {
+		ds = append(ds, Diagnostic{Severity: Warning, Object: "message " + m.Name,
+			Message: fmt.Sprintf("%d more overlapping signal pairs not listed", suppressed)})
 	}
 	return ds
 }

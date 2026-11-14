@@ -201,3 +201,32 @@ func TestRunEndsQuietlyAtDeadline(t *testing.T) {
 type failing struct{ canbus.Transport }
 
 func (failing) Receive(context.Context, *canbus.Frame) error { return errors.New("boom") }
+
+// TestCorruptRawLongFrame forwards a raw frame announcing more bytes than
+// a frame holds with every frame corrupted: the flipped bit stays inside
+// the 64-byte payload and Run returns instead of panicking.
+func TestCorruptRawLongFrame(t *testing.T) {
+	src := virtual.New(virtual.Config{Name: "raw-src"})
+	defer src.Close()
+	dst := virtual.New(virtual.Config{Name: "raw-dst"})
+	defer dst.Close()
+	sp, _ := src.Open()
+	dp, _ := dst.Open()
+	b, err := New(Config{Corrupt: 1, Seed: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	for _, n := range []uint8{255, 65, 64} {
+		if err := src.InjectRaw(ctx, canbus.Frame{ID: 0x123, Len: n}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rctx, rcancel := context.WithTimeout(ctx, 300*time.Millisecond)
+	defer rcancel()
+	_ = b.Run(rctx, sp, dp) // the destination may refuse the invalid frame
+	if b.Stats().Corrupted == 0 {
+		t.Fatal("no frame corrupted")
+	}
+}

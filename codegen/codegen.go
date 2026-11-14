@@ -28,7 +28,7 @@ import (
 
 // Version identifies the generator in the provenance header. It changes
 // when the generated code changes.
-const Version = "1"
+const Version = "2"
 
 // Options control generation.
 type Options struct {
@@ -51,7 +51,7 @@ func Generate(db *candb.Database, opts Options) ([]byte, error) {
 			return nil, fmt.Errorf("codegen: database has errors: %s", d)
 		}
 	}
-	g := &gen{db: db, opts: opts, used: map[string]bool{}}
+	g := &gen{db: db, opts: opts, used: map[string]bool{}, next: map[string]int{}}
 	g.file()
 	out, err := format.Source(g.buf.Bytes())
 	if err != nil {
@@ -121,16 +121,22 @@ type gen struct {
 	opts Options
 	buf  bytes.Buffer
 	used map[string]bool // package-level identifiers
+	next map[string]int  // the next numeric suffix to try per base name
 }
 
 func (g *gen) p(format string, args ...any) { fmt.Fprintf(&g.buf, format, args...) }
 
 // unique returns name, or name with a numeric suffix, not yet used at
-// package level.
+// package level. Used names stay used, so the suffix search for a base
+// name resumes where the last one ended: k equal names cost O(k).
 func (g *gen) unique(name string) string {
 	n := name
-	for i := 2; g.used[n]; i++ {
-		n = name + strconv.Itoa(i)
+	if g.used[n] {
+		i := max(g.next[name], 2)
+		for n = name + strconv.Itoa(i); g.used[n]; n = name + strconv.Itoa(i) {
+			i++
+		}
+		g.next[name] = i + 1
 	}
 	g.used[n] = true
 	return n
@@ -142,6 +148,8 @@ type msgInfo struct {
 	typ    string
 	fields map[*candb.Signal]*fieldInfo
 	order  []*candb.Signal // switches before what they select
+	byName map[string]*candb.Signal
+	conds  map[*candb.Signal]string // memoized cond results
 }
 
 type fieldInfo struct {
@@ -153,9 +161,28 @@ type fieldInfo struct {
 	pos   int    // bit position for the bits package
 }
 
+// commentText makes a database string safe inside a // line comment: it
+// replaces every line terminator Go or an editor may honour (\n, \r,
+// U+2028, U+2029), every other control character, byte order marks and
+// invalid UTF-8 with a space, so the text cannot end the comment.
+func commentText(s string) string {
+	var b strings.Builder
+	for _, r := range strings.ToValidUTF8(s, " ") {
+		if r < ' ' || r == 0x7F || r >= 0x80 && r <= 0x9F || r == '\u2028' || r == '\u2029' || r == '\uFEFF' {
+			r = ' '
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+// comment formats a multi-line database comment as // comment lines.
 func comment(s string) string {
-	s = strings.TrimSpace(s)
-	return strings.ReplaceAll(s, "\n", "\n// ")
+	lines := strings.Split(strings.TrimSpace(s), "\n")
+	for i, l := range lines {
+		lines[i] = commentText(l)
+	}
+	return strings.Join(lines, "\n// ")
 }
 
 func rawType(s *candb.Signal) string {
@@ -187,10 +214,26 @@ func (g *gen) plan() []*msgInfo {
 	for _, m := range g.db.Messages {
 		mi := &msgInfo{m: m, typ: g.unique(ident(m.Name)), fields: map[*candb.Signal]*fieldInfo{}}
 		local := map[string]bool{}
+		next := map[string]int{} // per base name: the next numbered suffix to try
+		taken := func(name string) bool {
+			return reserved[name] || local[name] || local[name+"Phys"] || strings.HasSuffix(name, "Phys") && local[strings.TrimSuffix(name, "Phys")]
+		}
 		for _, s := range m.Signals {
-			name := ident(s.Name)
-			for reserved[name] || local[name] || local[name+"Phys"] || strings.HasSuffix(name, "Phys") && local[strings.TrimSuffix(name, "Phys")] {
-				name += "_"
+			base := ident(s.Name)
+			name := base
+			// A few underscores, then numbered suffixes: names stay short
+			// and the search resumes where it ended for the same base, as
+			// taken names stay taken.
+			for i := 0; taken(name); i++ {
+				if i < 3 {
+					name += "_"
+					continue
+				}
+				k := max(next[base], 2)
+				for name = base + "_" + strconv.Itoa(k); taken(name); name = base + "_" + strconv.Itoa(k) {
+					k++
+				}
+				next[base] = k + 1
 			}
 			local[name] = true
 			pos := s.StartBit
@@ -201,7 +244,14 @@ func (g *gen) plan() []*msgInfo {
 			fi.gotyp = fi.base
 			mi.fields[s] = fi
 		}
-		mi.order = muxOrder(m)
+		mi.byName = make(map[string]*candb.Signal, len(m.Signals))
+		for _, s := range m.Signals {
+			if _, dup := mi.byName[s.Name]; !dup {
+				mi.byName[s.Name] = s
+			}
+		}
+		mi.conds = map[*candb.Signal]string{}
+		mi.order = muxOrder(m, mi.byName)
 		out = append(out, mi)
 	}
 	// Enum types after all message types are named, so message names win.
@@ -219,7 +269,7 @@ func (g *gen) plan() []*msgInfo {
 
 // muxOrder orders signals so that every switch comes before the signals
 // it selects (the database is validated: no cycles).
-func muxOrder(m *candb.Message) []*candb.Signal {
+func muxOrder(m *candb.Message, byName map[string]*candb.Signal) []*candb.Signal {
 	done := map[string]bool{}
 	var out []*candb.Signal
 	var visit func(s *candb.Signal)
@@ -229,7 +279,7 @@ func muxOrder(m *candb.Message) []*candb.Signal {
 		}
 		done[s.Name] = true
 		if s.Multiplexer != "" {
-			if sw := m.Signal(s.Multiplexer); sw != nil {
+			if sw := byName[s.Multiplexer]; sw != nil {
 				visit(sw)
 			}
 		}
@@ -254,7 +304,10 @@ func (mi *msgInfo) cond(s *candb.Signal) string {
 	if s.Multiplexer == "" {
 		return ""
 	}
-	sw := mi.m.Signal(s.Multiplexer)
+	if c, ok := mi.conds[s]; ok {
+		return c
+	}
+	sw := mi.byName[s.Multiplexer]
 	fi := mi.fields[sw]
 	v := "uint64(m." + fi.name + ")"
 	if sw.Signed {
@@ -272,22 +325,23 @@ func (mi *msgInfo) cond(s *candb.Signal) string {
 	if outer := mi.cond(sw); outer != "" {
 		c = outer + " && " + c
 	}
+	mi.conds[s] = c
 	return c
 }
 
 func (g *gen) file() {
-	src := g.opts.Source
+	src := commentText(g.opts.Source)
 	if src == "" {
 		src = "a CAN database"
 	}
 	g.p("// Code generated by go-canbus codegen %s from %s", Version, src)
 	if g.opts.SourceSHA256 != "" {
-		g.p(" (sha256 %s)", g.opts.SourceSHA256)
+		g.p(" (sha256 %s)", commentText(g.opts.SourceSHA256))
 	}
 	g.p(". DO NOT EDIT.\n\n")
 	g.p("// Package %s encodes and decodes the messages of %s.\n", g.opts.Package, src)
 	if g.db.Version != "" {
-		g.p("//\n// Database version: %s\n", strings.ReplaceAll(g.db.Version, "\n", " "))
+		g.p("//\n// Database version: %s\n", commentText(g.db.Version))
 	}
 	g.p("package %s\n\n", g.opts.Package)
 	msgs := g.plan()
@@ -327,8 +381,9 @@ func (g *gen) message(mi *msgInfo) {
 	m := mi.m
 	t := mi.typ
 	idText := fmt.Sprintf("0x%X", uint32(m.ID))
-	g.p("// %sID is the identifier of %s (%s).\nconst %sID canbus.ID = %s\n\n", t, m.Name, map[bool]string{true: "29-bit", false: "11-bit"}[m.Extended], t, idText)
-	g.p("// %sLength is the payload length of %s in bytes.\nconst %sLength = %d\n\n", t, m.Name, t, m.Length)
+	name := commentText(m.Name)
+	g.p("// %sID is the identifier of %s (%s).\nconst %sID canbus.ID = %s\n\n", t, name, map[bool]string{true: "29-bit", false: "11-bit"}[m.Extended], t, idText)
+	g.p("// %sLength is the payload length of %s in bytes.\nconst %sLength = %d\n\n", t, name, t, m.Length)
 	g.used[t+"ID"], g.used[t+"Length"] = true, true
 	// Enums.
 	for _, s := range m.Signals {
@@ -336,18 +391,12 @@ func (g *gen) message(mi *msgInfo) {
 		if fi.enum == "" {
 			continue
 		}
-		g.p("// %s are the described values of %s.%s.\ntype %s %s\n\n", fi.enum, m.Name, s.Name, fi.enum, fi.base)
+		g.p("// %s are the described values of %s.%s.\ntype %s %s\n\n", fi.enum, name, commentText(s.Name), fi.enum, fi.base)
 		g.p("const (\n")
-		names := map[string]bool{}
 		for _, v := range s.Values {
-			n := fi.enum + ident(v.Description)
-			for i := 2; names[n] || g.used[n]; i++ {
-				n = fi.enum + ident(v.Description) + strconv.Itoa(i)
-			}
-			names[n] = true
-			g.used[n] = true
+			n := g.unique(fi.enum + ident(v.Description))
 			if s.Signed || v.Value >= 0 {
-				g.p("%s %s = %d // %s\n", n, fi.enum, v.Value, strconv.Quote(v.Description))
+				g.p("%s %s = %d // %s\n", n, fi.enum, v.Value, commentText(strconv.Quote(v.Description)))
 			}
 		}
 		g.p(")\n\n")
@@ -363,7 +412,7 @@ func (g *gen) message(mi *msgInfo) {
 		g.p("}\nreturn fmt.Sprint(%s(v))\n}\n\n", fi.base)
 	}
 	// Struct.
-	g.p("// %s is the message %s", t, m.Name)
+	g.p("// %s is the message %s", t, name)
 	if m.Comment != "" {
 		g.p(": %s", comment(m.Comment))
 	}
@@ -375,7 +424,7 @@ func (g *gen) message(mi *msgInfo) {
 		}
 	}
 	if len(m.Senders) > 0 {
-		g.p(", sent by %s", strings.Join(m.Senders, ", "))
+		g.p(", sent by %s", commentText(strings.Join(m.Senders, ", ")))
 	}
 	if m.CycleTime > 0 {
 		g.p(", every %d ms", m.CycleTime)
@@ -383,13 +432,13 @@ func (g *gen) message(mi *msgInfo) {
 	g.p(".\n//\n// Fields hold raw values; the Phys methods scale them.\ntype %s struct {\n", t)
 	for _, s := range m.Signals {
 		fi := mi.fields[s]
-		g.p("// %s: %d bit %s %s", s.Name, s.Length, s.ByteOrder, map[bool]string{true: "signed", false: "unsigned"}[s.Signed])
+		g.p("// %s: %d bit %s %s", commentText(s.Name), s.Length, s.ByteOrder, map[bool]string{true: "signed", false: "unsigned"}[s.Signed])
 		if s.ValueType != candb.Integer {
 			g.p(" %s", s.ValueType)
 		}
 		g.p(" at start bit %d; physical = raw × %s + %s", s.StartBit, lit(s.Factor), lit(s.Offset))
 		if s.Unit != "" {
-			g.p(" [%s]", s.Unit)
+			g.p(" [%s]", commentText(s.Unit))
 		}
 		if s.Minimum != 0 || s.Maximum != 0 {
 			g.p(", range %s..%s", lit(s.Minimum), lit(s.Maximum))
@@ -398,7 +447,7 @@ func (g *gen) message(mi *msgInfo) {
 			g.p("; multiplexer")
 		}
 		if s.Multiplexer != "" {
-			g.p("; present when %s", muxText(s))
+			g.p("; present when %s", commentText(muxText(s)))
 		}
 		g.p(".")
 		if s.Comment != "" {
@@ -408,7 +457,7 @@ func (g *gen) message(mi *msgInfo) {
 	}
 	g.p("}\n\n")
 	g.p("// MessageID returns %sID.\nfunc (*%s) MessageID() canbus.ID { return %sID }\n\n", t, t, t)
-	g.p("// MessageName returns %q.\nfunc (*%s) MessageName() string { return %q }\n\n", m.Name, t, m.Name)
+	g.p("// MessageName returns %s.\nfunc (*%s) MessageName() string { return %s }\n\n", commentText(strconv.Quote(m.Name)), t, strconv.Quote(m.Name))
 	// Phys accessors.
 	for _, s := range m.Signals {
 		g.phys(mi, s)
@@ -479,23 +528,25 @@ func (g *gen) phys(mi *msgInfo, s *candb.Signal) {
 	if fi.base == "bool" {
 		num = "float64(b2u(m." + fi.name + "))"
 	}
-	g.p("// %sPhys returns the physical value of %s", fi.name, s.Name)
+	g.p("// %sPhys returns the physical value of %s", fi.name, commentText(s.Name))
 	if s.Unit != "" {
-		g.p(" in %s", s.Unit)
+		g.p(" in %s", commentText(s.Unit))
 	}
 	g.p(".\nfunc (m *%s) %sPhys() float64 { return %s*%s + %s }\n\n", t, fi.name, num, lit(s.Factor), lit(s.Offset))
 	factor := s.Factor
 	if factor == 0 {
 		factor = 1
 	}
-	g.p("// Set%sPhys sets %s from a physical value: (p − offset) / factor", fi.name, s.Name)
+	g.p("// Set%sPhys sets %s from a physical value: (p − offset) / factor", fi.name, commentText(s.Name))
 	if s.ValueType == candb.Integer {
 		g.p(", rounded half to even")
 	}
 	g.p(". It fails with ErrRange when the value is outside the signal's range or does not fit its %d bits.\n", s.Length)
 	g.p("func (m *%s) Set%sPhys(p float64) error {\n", t, fi.name)
+	where := strconv.Quote(mi.m.Name + "." + s.Name) // a Go string literal, never part of a format
+	rangeErr := "return fmt.Errorf(\"%w: %s: %v\", ErrRange, " + where + ", p)"
 	if s.Minimum != 0 || s.Maximum != 0 {
-		g.p("if p < %s || p > %s {\nreturn fmt.Errorf(\"%%w: %s.%s: %%v\", ErrRange, p)\n}\n", lit(s.Minimum), lit(s.Maximum), mi.m.Name, s.Name)
+		g.p("if p < %s || p > %s {\n%s\n}\n", lit(s.Minimum), lit(s.Maximum), rangeErr)
 	}
 	g.p("x := (p - %s) / %s\n", lit(s.Offset), lit(factor))
 	switch fi.base {
@@ -508,19 +559,18 @@ func (g *gen) phys(mi *msgInfo, s *candb.Signal) {
 	}
 	g.p("r := math.RoundToEven(x)\n")
 	if s.Signed {
-		g.p("if r < %s || r > %s {\nreturn fmt.Errorf(\"%%w: %s.%s: %%v\", ErrRange, p)\n}\n",
-			lit(-math2(s.Length-1)), lit(math2(s.Length-1)-1), mi.m.Name, s.Name)
+		g.p("if r < %s || r > %s {\n%s\n}\n", lit(-math2(s.Length-1)), lit(math2(s.Length-1)-1), rangeErr)
 		g.p("m.%s = %s(r)\nreturn nil\n}\n\n", fi.name, fi.gotyp)
 		return
 	}
-	g.p("if r < 0 || r > %s {\nreturn fmt.Errorf(\"%%w: %s.%s: %%v\", ErrRange, p)\n}\n", lit(math2(s.Length)-1), mi.m.Name, s.Name)
+	g.p("if r < 0 || r > %s {\n%s\n}\n", lit(math2(s.Length)-1), rangeErr)
 	if fi.base == "bool" {
 		g.p("m.%s = r != 0\nreturn nil\n}\n\n", fi.name)
 		return
 	}
 	if s.Length == 64 {
 		// 2^64−1 is not exactly representable: r ≤ 2^64 here, convert safely.
-		g.p("if r >= 18446744073709551616.0 {\nreturn fmt.Errorf(\"%%w: %s.%s: %%v\", ErrRange, p)\n}\n", mi.m.Name, s.Name)
+		g.p("if r >= 18446744073709551616.0 {\n%s\n}\n", rangeErr)
 	}
 	g.p("m.%s = %s(r)\nreturn nil\n}\n\n", fi.name, fi.gotyp)
 }
@@ -553,10 +603,11 @@ func (g *gen) encode(mi *msgInfo) {
 			size *= 2
 		}
 		if fi.base != "bool" && s.ValueType == candb.Integer && size != s.Length {
+			where := strconv.Quote(m.Name + "." + s.Name)
 			if s.Signed {
-				g.p("if !bits.FitsSigned(int64(m.%s), %d) {\nreturn nil, fmt.Errorf(\"%%w: %s.%s: %%d\", ErrRange, m.%s)\n}\n", fi.name, s.Length, m.Name, s.Name, fi.name)
+				g.p("if !bits.FitsSigned(int64(m.%s), %d) {\nreturn nil, fmt.Errorf(\"%%w: %%s: %%d\", ErrRange, %s, m.%s)\n}\n", fi.name, s.Length, where, fi.name)
 			} else {
-				g.p("if !bits.FitsUnsigned(uint64(m.%s), %d) {\nreturn nil, fmt.Errorf(\"%%w: %s.%s: %%d\", ErrRange, m.%s)\n}\n", fi.name, s.Length, m.Name, s.Name, fi.name)
+				g.p("if !bits.FitsUnsigned(uint64(m.%s), %d) {\nreturn nil, fmt.Errorf(\"%%w: %%s: %%d\", ErrRange, %s, m.%s)\n}\n", fi.name, s.Length, where, fi.name)
 			}
 		}
 		fn := "bits.InsertLE"
@@ -574,7 +625,7 @@ func (g *gen) encode(mi *msgInfo) {
 func (g *gen) decode(mi *msgInfo) {
 	m := mi.m
 	g.p("// Decode sets the fields from a payload of at least %d bytes. Signals the multiplexers do not select are set to zero.\n", m.Length)
-	g.p("func (m *%s) Decode(data []byte) error {\nif len(data) < %d {\nreturn fmt.Errorf(\"%%w: %s needs %d bytes, got %%d\", ErrLength, len(data))\n}\n", mi.typ, m.Length, m.Name, m.Length)
+	g.p("func (m *%s) Decode(data []byte) error {\nif len(data) < %d {\nreturn fmt.Errorf(\"%%w: %%s needs %d bytes, got %%d\", ErrLength, %s, len(data))\n}\n", mi.typ, m.Length, m.Length, strconv.Quote(m.Name))
 	g.p("*m = %s{}\n", mi.typ)
 	for _, s := range mi.order {
 		fi := mi.fields[s]

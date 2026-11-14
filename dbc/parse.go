@@ -20,6 +20,7 @@
 package dbc
 
 import (
+	"cmp"
 	"fmt"
 	"io"
 	"math"
@@ -89,7 +90,8 @@ func ParseBytes(src []byte) (*candb.Database, []candb.Diagnostic, error) {
 		return &candb.Database{}, d, &ParseError{Diagnostics: d}
 	}
 	p := &parser{toks: toks, db: &candb.Database{}, msgs: map[msgKey]*candb.Message{},
-		valTypes: map[sigKey]candb.ValueType{}, muxVals: map[sigKey][]muxVal{}, muxInd: map[sigKey]string{}}
+		valTypes: map[sigKey]candb.ValueType{}, muxVals: map[sigKey][]muxVal{}, muxInd: map[sigKey]string{},
+		sigs: map[sigKey]*candb.Signal{}, nodes: map[string]*candb.Node{}, senders: map[msgKey]map[string]bool{}}
 	p.run()
 	p.finish()
 	sortDiagnostics(p.diags)
@@ -125,7 +127,21 @@ type parser struct {
 	muxInd   map[sigKey]string // the raw multiplexer indicator: "M", "m3", "m3M"
 	attrs    []pendingAttr
 	defaults map[string]candb.Attribute
+
+	// Indexes, so lookups stay constant time however large the file.
+	sigs     map[sigKey]*candb.Signal   // the signals of registered messages
+	nodes    map[string]*candb.Node     // BU_ nodes by name
+	senders  map[msgKey]map[string]bool // BO_TX_BU_ senders per message
+	attrDefs map[attrDefKey]*candb.AttributeDefinition
 }
+
+type attrDefKey struct {
+	name string
+	obj  candb.ObjectType
+}
+
+// sig returns the signal of a registered message, or nil.
+func (p *parser) sig(id msgKey, name string) *candb.Signal { return p.sigs[sigKey{id, name}] }
 
 type pendingAttr struct {
 	obj  candb.ObjectType
@@ -402,8 +418,10 @@ func (p *parser) statement() {
 		p.expectPunct(":")
 		for p.peek().kind == tIdent && !keywords[p.peek().text] {
 			name := p.ident()
-			if p.db.Node(name) == nil {
-				p.db.Nodes = append(p.db.Nodes, &candb.Node{Name: name})
+			if p.nodes[name] == nil {
+				n := &candb.Node{Name: name}
+				p.nodes[name] = n
+				p.db.Nodes = append(p.db.Nodes, n)
 			}
 		}
 	case "VAL_TABLE_":
@@ -427,8 +445,17 @@ func (p *parser) statement() {
 		}
 		p.expectPunct(";")
 		if m := p.msg(id, t); m != nil {
+			have := p.senders[id]
+			if have == nil {
+				have = make(map[string]bool, len(m.Senders))
+				for _, s := range m.Senders {
+					have[s] = true
+				}
+				p.senders[id] = have
+			}
 			for _, s := range senders {
-				if !contains(m.Senders, s) {
+				if !have[s] {
+					have[s] = true
 					m.Senders = append(m.Senders, s)
 				}
 			}
@@ -514,10 +541,6 @@ func (p *parser) statement() {
 	}
 }
 
-func contains(list []string, s string) bool {
-	return slices.Contains(list, s)
-}
-
 // msg finds a message by DBC identifier, reporting unknown ones.
 func (p *parser) msg(id msgKey, at token) *candb.Message {
 	if p.skipMsg[id] {
@@ -572,16 +595,24 @@ func (p *parser) message(t token) {
 		p.diag(candb.Error, t.line, "message "+name, "length %d out of range", length)
 		skip = true
 	}
+	local := map[string]*candb.Signal{}
 	for p.peek().kind == tIdent && p.peek().text == "SG_" {
 		st := p.next()
 		s := p.signalRecover(st, id)
 		if s != nil && !skip {
-			if m.Signal(s.Name) != nil {
+			if local[s.Name] != nil {
 				p.diag(candb.Error, st.line, "signal "+name+"."+s.Name, "duplicate signal")
 				continue
 			}
+			local[s.Name] = s
 			m.Signals = append(m.Signals, s)
 		}
+	}
+	if _, dup := p.msgs[id]; dup {
+		// The identifier names a message already: statements keep
+		// referring to it, whether or not this one was valid.
+		p.diag(candb.Error, t.line, "message "+name, "duplicate message identifier %d", rawID)
+		return
 	}
 	if skip {
 		if p.skipMsg == nil {
@@ -590,12 +621,14 @@ func (p *parser) message(t token) {
 		p.skipMsg[id] = true
 		return
 	}
-	if _, dup := p.msgs[id]; dup {
-		p.diag(candb.Error, t.line, "message "+name, "duplicate message identifier %d", rawID)
-		return
-	}
+	// A valid message makes the identifier valid again for the statements
+	// that refer to it.
+	delete(p.skipMsg, id)
 	p.msgs[id] = m
 	p.db.Messages = append(p.db.Messages, m)
+	for n, s := range local {
+		p.sigs[sigKey{id, n}] = s
+	}
 }
 
 // signalRecover parses a signal; on a syntax error it reports it and skips
@@ -703,7 +736,7 @@ func (p *parser) comment(t token) {
 		name := p.ident()
 		text := p.str()
 		p.expectPunct(";")
-		if n := p.db.Node(name); n != nil {
+		if n := p.nodes[name]; n != nil {
 			n.Comment = text
 		} else {
 			p.diag(candb.Warning, t.line, "", "comment for unknown node %s ignored", name)
@@ -721,7 +754,7 @@ func (p *parser) comment(t token) {
 		text := p.str()
 		p.expectPunct(";")
 		if m := p.msg(id, t); m != nil {
-			if s := m.Signal(sig); s != nil {
+			if s := p.sig(id, sig); s != nil {
 				s.Comment = text
 			} else {
 				p.diag(candb.Warning, t.line, "", "comment for unknown signal %s.%s ignored", m.Name, sig)
@@ -827,7 +860,7 @@ func (p *parser) values(t token) {
 	vs := p.valueDescriptions()
 	p.expectPunct(";")
 	if m := p.msg(id, t); m != nil {
-		if s := m.Signal(sig); s != nil {
+		if s := p.sig(id, sig); s != nil {
 			s.Values = vs
 		} else {
 			p.diag(candb.Warning, t.line, "", "value descriptions for unknown signal %s.%s ignored", m.Name, sig)
@@ -836,10 +869,6 @@ func (p *parser) values(t token) {
 }
 
 func sortDiagnostics(ds []candb.Diagnostic) {
-	// Stable insertion sort by line; the lists are short.
-	for i := 1; i < len(ds); i++ {
-		for j := i; j > 0 && ds[j].Line < ds[j-1].Line; j-- {
-			ds[j], ds[j-1] = ds[j-1], ds[j]
-		}
-	}
+	// Stable by line: diagnostics of one line keep their order.
+	slices.SortStableFunc(ds, func(a, b candb.Diagnostic) int { return cmp.Compare(a.Line, b.Line) })
 }

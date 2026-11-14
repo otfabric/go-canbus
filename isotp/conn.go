@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/otfabric/go-canbus"
@@ -45,12 +46,18 @@ type Conn struct {
 	sub *canbus.Subscription
 	off int // 1 with extended or mixed addressing
 
-	rx   chan result
-	fc   chan flowControl
-	mu   sync.Mutex // serializes Send
-	done chan struct{}
-	wg   sync.WaitGroup
-	once sync.Once
+	rx chan result
+	fc chan flowControl
+	// awaitFC is set while Send waits for a flow control: from just
+	// before the frame that solicits one (the first frame, the last
+	// consecutive frame of a block) until a CTS, OVERFLOW or invalid
+	// status ends the wait or the transfer ends. Flow control frames
+	// that arrive while it is clear are stray and dropped.
+	awaitFC atomic.Bool
+	mu      sync.Mutex // serializes Send
+	done    chan struct{}
+	wg      sync.WaitGroup
+	once    sync.Once
 
 	// Reception state, owned by the reader goroutine.
 	rxBuf   []byte
@@ -199,14 +206,7 @@ func (c *Conn) sendMessage(ctx context.Context, p []byte) error {
 	if n <= c.sfMax() {
 		return c.send(ctx, append([]byte{0, byte(n & 0xFF)}, p...))
 	}
-	// Drop flow controls left over from an earlier transfer.
-	for drained := false; !drained; {
-		select {
-		case <-c.fc:
-		default:
-			drained = true
-		}
-	}
+	defer c.awaitFC.Store(false)
 	var first []byte
 	if n <= 4095 {
 		first = []byte{0x10 | byte(n>>8&0x0F), byte(n & 0xFF)}
@@ -216,6 +216,7 @@ func (c *Conn) sendMessage(ctx context.Context, p []byte) error {
 	}
 	room := c.cfg.TxDL - c.off - len(first)
 	sent := room
+	c.armFC()
 	if err := c.send(ctx, append(first, p[:room]...)); err != nil {
 		return err
 	}
@@ -237,6 +238,11 @@ func (c *Conn) sendMessage(ctx context.Context, p []byte) error {
 				}
 			}
 			end := min(sent+cfRoom, n)
+			if fc.bs != 0 && blk == int(fc.bs)-1 && end < n {
+				// The last frame of the block solicits the next flow
+				// control.
+				c.armFC()
+			}
 			if err := c.send(ctx, append([]byte{0x20 | sn}, p[sent:end]...)); err != nil {
 				return err
 			}
@@ -245,6 +251,20 @@ func (c *Conn) sendMessage(ctx context.Context, p []byte) error {
 		}
 	}
 	return nil
+}
+
+// armFC starts waiting for a flow control: it drops the ones queued
+// so far (left over from an earlier transfer or stray) and accepts new
+// ones. Call it before sending the frame that solicits the flow control.
+func (c *Conn) armFC() {
+	c.awaitFC.Store(true)
+	for {
+		select {
+		case <-c.fc:
+		default:
+			return
+		}
+	}
 }
 
 func sleep(ctx context.Context, done <-chan struct{}, d time.Duration) error {
@@ -270,16 +290,20 @@ func (c *Conn) waitFC(ctx context.Context) (flowControl, error) {
 		case fc := <-c.fc:
 			switch fc.status {
 			case fcCTS:
+				c.awaitFC.Store(false)
 				return fc, nil
 			case fcWait:
 				waits++
 				if waits > c.cfg.MaxWait {
+					c.awaitFC.Store(false)
 					return fc, fmt.Errorf("%w (%d)", ErrWaitLimit, waits)
 				}
 				t.Reset(c.cfg.TimeoutBs)
 			case fcOverflow:
+				c.awaitFC.Store(false)
 				return fc, ErrOverflow
 			default:
+				c.awaitFC.Store(false)
 				return fc, fmt.Errorf("%w: flow status %d", ErrProtocol, fc.status)
 			}
 		case <-t.C:
@@ -492,6 +516,12 @@ func (c *Conn) handle(f *canbus.Frame, timer *time.Timer, crC *<-chan time.Time)
 			return
 		}
 		fc := flowControl{status: data[0] & 0x0F, bs: data[1], stmin: data[2]}
+		if !c.awaitFC.Load() {
+			// No transfer of this connection waits for a flow control:
+			// a stray or duplicated one must not change the next block.
+			c.cfg.Logger.Debug("isotp: unexpected flow control dropped", "rx", uint32(c.cfg.RxID), "status", fc.status)
+			return
+		}
 		// Every flow control counts (a burst of WAITs must reach the
 		// sender's WFTmax check); a flood beyond the buffer is dropped.
 		select {

@@ -16,6 +16,8 @@ A MULTIPLEXED-I-PDU becomes multiplexed signals, as cantools reads it: a multipl
 
 Everything else (AUTOSAR 3.x, nested multiplexing, container and secured PDUs, signal groups, end-to-end protection, other bus types) is reported as a diagnostic and skipped: no ARXML compatibility beyond these elements is claimed.
 
+Bounds on untrusted input: elements nested deeper than 256 levels end Parse with an error, as does a database of more than 262144 (2^18) signals or 2097152 (2^21) value descriptions (each triggering of a frame counts its signals again). A PDU mapped more than once into one frame is an error and is read once. TEXTTABLE scales are expanded only for finite limits of at most 2^53 in magnitude and at most 256 values. At most 1000 diagnostics are returned; a final diagnostic, as severe as the worst one left out, counts the rest.
+
 ## Functions
 
 ### func Parse

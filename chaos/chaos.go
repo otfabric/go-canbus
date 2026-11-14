@@ -191,12 +191,15 @@ func (b *Bridge) Run(ctx context.Context, src, dst canbus.Transport) (err error)
 			continue
 		}
 		switch {
-		case corrupt && p.xl:
+		case corrupt && p.xl && len(p.x.Data) > 0:
 			bit %= len(p.x.Data) * 8
 			p.x.Data[bit/8] ^= 1 << (bit % 8)
 			b.st.corrupted.Add(1)
-		case corrupt && !p.f.IsRemote() && p.f.Len > 0:
-			bit %= int(p.f.Len) * 8
+		case corrupt && !p.xl && !p.f.IsRemote() && p.f.Len > 0:
+			// Len comes from the source unchecked (a raw injected frame
+			// may announce more than 64 bytes): flip a bit of the
+			// payload that exists.
+			bit %= min(int(p.f.Len), len(p.f.Data)) * 8
 			p.f.Data[bit/8] ^= 1 << (bit % 8)
 			b.st.corrupted.Add(1)
 		}

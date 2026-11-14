@@ -229,3 +229,27 @@ func TestKernelISOTPErrors(t *testing.T) {
 	}
 	_ = fmt.Sprint
 }
+
+// TestDialISOTPConfigBounds: Configs the kernel socket cannot honour are
+// rejected before any interface is looked up.
+func TestDialISOTPConfigBounds(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		cfg  isotp.Config
+		want error
+	}{
+		{"MaxWait", isotp.Config{MaxWait: 3}, canbus.ErrUnsupported},
+		{"TimeoutBs", isotp.Config{TimeoutBs: 2 * time.Second}, canbus.ErrUnsupported},
+		{"TimeoutCr", isotp.Config{TimeoutCr: 500 * time.Millisecond}, canbus.ErrUnsupported},
+		{"MaxMessageSize above the kernel bound", isotp.Config{MaxMessageSize: maxKernelISOTPMessage + 1}, canbus.ErrInvalidOption},
+		{"MaxMessageSize 2^31-1", isotp.Config{MaxMessageSize: 1<<31 - 1}, canbus.ErrInvalidOption},
+		// Defaults spelled out pass the checks and fail at the lookup.
+		{"defaults", isotp.Config{MaxWait: 10, TimeoutBs: time.Second, TimeoutCr: time.Second, MaxMessageSize: maxKernelISOTPMessage}, canbus.ErrInterfaceDown},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := DialISOTP("nosuchcan0", tc.cfg); !errors.Is(err, tc.want) {
+				t.Fatalf("%v, want %v", err, tc.want)
+			}
+		})
+	}
+}

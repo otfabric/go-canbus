@@ -15,12 +15,18 @@
 // significant bit counted from the most significant bit of byte 0, the
 // interpretation of canmatrix, which serves as the reference (see
 // INTEROPERABILITY.md). Unknown elements and attributes produce warnings.
+//
+// A LabelGroup expands to one value description per value. Groups of
+// more than 256 values are not expanded, and at most 1048576 (2^20) values
+// are expanded from LabelGroups per database; groups beyond either bound
+// are ignored with a warning.
 package kcd
 
 import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -166,10 +172,19 @@ func Parse(r io.Reader) (*candb.Database, []candb.Diagnostic, error) {
 	return p.db, p.diags, nil
 }
 
+// maxLabelGroupValues is the widest LabelGroup that is expanded into value
+// descriptions; a wider group is ignored with a warning.
+const maxLabelGroupValues = 256
+
+// maxExpandedLabelValues bounds the value descriptions expanded from
+// LabelGroups in one database; groups beyond it are ignored with a warning.
+const maxExpandedLabelValues = 1 << 20
+
 type parser struct {
-	db    *candb.Database
-	diags []candb.Diagnostic
-	nodes map[string]string // id → name
+	db       *candb.Database
+	diags    []candb.Diagnostic
+	nodes    map[string]string // id → name
+	expanded uint64            // values expanded from LabelGroups so far
 }
 
 func (p *parser) diag(sev candb.Severity, obj, format string, args ...any) {
@@ -291,6 +306,15 @@ func (p *parser) message(x *xMessage) {
 	p.db.Messages = append(p.db.Messages, m)
 }
 
+// groupWidth formats width+1, the number of values of a LabelGroup,
+// without wrapping for the full int64 range.
+func groupWidth(width uint64) string {
+	if width == math.MaxUint64 {
+		return "18446744073709551616"
+	}
+	return strconv.FormatUint(width+1, 10)
+}
+
 func atof(s string, def float64) (float64, error) {
 	if s == "" {
 		return def, nil
@@ -362,14 +386,22 @@ func (p *parser) signal(m *candb.Message, x *xSignal) *candb.Signal {
 		for _, g := range ls.Groups {
 			from, e1 := strconv.ParseInt(g.From, 0, 64)
 			to, e2 := strconv.ParseInt(g.To, 0, 64)
-			switch {
-			case e1 != nil || e2 != nil || to < from:
+			if e1 != nil || e2 != nil || to < from {
 				p.diag(candb.Error, obj, "bad LabelGroup %q..%q", g.From, g.To)
-			case to-from >= 256:
-				p.diag(candb.Warning, obj, "LabelGroup %s (%d values) not expanded: ignored", g.Name, to-from+1)
+				continue
+			}
+			// The width is computed in uint64: to-from in int64 wraps for
+			// groups wider than 2^63 values.
+			width := uint64(to) - uint64(from) // values - 1, exact for to >= from
+			switch {
+			case width >= maxLabelGroupValues:
+				p.diag(candb.Warning, obj, "LabelGroup %s (%s values) not expanded: ignored", g.Name, groupWidth(width))
+			case p.expanded+width+1 > maxExpandedLabelValues:
+				p.diag(candb.Warning, obj, "LabelGroup %s not expanded: more than %d LabelGroup values in the database", g.Name, maxExpandedLabelValues)
 			default:
-				for v := from; v <= to; v++ {
-					s.Values = append(s.Values, candb.ValueDescription{Value: v, Description: g.Name})
+				p.expanded += width + 1
+				for i := uint64(0); i <= width; i++ {
+					s.Values = append(s.Values, candb.ValueDescription{Value: from + int64(i), Description: g.Name}) // #nosec G115 -- i <= width < 256
 				}
 			}
 		}

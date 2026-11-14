@@ -20,6 +20,14 @@
 // exactly as the Linux slcan driver does, delivered when the filters'
 // ErrorMask selects them. The protocol has no error state indicator and
 // no echo of sent frames; receive timestamps are taken on arrival.
+//
+// A peer that stops reading cannot hold up a Conn: when the byte stream
+// has write deadlines (SetWriteDeadline, as a net.Conn or a pollable
+// *os.File has), Send ends at its context's deadline or
+// cancellation; on any stream, Close gives the closing "C" at most
+// 100 ms and then closes the stream, which ends a blocked write. On a
+// stream without write deadlines a write blocked on such a peer ends
+// only when Close closes the stream.
 package slcan
 
 import (
@@ -75,8 +83,14 @@ type Conn struct {
 	ch    chan canbus.Frame
 	done  chan struct{} // closed by Close
 	ended chan struct{} // closed when the reader stops
-	wmu   sync.Mutex
-	buf   []byte
+	// wsem is held by the one write in progress; a channel rather than
+	// a mutex so that waiting for it honours a context, and Close can
+	// skip it.
+	wsem chan struct{}
+	buf  []byte
+	// partial: a write ended part way through a record, so the next
+	// record starts with "\r" to end the fragment.
+	partial bool
 
 	filters atomic.Pointer[canbus.FilterSet]
 	smu     sync.Mutex // guards state, txErrs, rxErrs
@@ -128,7 +142,7 @@ func newConn(rw io.ReadWriteCloser, cfg Config, polled bool) (*Conn, error) {
 		}
 	}
 	c := &Conn{rw: rw, cfg: cfg, polled: polled, ch: make(chan canbus.Frame, cfg.QueueSize), done: make(chan struct{}), ended: make(chan struct{}),
-		state: canbus.StateActive}
+		wsem: make(chan struct{}, 1), state: canbus.StateActive}
 	c.filters.Store(&canbus.FilterSet{})
 	for _, s := range setup {
 		if _, err := rw.Write([]byte(s + "\r")); err != nil {
@@ -293,25 +307,116 @@ func (c *Conn) Send(ctx context.Context, f *canbus.Frame) error {
 	if c.cfg.ListenOnly {
 		return fmt.Errorf("%w: slcan: listen-only", canbus.ErrUnsupported)
 	}
-	c.wmu.Lock()
-	defer c.wmu.Unlock()
-	var err error
-	c.buf, err = AppendFrame(c.buf[:0], f)
+	select {
+	case c.wsem <- struct{}{}:
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-c.done:
+		return canbus.ErrClosed
+	}
+	defer func() { <-c.wsem }()
+	select {
+	case <-c.done:
+		return canbus.ErrClosed
+	default:
+	}
+	if c.partial {
+		c.buf = append(c.buf[:0], '\r')
+	} else {
+		c.buf = c.buf[:0]
+	}
+	rec, err := AppendFrame(c.buf, f)
 	if err != nil {
 		return err
 	}
-	if _, err := c.rw.Write(c.buf); err != nil {
+	c.buf = rec
+	n, err := c.writeCtx(ctx, c.buf)
+	if n > 0 || err == nil {
+		c.partial = err != nil && n < len(c.buf)
+	}
+	if err != nil {
 		c.txErrors.Add(1)
 		select {
 		case <-c.done:
 			return canbus.ErrClosed
 		default:
 		}
+		if cerr := ctx.Err(); cerr != nil {
+			return cerr
+		}
+		if _, ok := ctx.Deadline(); ok && timeout(err) {
+			return context.DeadlineExceeded // the write deadline was the context's
+		}
 		return fmt.Errorf("%w: slcan: %v", canbus.ErrInterfaceDown, err)
 	}
 	c.txFrames.Add(1)
 	c.txBytes.Add(uint64(len(f.Payload())))
 	return nil
+}
+
+// writeDeadliner is a byte stream whose writes can be given a deadline.
+type writeDeadliner interface{ SetWriteDeadline(time.Time) error }
+
+// writeCtx writes b, ending the write when ctx ends if rw has write
+// deadlines. The caller holds wsem.
+func (c *Conn) writeCtx(ctx context.Context, b []byte) (int, error) {
+	wd, ok := c.rw.(writeDeadliner)
+	if !ok {
+		return c.rw.Write(b)
+	}
+	dl, _ := ctx.Deadline() // zero: no deadline
+	if err := wd.SetWriteDeadline(dl); err != nil {
+		return c.rw.Write(b) // deadlines not supported after all
+	}
+	fired := make(chan struct{})
+	stop := context.AfterFunc(ctx, func() {
+		_ = wd.SetWriteDeadline(time.Unix(1, 0)) // in the past: ends the write
+		close(fired)
+	})
+	defer func() {
+		if !stop() {
+			<-fired // must not move the next write's deadline
+		}
+	}()
+	return c.rw.Write(b)
+}
+
+// closeWriteTimeout bounds the closing "C" that Close sends.
+const closeWriteTimeout = 100 * time.Millisecond
+
+// sendClose writes "C" unless a write is in progress, giving it at most
+// closeWriteTimeout: Close must not wait on a peer that stopped
+// reading. The write may outlive the call; closing rw ends it.
+func (c *Conn) sendClose() {
+	select {
+	case c.wsem <- struct{}{}:
+	default:
+		return // a Send is writing: the stream is closed under it
+	}
+	wd, hasDeadline := c.rw.(writeDeadliner)
+	if hasDeadline {
+		hasDeadline = wd.SetWriteDeadline(time.Now().Add(closeWriteTimeout)) == nil
+	}
+	written := make(chan struct{})
+	go func() {
+		defer func() { <-c.wsem }()
+		defer close(written)
+		b := []byte("C\r")
+		if c.partial {
+			b = []byte("\rC\r")
+		}
+		_, _ = c.rw.Write(b)
+	}()
+	if hasDeadline {
+		<-written
+		return
+	}
+	t := time.NewTimer(closeWriteTimeout)
+	defer t.Stop()
+	select {
+	case <-written:
+	case <-t.C:
+	}
 }
 
 // Receive waits for the next frame. Once the device is gone it returns
@@ -344,16 +449,17 @@ func (c *Conn) Receive(ctx context.Context, f *canbus.Frame) error {
 	}
 }
 
-// Close sends "C" (unless NoCommands) and closes the device. Once the
-// device is gone, errors of closing it are not reported.
+// Close sends "C" (unless NoCommands) and closes the device. It does not
+// wait on the peer: the "C" is skipped while a Send is writing and given
+// at most 100 ms otherwise; the device is closed regardless, which ends
+// a write still blocked. Once the device is gone, errors of closing it
+// are not reported.
 func (c *Conn) Close() error {
 	err := canbus.ErrClosed
 	c.closeOnce.Do(func() {
 		close(c.done)
 		if !c.cfg.NoCommands {
-			c.wmu.Lock()
-			_, _ = c.rw.Write([]byte("C\r"))
-			c.wmu.Unlock()
+			c.sendClose()
 		}
 		// Once the device is gone, closing it may fail (a hung-up tty
 		// cannot restore its settings): that is not reported.

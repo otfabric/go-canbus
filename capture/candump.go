@@ -341,11 +341,16 @@ func (w *CandumpWriter) direction(echo bool) string {
 }
 
 // Write writes one line. The timestamp is truncated to microseconds, as
-// candump writes it; frames without timestamp are written at time 0.
+// candump writes it; frames without timestamp are written at time 0. An
+// interface name containing a space, a control byte or DEL is an
+// [ErrUnrepresentable] error.
 func (w *CandumpWriter) Write(f *canbus.Frame) error {
 	iface := f.Interface
 	if iface == "" {
 		iface = w.iface
+	}
+	if err := candumpIface(iface); err != nil {
+		return err
 	}
 	var sec, usec int64
 	if !f.Timestamp.IsZero() {
@@ -365,6 +370,9 @@ func (w *CandumpWriter) WriteXL(x *canbus.XLFrame) error {
 	if iface == "" {
 		iface = w.iface
 	}
+	if err := candumpIface(iface); err != nil {
+		return err
+	}
 	var sec, usec int64
 	if !x.Timestamp.IsZero() {
 		if err := unixRange(FormatCandump, x.Timestamp); err != nil {
@@ -379,3 +387,15 @@ func (w *CandumpWriter) WriteXL(x *canbus.XLFrame) error {
 
 // Close flushes the output.
 func (w *CandumpWriter) Close() error { return w.w.Flush() }
+
+// candumpIface returns an [ErrUnrepresentable] error for an interface name
+// a candump line cannot hold: one containing a space, a control byte or
+// DEL would split the line into other fields or lines when read back.
+func candumpIface(iface string) error {
+	for i := 0; i < len(iface); i++ {
+		if c := iface[i]; c <= ' ' || c == 0x7f {
+			return fmt.Errorf("%w: candump interface name %q contains a space or control byte", ErrUnrepresentable, iface)
+		}
+	}
+	return nil
+}
