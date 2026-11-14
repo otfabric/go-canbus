@@ -17,7 +17,7 @@
 | Interoperability with independent stacks | Linux, Docker, vcan0 | `make interop` (see [INTEROPERABILITY.md](INTEROPERABILITY.md)) |
 | SocketCAN tests under another kernel (microVM) | Linux with KVM, virtme-ng | `make microvm KERNEL=v6.12`; CI: the Kernels workflow (Ubuntu generic, mainline 6.1, 6.6, 6.12, 6.18). See docs/MICROVM.md |
 | End-to-end scenarios | any OS; on Linux with vcan0 also SocketCAN, kernel ISO-TP, processes | `make e2e` |
-| Chaos monkey (random fault schedules, invariants) | any OS; Linux with vcan0 + vcan1 adds kernel ISO-TP through the chaos bridge | `make chaos CHAOS_ITERATIONS=200`; CI: 12/6/10/8 seeds on every push, Nightly chaos workflow 500 seeds on amd64 and arm64 |
+| Chaos monkey (random fault schedules, invariants) | any OS; Linux with vcan0 + vcan1 adds kernel ISO-TP through the chaos bridge | `make chaos CHAOS_ITERATIONS=200`; CI: 12/6/10/8 seeds on every pull request, Nightly chaos workflow 500 seeds on amd64 and arm64 |
 | Everything above except vcan/interop | any OS | `make check` |
 
 Without CAN hardware, slcan is tested as it runs: `Open` drives the slave
@@ -187,3 +187,15 @@ errors, arbitration loss, missing acknowledgement, error-passive and
 bus-off transitions of a real controller, bit-timing mismatches. The
 virtual bus can only *report* them (as error frames); it does not produce
 them. vcan delivers every frame and never raises error frames.
+
+## When CI runs
+
+| Event | Workflow | What runs |
+|---|---|---|
+| Pull request | `pr.yml` | `docs.yml` (docsync, otfabric-policy) always; `ci.yml`, `interop.yml`, `kernels.yml` unless every changed file is documentation; then `OT Fabric Required Checks` |
+| Push to a branch | none | nothing; dispatch `ci.yml`, `interop.yml`, `kernels.yml` to test a branch without a pull request |
+| Push to `main` | `docs.yml` | the light checks; the merged commit was tested as the pull request's merge commit |
+| Schedule | `nightly.yml` | the scheduled runs, on `main` |
+| Release | `release.yml` | the release workflow tests the release commit again |
+
+Documentation means an added or modified `*.md` file outside `.github/`, `testdata/` and `vendor/`, other than `AGENTS.md` and `CLAUDE.md`. A deleted or renamed document, or any other file, runs everything. `OT Fabric Required Checks` fails unless every job that applies succeeded; its summary lists them.

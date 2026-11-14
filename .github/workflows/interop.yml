@@ -1,3 +1,5 @@
+# Called by pr.yml on every pull request that is not documentation only;
+# dispatch it to run it on a branch without a pull request.
 name: Interop
 run-name: "Interop (${{ github.event_name }}) on ${{ github.ref_name }} by @${{ github.actor }}"
 
@@ -8,12 +10,7 @@ run-name: "Interop (${{ github.event_name }}) on ${{ github.ref_name }} by @${{ 
 # (interop/harness_test.go); nothing of canbus-interop is built here.
 
 on:
-  push:
-    branches: ["**"]
-    paths-ignore: ["**/*.md"]
-  pull_request:
-    branches: ["**"]
-    paths-ignore: ["**/*.md"]
+  workflow_call:
   workflow_dispatch:
 
 permissions:

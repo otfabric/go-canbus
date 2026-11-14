@@ -59,7 +59,7 @@ the vcan job nor the Lima VM had shown it.
 
 Constraints found: GitHub's **arm64** runners have **no `/dev/kvm`**, so
 microVMs there would fall back to QEMU emulation (TCG), roughly 10–20×
-slower: usable nightly, not per push. Apple M1/M2 Macs have no nested
+slower: usable nightly, not per pull request. Apple M1/M2 Macs have no nested
 virtualization, so microVMs cannot run inside Lima there; run them directly
 on macOS (Lima, vfkit) or on Linux machines.
 
@@ -84,7 +84,7 @@ The same approach applies to the Ethernet-level stacks:
 ## Recommendation
 
 1. Keep the go-canbus `Kernels` workflow (amd64, KVM): Ubuntu generic plus
-   mainline 6.1, 6.6, 6.12 and the current release, on every push.
+   mainline 6.1, 6.6, 6.12 and the current release, on every pull request.
    `make microvm KERNEL=v6.12` runs the same locally on a Linux host with
    KVM.
 2. Use the same script pattern in canbusctl (its vcan tests) and
@@ -95,5 +95,5 @@ The same approach applies to the Ethernet-level stacks:
    namespaces for topology tests.
 4. Kernels older than 5.15: QEMU with an initramfs, only if a user needs
    them; ISO-TP is in mainline only since 5.10.
-5. arm64: run the matrix on amd64 per push and, if needed, one arm64 TCG job
+5. arm64: run the matrix on amd64 per pull request and, if needed, one arm64 TCG job
    nightly.
