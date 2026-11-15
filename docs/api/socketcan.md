@@ -159,6 +159,9 @@ type ISOTPConn struct {
 	// open when file is closed, so that Close, not whichever goroutine
 	// drops file's last reference, releases it (see closeSocket).
 
+	// waitTxDone: the kernel's poll does not report a transfer in
+	// progress, so Send uses CAN_ISOTP_WAIT_TX_DONE (see sendWaitTxDone).
+
 }
 ```
 
@@ -201,6 +204,8 @@ Send transmits one message and returns when the kernel has finished the transfer
 The write does not block: the kernel returns from it once the first (or single) frame is out and carries on with the transfer. Send then waits, under ctx, for the kernel to report the transfer finished, and reads the transfer's error. One transfer runs at a time: a Send waits for the one before it, until its own ctx ends or Close.
 
 The kernel's N\_Bs (1 s) bounds each wait for a flow control, not the transfer: a peer that keeps sending WAIT flow controls, or announces a long STmin, can extend it. The kernel offers no way to abort a transfer except closing the socket, so when ctx ends during the transfer, Send closes the connection, which stops the transfer, and returns ctx's error; the connection is closed afterwards and later calls return [canbus.ErrClosed](https://pkg.go.dev/github.com/otfabric/go-canbus#ErrClosed). When ctx ends before the write, the message is not sent and the connection stays open. Close during a transfer stops it, and Send returns [canbus.ErrClosed](https://pkg.go.dev/github.com/otfabric/go-canbus#ErrClosed).
+
+This needs a kernel whose ISO-TP sockets report a transfer in progress to poll (Linux 6.3 and later, and the 5.10, 5.15 and 6.1 stable series once they received that change; LIMITATIONS.md). With an older kernel Send waits for the transfer inside the write, which neither ctx nor Close ends: ctx is checked before the write only, and Close waits for the transfer.
 
 ### type Option
 

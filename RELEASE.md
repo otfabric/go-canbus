@@ -21,6 +21,7 @@ changed.
 
 - `socketcan`: **Behaviour change**: a kernel ISO-TP `Send` (`ISOTPConn`) whose context ends during a transfer closes the connection, because the kernel ends a transfer only when the socket is released; it returns the context's error, and later calls return `canbus.ErrClosed`. A caller that kept using the connection after a timed-out `Send` dials again. A `Send` whose context ends before it writes sends nothing and leaves the connection open.
 - `socketcan`: **Behaviour change**: `ISOTPConn.Close` stops a transfer in progress; the `Send` of that transfer returns `canbus.ErrClosed`. To interrupt the kernel's wait for the transfer, `Close` sends SIGURG to the OS thread it closes the socket on, as Go's runtime does for preemption; a program that subscribes to SIGURG with os/signal sees these signals.
+- `socketcan`: the two changes above need a kernel whose ISO-TP poll reports a transfer in progress (`isotp_poll`: Linux 6.3 and later, and the 5.10, 5.15 and 6.1 stable series once they received it), which `DialISOTP` looks up in `/proc/kallsyms`. On other kernels, mainline 6.1 for one, `Send` and `Close` behave as in v0.10.1.
 
 ### Fixed
 
@@ -34,7 +35,7 @@ changed.
 
 ### Tests
 
-- `socketcan` (vcan and can-isotp): `TestKernelISOTPSendDeadlineWaitStall` (a WAIT flow control every 800 ms; `Send` with a 2 s deadline returns `context.DeadlineExceeded` after about 2 s, `Close` returns at once, no consecutive frame follows), `TestKernelISOTPSendCancelSlowBlocks` (blocks of one consecutive frame answered after 900 ms; cancelling ends `Send`), `TestKernelISOTPCloseDuringStall` (`Close` from four goroutines during a stalled transfer returns within 200 ms; the transfer's `Send`, a `Send` waiting behind it and a later `Send` return `ErrClosed`; a `Send` behind the transfer ends at its own deadline), `TestKernelISOTPSendSequence` (consecutive transfers of 1 to 8000 bytes), `TestKernelISOTPFinishOrder` and `TestPollOut` (no interface needed).
+- `socketcan` (vcan and can-isotp): `TestKernelISOTPSendDeadlineWaitStall` (a WAIT flow control every 800 ms; `Send` with a 2 s deadline returns `context.DeadlineExceeded` after about 2 s, `Close` returns at once, no consecutive frame follows), `TestKernelISOTPSendCancelSlowBlocks` (blocks of one consecutive frame answered after 900 ms; cancelling ends `Send`), `TestKernelISOTPCloseDuringStall` (`Close` from four goroutines during a stalled transfer returns within 200 ms; the transfer's `Send`, a `Send` waiting behind it and a later `Send` return `ErrClosed`; a `Send` behind the transfer ends at its own deadline), `TestKernelISOTPSendSequence` (consecutive transfers of 1 to 8000 bytes), `TestKernelISOTPWaitTxDone` (the `CAN_ISOTP_WAIT_TX_DONE` path of older kernels, on any kernel); `TestKernelISOTPFinishOrder`, `TestHasKernelSymbol` and `TestPollOut` (no interface needed). On a kernel without `isotp_poll` (the mainline 6.1 microVM) the three cancellation tests skip with that reason.
 
 ### Planned for v0.12.0
 

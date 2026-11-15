@@ -31,6 +31,13 @@ func recvmsg(fd uintptr, msg *syscall.Msghdr) (uintptr, syscall.Errno) {
 	return r, e
 }
 
+// rtSigprocmask is rt_sigprocmask(2) with a 64-bit kernel sigset_t, for
+// the calling (locked) OS thread; the syscall package has no wrapper.
+func rtSigprocmask(how int, set, old *uint64) syscall.Errno {
+	_, _, e := syscall.RawSyscall6(syscall.SYS_RT_SIGPROCMASK, uintptr(how), uintptr(unsafe.Pointer(set)), uintptr(unsafe.Pointer(old)), 8, 0, 0)
+	return e
+}
+
 // pollOut reports whether fd polls writable now: ppoll(2) for POLLOUT
 // without waiting (ppoll, unlike poll, exists on every Linux
 // architecture). A kernel ISO-TP socket polls writable only while it has

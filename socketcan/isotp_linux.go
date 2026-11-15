@@ -5,13 +5,16 @@
 package socketcan
 
 import (
+	"bufio"
 	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -33,6 +36,7 @@ const (
 	isotpTxPadding  = 0x004
 	isotpRxExtAddr  = 0x200
 	isotpForceTxSTm = 0x080
+	isotpWaitTxDone = 0x400
 )
 
 // maxKernelISOTPMessage is the largest Config.MaxMessageSize DialISOTP
@@ -73,6 +77,39 @@ type ISOTPConn struct {
 	sock      int
 	closeOnce sync.Once
 	closeErr  error
+
+	// waitTxDone: the kernel's poll does not report a transfer in
+	// progress, so Send uses CAN_ISOTP_WAIT_TX_DONE (see sendWaitTxDone).
+	waitTxDone bool
+}
+
+// pollTracksTx reports whether the kernel's ISO-TP sockets poll
+// writable only while no transfer is in progress. net/can/isotp.c has
+// its own poll function (isotp_poll) for that since Linux 6.3; the
+// 5.10, 5.15 and 6.1 stable series received it later. Before, the
+// sockets used datagram_poll, which reports POLLOUT during a transfer.
+// The function is looked up by name in /proc/kallsyms; a kernel whose
+// symbols cannot be read counts as one without it.
+var pollTracksTx = sync.OnceValue(func() bool {
+	f, err := os.Open("/proc/kallsyms")
+	if err != nil {
+		return false
+	}
+	defer func() { _ = f.Close() }()
+	return hasKernelSymbol(f, "isotp_poll")
+})
+
+// hasKernelSymbol reports whether the kallsyms listing r names the text
+// symbol name ("address type name [module]").
+func hasKernelSymbol(r io.Reader, name string) bool {
+	sc := bufio.NewScanner(r)
+	for sc.Scan() {
+		f := strings.Fields(sc.Text())
+		if len(f) >= 3 && f[2] == name && (f[1] == "t" || f[1] == "T") {
+			return true
+		}
+	}
+	return false
 }
 
 // DialISOTP opens a kernel ISO-TP socket on the interface with the same
@@ -83,6 +120,12 @@ type ISOTPConn struct {
 // is at most 1025 KiB, the kernel's own bound; a larger one is rejected
 // with [canbus.ErrInvalidOption].
 func DialISOTP(ifname string, cfg isotp.Config) (*ISOTPConn, error) {
+	return dialISOTP(ifname, cfg, false)
+}
+
+// dialISOTP is DialISOTP; waitTxDone selects the Send of kernels whose
+// poll does not report a transfer in progress also on others (tests).
+func dialISOTP(ifname string, cfg isotp.Config, waitTxDone bool) (*ISOTPConn, error) {
 	opErr := func(err error) error { return &canbus.OpError{Op: "open isotp", Interface: ifname, Err: err} }
 	if cfg.SendFlowWait != 0 {
 		return nil, opErr(fmt.Errorf("%w: the kernel cannot send WAIT flow controls", canbus.ErrUnsupported))
@@ -124,10 +167,16 @@ func DialISOTP(ifname string, cfg isotp.Config) (*ISOTPConn, error) {
 	}()
 	// struct can_isotp_options
 	opts := make([]byte, 12)
-	// No CAN_ISOTP_WAIT_TX_DONE: the non-blocking write returns once the
-	// first frame is sent, and Send waits for the end of the transfer
-	// through the poller (see Send).
+	// Without CAN_ISOTP_WAIT_TX_DONE the non-blocking write returns once
+	// the first frame is sent, and Send waits for the end of the
+	// transfer through the poller. That needs a kernel whose poll reports
+	// a transfer in progress (the socket exists now, so its module is
+	// loaded); with other kernels Send waits inside the write.
+	waitTxDone = waitTxDone || !pollTracksTx()
 	var flags uint32
+	if waitTxDone {
+		flags |= isotpWaitTxDone
+	}
 	if cfg.ListenOnly {
 		flags |= isotpListenMode
 	}
@@ -188,7 +237,7 @@ func DialISOTP(ifname string, cfg isotp.Config) (*ISOTPConn, error) {
 	if err != nil {
 		return nil, opErr(fmt.Errorf("dup: %w", err))
 	}
-	c := &ISOTPConn{name: ifname, maxMsg: cfg.MaxMessageSize, sock: sock,
+	c := &ISOTPConn{name: ifname, maxMsg: cfg.MaxMessageSize, sock: sock, waitTxDone: waitTxDone,
 		wsem: make(chan struct{}, 1), done: make(chan struct{})}
 	if c.maxMsg <= 0 {
 		c.maxMsg = 4095
@@ -270,6 +319,13 @@ func (c *ISOTPConn) finish(ctx context.Context, op string, err error) error {
 // calls return [canbus.ErrClosed]. When ctx ends before the write, the
 // message is not sent and the connection stays open. Close during a
 // transfer stops it, and Send returns [canbus.ErrClosed].
+//
+// This needs a kernel whose ISO-TP sockets report a transfer in progress
+// to poll (Linux 6.3 and later, and the 5.10, 5.15 and 6.1 stable series
+// once they received that change; LIMITATIONS.md). With an older kernel
+// Send waits for the transfer inside the write, which neither ctx nor
+// Close ends: ctx is checked before the write only, and Close waits for
+// the transfer.
 func (c *ISOTPConn) Send(ctx context.Context, payload []byte) error {
 	if c.closed.Load() {
 		return canbus.ErrClosed
@@ -287,6 +343,9 @@ func (c *ISOTPConn) Send(ctx context.Context, payload []byte) error {
 	defer func() { <-c.wsem }()
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	if c.waitTxDone {
+		return c.sendWaitTxDone(ctx, payload)
 	}
 	stop := watch(ctx, c.file, false)
 	defer stop()
@@ -331,6 +390,53 @@ func (c *ISOTPConn) Send(ctx context.Context, payload []byte) error {
 		return c.finish(ctx, "send", err)
 	}
 	return nil
+}
+
+// sendWaitTxDone is Send with CAN_ISOTP_WAIT_TX_DONE: the kernel waits
+// for the transfer inside sendmsg, interruptibly. Go's runtime signals
+// its threads (SIGURG, for preemption); a signal would abort the
+// transfer, and the syscall, restarted (SA_RESTART), would send the
+// whole message again. The write therefore runs on a locked OS thread
+// with all signals blocked; they are delivered when it returns.
+func (c *ISOTPConn) sendWaitTxDone(ctx context.Context, payload []byte) error {
+	backoff := 100 * time.Microsecond
+	for {
+		var werr error
+		if err := c.rc.Control(func(fd uintptr) { werr = writeSignalsBlocked(int(fd), payload) }); err != nil {
+			return c.finish(ctx, "send", err)
+		}
+		if werr != syscall.EAGAIN { // EAGAIN: the transmitter is busy
+			if werr != nil {
+				return c.finish(ctx, "send", werr)
+			}
+			return nil
+		}
+		t := time.NewTimer(backoff)
+		select {
+		case <-ctx.Done():
+			t.Stop()
+			return ctx.Err()
+		case <-t.C:
+		}
+		backoff = min(2*backoff, 10*time.Millisecond)
+	}
+}
+
+// writeSignalsBlocked writes on the current, locked OS thread with every
+// signal blocked (rt_sigprocmask), so the kernel's interruptible wait for
+// the transfer is not interrupted.
+func writeSignalsBlocked(fd int, p []byte) error {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	all := ^uint64(0)
+	var old uint64
+	const sigBlock, sigSetMask = 0, 2
+	if e := rtSigprocmask(sigBlock, &all, &old); e != 0 {
+		return e
+	}
+	_, err := syscall.Write(fd, p)
+	_ = rtSigprocmask(sigSetMask, &old, nil)
+	return err
 }
 
 // idle reports whether the kernel has no transfer in progress.

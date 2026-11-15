@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -162,6 +163,16 @@ func (p *stallPeer) ended(t *testing.T) {
 	}
 }
 
+// needPollTracksTx skips a test of Send's cancellation on a kernel whose
+// ISO-TP poll does not report a transfer in progress: there Send waits
+// inside the write, as LIMITATIONS.md says.
+func needPollTracksTx(t *testing.T, k *ISOTPConn) {
+	t.Helper()
+	if k.waitTxDone {
+		t.Skip("this kernel's ISO-TP poll does not report a transfer in progress (isotp_poll, Linux 6.3 and the stable series after it): Send cannot be cancelled here")
+	}
+}
+
 // TestKernelISOTPSendDeadlineWaitStall: a peer that answers the first
 // frame with a WAIT flow control every 800 ms, below the kernel's 1 s
 // N_Bs, keeps the kernel's transfer open for as long as it likes. Send
@@ -171,6 +182,7 @@ func TestKernelISOTPSendDeadlineWaitStall(t *testing.T) {
 	ifc := testIface(t)
 	leakcheck.Check(t)
 	k := kernelISOTP(t, ifc, isotp.Config{TxID: 0x6D0, RxID: 0x6D8})
+	needPollTracksTx(t, k)
 	p := startStallPeer(t, ifc, 0x6D0, 0x6D8, fcWait, 800*time.Millisecond)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -207,6 +219,7 @@ func TestKernelISOTPSendCancelSlowBlocks(t *testing.T) {
 	ifc := testIface(t)
 	leakcheck.Check(t)
 	k := kernelISOTP(t, ifc, isotp.Config{TxID: 0x6D1, RxID: 0x6D9})
+	needPollTracksTx(t, k)
 	p := startStallPeer(t, ifc, 0x6D1, 0x6D9, fcSlowBlock, 0)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -242,6 +255,7 @@ func TestKernelISOTPCloseDuringStall(t *testing.T) {
 	ifc := testIface(t)
 	leakcheck.Check(t)
 	k := kernelISOTP(t, ifc, isotp.Config{TxID: 0x6D2, RxID: 0x6DA})
+	needPollTracksTx(t, k)
 	p := startStallPeer(t, ifc, 0x6D2, 0x6DA, fcWait, 800*time.Millisecond)
 
 	stalled := make(chan error, 1)
@@ -345,6 +359,69 @@ func TestKernelISOTPSendSequence(t *testing.T) {
 			t.Fatalf("received %d bytes, want %d", len(b), n)
 		}
 	}
+}
+
+// TestKernelISOTPWaitTxDone: the Send of kernels whose poll does not
+// report a transfer in progress (CAN_ISOTP_WAIT_TX_DONE), on any kernel:
+// transfers, the kernel's N_Bs error, Close.
+func TestKernelISOTPWaitTxDone(t *testing.T) {
+	ifc := testIface(t)
+	startSpy(t, ifc)
+	k, err := dialISOTP(ifc, isotp.Config{TxID: 0x6D4, RxID: 0x6DC, MaxMessageSize: 8000}, true)
+	if errors.Is(err, syscall.EPROTONOSUPPORT) && os.Getenv("CANBUS_REQUIRE_ISOTP") != "1" {
+		t.Skip("kernel ISO-TP (can-isotp) is not available; CANBUS_REQUIRE_ISOTP=1 makes this a failure")
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer k.Close()
+	if !k.waitTxDone {
+		t.Fatal("waitTxDone not set")
+	}
+	u := userISOTP(t, ifc, isotp.Config{TxID: 0x6DC, RxID: 0x6D4, MaxMessageSize: 8000})
+	for _, n := range []int{1, 100, 4095, 8000} {
+		transfer(t, k, u, n)
+	}
+	// No receiver: N_Bs.
+	nobody, err := dialISOTP(ifc, isotp.Config{TxID: 0x6D5, RxID: 0x6DD}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := nobody.Send(ctx, pattern(100)); !errors.Is(err, isotp.ErrTimeout) {
+		t.Fatal("N_Bs:", err)
+	}
+	if err := nobody.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := nobody.Send(ctx, pattern(1)); !errors.Is(err, canbus.ErrClosed) {
+		t.Fatal(err)
+	}
+}
+
+// TestHasKernelSymbol: the kallsyms lookup that tells the kernels whose
+// ISO-TP poll reports a transfer in progress.
+func TestHasKernelSymbol(t *testing.T) {
+	const syms = "0000000000000000 T _stext\n" +
+		"0000000000000000 t isotp_sendmsg\t[can_isotp]\n" +
+		"0000000000000000 d isotp_poll_data\n" +
+		"bad line\n"
+	for _, tc := range []struct {
+		list string
+		want bool
+	}{
+		{syms + "0000000000000000 t isotp_poll\t[can_isotp]\n", true},
+		{syms + "ffffffff81000000 T isotp_poll\n", true},
+		{syms, false},
+		{"0000000000000000 d isotp_poll\n", false},
+		{"", false},
+	} {
+		if got := hasKernelSymbol(strings.NewReader(tc.list), "isotp_poll"); got != tc.want {
+			t.Errorf("%q: %v, want %v", tc.list, got, tc.want)
+		}
+	}
+	t.Logf("this kernel: isotp_poll %v", pollTracksTx())
 }
 
 // TestKernelISOTPFinishOrder: an error the kernel reported keeps its kind
