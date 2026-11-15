@@ -5,6 +5,45 @@ it computes the version, tags it and publishes this file's section of
 that version as the release notes. Add the section, headed exactly
 `## vX.Y.Z` and closed by a line `---`, before running it.
 
+## v0.11.0
+
+**Date:** 2026-11-15
+**Previous release:** v0.10.1
+
+### Summary
+
+Kernel ISO-TP `Send` ends at its context deadline and `Close` returns
+promptly while a peer stalls a kernel ISO-TP transfer, with WAIT flow
+controls or with slow blocks. No exported identifier is added, removed or
+changed.
+
+### Breaking
+
+- `socketcan`: **Behaviour change**: a kernel ISO-TP `Send` (`ISOTPConn`) whose context ends during a transfer closes the connection, because the kernel ends a transfer only when the socket is released; it returns the context's error, and later calls return `canbus.ErrClosed`. A caller that kept using the connection after a timed-out `Send` dials again. A `Send` whose context ends before it writes sends nothing and leaves the connection open.
+- `socketcan`: **Behaviour change**: `ISOTPConn.Close` stops a transfer in progress; the `Send` of that transfer returns `canbus.ErrClosed`. To interrupt the kernel's wait for the transfer, `Close` sends SIGURG to the OS thread it closes the socket on, as Go's runtime does for preemption; a program that subscribes to SIGURG with os/signal sees these signals.
+- `socketcan`: the two changes above need a kernel whose ISO-TP poll reports a transfer in progress (`isotp_poll`: Linux 6.3 and later, and the 5.10, 5.15 and 6.1 stable series once they received it), which `DialISOTP` looks up in `/proc/kallsyms`. On other kernels, mainline 6.1 for one, `Send` and `Close` behave as in v0.10.1.
+
+### Fixed
+
+- `socketcan`: kernel ISO-TP `Send` followed its context only before the write, and `Close` waited for the transfer to end, so a peer that kept a transfer open (a WAIT flow control every 800 ms, or blocks of one consecutive frame answered just before N_Bs) held `Send` and `Close` for as long as it liked. `Send` now writes without blocking and waits for the end of the transfer through the poller, under its context; `Close` returns within milliseconds.
+- `socketcan`: a kernel ISO-TP `Send` that waits for another `Send` ends at its own context or at `Close`.
+- `socketcan`: a kernel error (no flow control in time, overflow, …) was reported as `canbus.ErrClosed` when `Close` ran before `Send` or `Receive` returned it; it keeps its `isotp` error.
+
+### Documentation
+
+- The doc comments of `ISOTPConn.Send` and `Close`, LIMITATIONS.md, ARCHITECTURE.md, ERRORS.md, TESTING.md (rows L4 and L6 of `ISOTPConn`) and the API reference describe the new behaviour.
+
+### Tests
+
+- `socketcan` (vcan and can-isotp): `TestKernelISOTPSendDeadlineWaitStall` (a WAIT flow control every 800 ms; `Send` with a 2 s deadline returns `context.DeadlineExceeded` after about 2 s, `Close` returns at once, no consecutive frame follows), `TestKernelISOTPSendCancelSlowBlocks` (blocks of one consecutive frame answered after 900 ms; cancelling ends `Send`), `TestKernelISOTPCloseDuringStall` (`Close` from four goroutines during a stalled transfer returns within 200 ms; the transfer's `Send`, a `Send` waiting behind it and a later `Send` return `ErrClosed`; a `Send` behind the transfer ends at its own deadline), `TestKernelISOTPSendSequence` (consecutive transfers of 1 to 8000 bytes), `TestKernelISOTPWaitTxDone` (the `CAN_ISOTP_WAIT_TX_DONE` path of older kernels, on any kernel); `TestKernelISOTPFinishOrder`, `TestHasKernelSymbol` and `TestPollOut` (no interface needed). On a kernel without `isotp_poll` (the mainline 6.1 microVM) the three cancellation tests skip with that reason.
+
+### Planned for v0.12.0
+
+Additions to the API: an end of reception that stays on `isotp.Conn` (`Done`, `Err`) and a counter for the messages it drops; input bounds a caller can set; the range check of the generated `Set…Phys` methods aligned with `candb.Signal.RawFromPhysical` (a new `codegen.Version`).
+
+---
+
+
 ## v0.10.1
 
 **Date:** 2026-11-15

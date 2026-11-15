@@ -14,7 +14,7 @@ structure with `errors.As`.
 | `ErrInterfaceDown` | canbus | Interface missing or down (ENETDOWN, ENODEV); a Bus reader reports it and recovers when the interface returns |
 | `ErrBufferOverflow` | canbus | ENOBUFS beyond a send's context |
 | `*OpError` | canbus | Operation, interface and cause of a transport failure |
-| `ErrTimeout` | isotp | N_Bs (no flow control) or N_Cr (no consecutive frame); kernel ECOMM/ETIMEDOUT |
+| `ErrTimeout` | isotp | N_Bs (no flow control) or N_Cr (no consecutive frame); kernel ECOMM/ETIMEDOUT, also when `Close` runs before the error is returned |
 | `ErrOverflow` | isotp | Receiver answered OVERFLOW; kernel EMSGSIZE |
 | `ErrWaitLimit` | isotp | More WAIT flow controls than `MaxWait` |
 | `ErrSequence` | isotp | Wrong consecutive frame sequence number; kernel EILSEQ |

@@ -142,7 +142,22 @@ cancellation (a channel and a `context.AfterFunc`), and the reader of a
 carry `canbus.XLFrame`s through the same socket.
 
 `socketcan.DialISOTP` opens a kernel `CAN_ISOTP` socket (Linux ≥ 5.10) with
-the same `isotp.Config` as the userspace implementation.
+the same `isotp.Config` as the userspace implementation. `Send` writes
+without blocking (the kernel returns once the first frame is out) and
+waits through the poller for the end of the transfer: the kernel clears
+POLLOUT while a transfer is in progress (`isotp_poll`). It then reads the
+transfer's error with `SO_ERROR`. The kernel aborts a transfer only when
+the socket is released, and `isotp_release` waits for the transfer
+interruptibly. `DialISOTP` therefore keeps a second descriptor of the
+socket: closing the `os.File` ends the calls in the poller without
+releasing the socket, and `Close` then closes the second descriptor on a
+locked OS thread, sending SIGURG to that thread every 20 ms (the first
+after 5 ms) until the close returns. A `Send` whose context ends during a
+transfer calls `Close`. Kernels whose ISO-TP poll does not report a
+transfer in progress (no `isotp_poll` in `/proc/kallsyms`, such as
+mainline 6.1) get `CAN_ISOTP_WAIT_TX_DONE` instead: `Send` writes on a
+locked OS thread with all signals blocked, and the kernel returns from the
+write when the transfer is done (LIMITATIONS.md).
 
 `socketcan/link` reads and changes interface configuration through
 rtnetlink: list CAN interfaces, state, bit timing, FD data bit timing,
