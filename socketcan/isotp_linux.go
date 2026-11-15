@@ -90,14 +90,18 @@ type ISOTPConn struct {
 // sockets used datagram_poll, which reports POLLOUT during a transfer.
 // The function is looked up by name in /proc/kallsyms; a kernel whose
 // symbols cannot be read counts as one without it.
-var pollTracksTx = sync.OnceValue(func() bool {
-	f, err := os.Open("/proc/kallsyms")
+var pollTracksTx = sync.OnceValue(func() bool { return kernelSymbol("/proc/kallsyms", "isotp_poll") })
+
+// kernelSymbol reports whether the kallsyms file at path names the text
+// symbol name; false when the file cannot be read.
+func kernelSymbol(path, name string) bool {
+	f, err := os.Open(path)
 	if err != nil {
 		return false
 	}
 	defer func() { _ = f.Close() }()
-	return hasKernelSymbol(f, "isotp_poll")
-})
+	return hasKernelSymbol(f, name)
+}
 
 // hasKernelSymbol reports whether the kallsyms listing r names the text
 // symbol name ("address type name [module]").
@@ -333,6 +337,9 @@ func (c *ISOTPConn) Send(ctx context.Context, payload []byte) error {
 	if len(payload) == 0 || len(payload) > c.maxMsg {
 		return fmt.Errorf("%w: %d bytes", isotp.ErrTooLarge, len(payload))
 	}
+	if err := ctx.Err(); err != nil {
+		return err // nothing is sent with a context that has ended
+	}
 	select {
 	case c.wsem <- struct{}{}:
 	case <-ctx.Done():
@@ -341,12 +348,11 @@ func (c *ISOTPConn) Send(ctx context.Context, payload []byte) error {
 		return canbus.ErrClosed
 	}
 	defer func() { <-c.wsem }()
-	if err := ctx.Err(); err != nil {
-		return err
-	}
 	if c.waitTxDone {
 		return c.sendWaitTxDone(ctx, payload)
 	}
+	// The deadline ends the write below without sending when ctx has
+	// ended meanwhile.
 	stop := watch(ctx, c.file, false)
 	defer stop()
 	// The kernel refuses the write (EAGAIN) while its transmitter is
@@ -356,32 +362,24 @@ func (c *ISOTPConn) Send(ctx context.Context, payload []byte) error {
 		_, werr = syscall.Write(int(fd), payload)
 		return werr != syscall.EAGAIN
 	})
-	if err == nil {
-		err = werr
-	}
-	if err != nil {
-		return c.finish(ctx, "send", err) // nothing was sent
-	}
-	// The kernel clears POLLOUT while a transfer is in progress
-	// (isotp_poll) and wakes the poller when it ends.
-	err = c.rc.Write(func(fd uintptr) bool { return pollOut(fd) })
-	if errors.Is(err, os.ErrDeadlineExceeded) {
-		if !c.idle() {
+	if err == nil && werr == nil {
+		// The kernel clears POLLOUT while a transfer is in progress
+		// (isotp_poll) and wakes the poller when it ends.
+		err = c.rc.Write(func(fd uintptr) bool { return pollOut(fd) })
+		if errors.Is(err, os.ErrDeadlineExceeded) && !c.idle() {
 			_ = c.Close() // the only way to end the kernel's transfer
-			return c.finish(ctx, "send", err)
+		} else {
+			// The transfer ended (as ctx did, perhaps), or Close ran.
+			// Its error, from the kernel: sock_error, as
+			// CAN_ISOTP_WAIT_TX_DONE reports it.
+			var soErr int
+			err = c.rc.Control(func(fd uintptr) {
+				soErr, werr = syscall.GetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_ERROR)
+			})
+			if werr == nil && soErr > 0 {
+				werr = syscall.Errno(soErr)
+			}
 		}
-		err = nil // the transfer ended as ctx did
-	}
-	// The transfer's error, from the kernel (sock_error, as
-	// CAN_ISOTP_WAIT_TX_DONE reports it).
-	var soErr int
-	if err == nil {
-		err = c.rc.Control(func(fd uintptr) {
-			soErr, werr = syscall.GetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_ERROR)
-		})
-	}
-	if err == nil && werr == nil && soErr > 0 {
-		werr = syscall.Errno(soErr)
 	}
 	if err == nil {
 		err = werr
@@ -399,27 +397,17 @@ func (c *ISOTPConn) Send(ctx context.Context, payload []byte) error {
 // whole message again. The write therefore runs on a locked OS thread
 // with all signals blocked; they are delivered when it returns.
 func (c *ISOTPConn) sendWaitTxDone(ctx context.Context, payload []byte) error {
-	backoff := 100 * time.Microsecond
-	for {
-		var werr error
-		if err := c.rc.Control(func(fd uintptr) { werr = writeSignalsBlocked(int(fd), payload) }); err != nil {
-			return c.finish(ctx, "send", err)
-		}
-		if werr != syscall.EAGAIN { // EAGAIN: the transmitter is busy
-			if werr != nil {
-				return c.finish(ctx, "send", werr)
-			}
-			return nil
-		}
-		t := time.NewTimer(backoff)
-		select {
-		case <-ctx.Done():
-			t.Stop()
-			return ctx.Err()
-		case <-t.C:
-		}
-		backoff = min(2*backoff, 10*time.Millisecond)
+	// One transfer at a time (wsem), each finished when its write
+	// returns: the kernel is idle here, and does not answer EAGAIN.
+	var werr error
+	err := c.rc.Control(func(fd uintptr) { werr = writeSignalsBlocked(int(fd), payload) })
+	if err == nil {
+		err = werr
 	}
+	if err != nil {
+		return c.finish(ctx, "send", err)
+	}
+	return nil
 }
 
 // writeSignalsBlocked writes on the current, locked OS thread with every

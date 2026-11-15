@@ -421,6 +421,12 @@ func TestHasKernelSymbol(t *testing.T) {
 			t.Errorf("%q: %v, want %v", tc.list, got, tc.want)
 		}
 	}
+	if kernelSymbol("/nonexistent/kallsyms", "isotp_poll") {
+		t.Fatal("a file that cannot be read")
+	}
+	if _, err := dupCloexec(-1); !errors.Is(err, syscall.EBADF) {
+		t.Fatalf("dup of no descriptor: %v", err)
+	}
 	t.Logf("this kernel: isotp_poll %v", pollTracksTx())
 }
 
