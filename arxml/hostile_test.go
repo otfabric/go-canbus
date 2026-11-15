@@ -103,10 +103,8 @@ func TestHostileXML(t *testing.T) {
 				return
 			}
 			for _, m := range db.Messages {
-				if m.Length <= 64 {
-					if _, err := m.Decode(make([]byte, 64)); err != nil {
-						t.Fatalf("%s: %v", m.Name, err)
-					}
+				if _, err := m.Decode(make([]byte, 64)); err != nil {
+					t.Fatalf("%s: %v", m.Name, err)
 				}
 			}
 		})

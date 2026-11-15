@@ -5,6 +5,7 @@ package link
 import (
 	"errors"
 	"math"
+	"reflect"
 	"strconv"
 	"strings"
 	"syscall"
@@ -222,11 +223,39 @@ func FuzzNetlinkStream(f *testing.F) {
 	})
 }
 
+// FuzzParseLink: whatever the bytes, an interface that parseLink accepts
+// has an index a real interface can have and a name taken from the input
+// without its terminator, parsing is repeatable, and the messages that
+// parseMessages returns lie within the buffer, one after the other.
 func FuzzParseLink(f *testing.F) {
 	f.Add(fakeLink())
 	f.Fuzz(func(t *testing.T, b []byte) {
-		parseLink(b)
-		_, _ = parseMessages(b)
+		it, ok := parseLink(b)
+		if ok {
+			if it.Index < 0 || int64(it.Index) > math.MaxInt32 {
+				t.Fatalf("index %d", it.Index)
+			}
+			if len(it.Name) > len(b) || strings.IndexByte(it.Name, 0) >= 0 {
+				t.Fatalf("name %q", it.Name)
+			}
+		} else if !reflect.DeepEqual(it, Interface{}) {
+			t.Fatalf("fields of an interface that is not reported: %+v", it)
+		}
+		if again, ok2 := parseLink(b); ok2 != ok || !reflect.DeepEqual(again, it) {
+			t.Fatalf("parsed twice: %+v (%v), then %+v (%v)", it, ok, again, ok2)
+		}
+		msgs, err := parseMessages(b)
+		used := 0
+		for i, m := range msgs {
+			// Each message starts at a multiple of 4 after the one before.
+			used = align4(used) + nlmsgHdrLen + len(m.body)
+			if used > len(b) {
+				t.Fatalf("message %d ends at byte %d of %d", i, used, len(b))
+			}
+		}
+		if err == nil && len(msgs) == 0 && len(b) >= nlmsgHdrLen {
+			t.Fatalf("no message and no error from %d bytes", len(b))
+		}
 	})
 }
 

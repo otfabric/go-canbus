@@ -11,6 +11,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/otfabric/go-canbus"
@@ -245,12 +246,18 @@ func TestCloseAndPeerGone(t *testing.T) {
 	}
 }
 
+// TestCloseUnblocksReceive runs in a testing/synctest bubble (a Conn on a
+// net.Pipe blocks on channels only): Close comes when the Receive is known
+// to wait (synctest.Wait), and a goroutine left behind fails the test.
 func TestCloseUnblocksReceive(t *testing.T) {
-	leakcheck.Check(t)
+	synctest.Test(t, testCloseUnblocksReceive)
+}
+
+func testCloseUnblocksReceive(t *testing.T) {
 	c, p := newPeer(t, Config{})
 	errc := make(chan error, 1)
 	go func() { errc <- c.Receive(context.Background(), &canbus.Frame{}) }()
-	time.Sleep(20 * time.Millisecond)
+	synctest.Wait() // Receive waits for a frame
 	go func() { _, _ = io.Copy(io.Discard, p.conn) }()
 	if err := c.Close(); err != nil {
 		t.Fatal(err)

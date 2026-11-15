@@ -39,34 +39,58 @@ func (t token) String() string {
 	return fmt.Sprintf("%q", t.text)
 }
 
-// lex splits DBC source into tokens. Identifiers are C identifiers;
+// lexer splits DBC source into tokens, one at a time, so the parser never
+// holds more than the token it looks at. Identifiers are C identifiers;
 // numbers are unsigned decimal integers or floats with an optional
 // exponent, or 0x hexadecimal (signs are separate tokens); strings are
 // double quoted with backslash escapes and may span lines; '//' starts a
 // comment to the end of the line.
-func lex(src string) ([]token, error) {
-	var out []token
-	line, lineStart := 1, 0
-	i := 0
-	for i < len(src) {
-		c := src[i]
+type lexer struct {
+	src       string
+	i         int // offset of the next byte
+	line      int // line of the next byte, from 1
+	lineStart int // offset of the first byte of that line
+}
+
+func newLexer(src string) *lexer { return &lexer{src: src, line: 1} }
+
+// check lexes the whole source and returns its first error. The parser
+// runs only on source that passed, so its own lexer cannot fail.
+func check(src string) error {
+	l := newLexer(src)
+	for {
+		t, err := l.next(false)
+		if err != nil || t.kind == tEOF {
+			return err
+		}
+	}
+}
+
+// next returns the next token; at the end of the source the end-of-file
+// token, again on every further call. With text false the text of a string
+// token is not built.
+func (l *lexer) next(text bool) (token, error) {
+	src := l.src
+	for l.i < len(src) {
+		c := src[l.i]
 		switch {
 		case c == '\n':
-			line++
-			i++
-			lineStart = i
+			l.line++
+			l.i++
+			l.lineStart = l.i
 			continue
 		case c == ' ' || c == '\t' || c == '\r' || c == '\f' || c == '\v':
-			i++
+			l.i++
 			continue
-		case c == '/' && i+1 < len(src) && src[i+1] == '/':
-			for i < len(src) && src[i] != '\n' {
-				i++
+		case c == '/' && l.i+1 < len(src) && src[l.i+1] == '/':
+			for l.i < len(src) && src[l.i] != '\n' {
+				l.i++
 			}
 			continue
 		}
+		i := l.i
 		start := i
-		tok := token{line: line, col: i - lineStart}
+		tok := token{line: l.line, col: i - l.lineStart}
 		switch {
 		case isIdentStart(c):
 			for i < len(src) && isIdentPart(src[i]) {
@@ -112,7 +136,9 @@ func lex(src string) ([]token, error) {
 			for i < len(src) {
 				ch := src[i]
 				if ch == '\\' && i+1 < len(src) {
-					b.WriteByte(src[i+1])
+					if text {
+						b.WriteByte(src[i+1])
+					}
 					i += 2
 					continue
 				}
@@ -122,26 +148,28 @@ func lex(src string) ([]token, error) {
 					break
 				}
 				if ch == '\n' {
-					line++
-					lineStart = i + 1
+					l.line++
+					l.lineStart = i + 1
 				}
-				b.WriteByte(ch)
+				if text {
+					b.WriteByte(ch)
+				}
 				i++
 			}
 			if !closed {
-				return nil, fmt.Errorf("line %d: unterminated string", tok.line)
+				return token{}, fmt.Errorf("line %d: unterminated string", tok.line)
 			}
 			tok.kind, tok.text = tString, b.String()
 		case strings.IndexByte(":;,|@()[]+-{}", c) >= 0:
 			i++
 			tok.kind, tok.text = tPunct, src[start:i]
 		default:
-			return nil, fmt.Errorf("line %d: unexpected character %q", line, c)
+			return token{}, fmt.Errorf("line %d: unexpected character %q", l.line, c)
 		}
-		out = append(out, tok)
+		l.i = i
+		return tok, nil
 	}
-	out = append(out, token{kind: tEOF, line: line})
-	return out, nil
+	return token{kind: tEOF, line: l.line}, nil
 }
 
 func isIdentStart(c byte) bool {

@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/otfabric/go-canbus"
@@ -210,8 +211,14 @@ func TestDelayPreservesOrder(t *testing.T) {
 	}
 }
 
+// TestCloseUnblocks runs in a testing/synctest bubble: Close comes when
+// the Receive is known to wait (synctest.Wait), and a goroutine left
+// behind fails the test.
 func TestCloseUnblocks(t *testing.T) {
-	leakcheck.Check(t)
+	synctest.Test(t, testCloseUnblocks)
+}
+
+func testCloseUnblocks(t *testing.T) {
 	b := New(Config{})
 	p, _ := b.Open()
 	errc := make(chan error, 1)
@@ -219,7 +226,7 @@ func TestCloseUnblocks(t *testing.T) {
 		var f canbus.Frame
 		errc <- p.Receive(context.Background(), &f)
 	}()
-	time.Sleep(10 * time.Millisecond)
+	synctest.Wait() // Receive waits for a frame
 	b.Close()
 	if err := <-errc; !errors.Is(err, canbus.ErrClosed) {
 		t.Fatal(err)

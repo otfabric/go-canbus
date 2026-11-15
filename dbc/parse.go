@@ -17,6 +17,13 @@
 // nothing is dropped silently. There is no public specification of the
 // format: behaviour follows the de facto Vector conventions and is
 // cross-checked against cantools and canmatrix (see INTEROPERABILITY.md).
+//
+// Bounds on untrusted input: source of more than 64 MiB is not parsed and
+// a database holds at most 262144 (2^18) signals; beyond either, [Parse]
+// returns a *[ParseError] (at the signal bound with what was read so far).
+// The source is read whole and tokens are produced one at a time, so
+// memory grows with the source and with the database built from it, not
+// with the number of tokens.
 package dbc
 
 import (
@@ -58,40 +65,67 @@ func (e *ParseError) Error() string {
 	return "dbc: " + first.String()
 }
 
+// Bounds on untrusted input (see the package documentation).
+const (
+	maxInputSize = 64 << 20 // bytes of DBC source
+	maxSignals   = 1 << 18  // signals in the database
+)
+
 // ParseFile parses a DBC file. See [Parse].
 func ParseFile(path string) (*candb.Database, []candb.Diagnostic, error) {
-	b, err := os.ReadFile(filepath.Clean(path))
+	f, err := os.Open(filepath.Clean(path))
 	if err != nil {
 		return nil, nil, err
 	}
-	return ParseBytes(b)
+	defer func() { _ = f.Close() }()
+	return Parse(f)
 }
 
 // Parse parses DBC source. It returns the database, every diagnostic
 // (info, warnings and errors, sorted by line) and, when any diagnostic is
 // an error, a *[ParseError]: the database then describes only what could
-// be parsed and validated.
+// be parsed and validated. Source beyond the bounds of the package
+// documentation is a *[ParseError] too.
 func Parse(r io.Reader) (*candb.Database, []candb.Diagnostic, error) {
-	b, err := io.ReadAll(r)
+	return parse(r, maxInputSize)
+}
+
+// parse reads at most limit bytes of source, and one more to tell source
+// of exactly limit bytes from longer source.
+func parse(r io.Reader, limit int64) (*candb.Database, []candb.Diagnostic, error) {
+	b, err := io.ReadAll(io.LimitReader(r, limit+1))
 	if err != nil {
 		return nil, nil, err
 	}
-	return ParseBytes(b)
+	return parseBytes(b, limit)
 }
 
 // ParseBytes parses DBC source held in memory. See [Parse].
 func ParseBytes(src []byte) (*candb.Database, []candb.Diagnostic, error) {
+	return parseBytes(src, maxInputSize)
+}
+
+// refused returns the result of source that is not parsed.
+func refused(format string, args ...any) (*candb.Database, []candb.Diagnostic, error) {
+	d := []candb.Diagnostic{{Severity: candb.Error, Message: fmt.Sprintf(format, args...)}}
+	return &candb.Database{}, d, &ParseError{Diagnostics: d}
+}
+
+func parseBytes(src []byte, limit int64) (*candb.Database, []candb.Diagnostic, error) {
+	if int64(len(src)) > limit {
+		return refused("source larger than %d bytes", limit)
+	}
 	s := string(src)
 	s = strings.TrimPrefix(s, "\ufeff")
 	s = strings.ReplaceAll(s, "\r\n", "\n") // files written on Windows
-	toks, err := lex(s)
-	if err != nil {
-		d := []candb.Diagnostic{{Severity: candb.Error, Message: err.Error()}}
-		return &candb.Database{}, d, &ParseError{Diagnostics: d}
+	if err := check(s); err != nil {
+		return refused("%s", err.Error())
 	}
-	p := &parser{toks: toks, db: &candb.Database{}, msgs: map[msgKey]*candb.Message{},
+	p := &parser{lx: newLexer(s), db: &candb.Database{}, msgs: map[msgKey]*candb.Message{},
 		valTypes: map[sigKey]candb.ValueType{}, muxVals: map[sigKey][]muxVal{}, muxInd: map[sigKey]string{},
 		sigs: map[sigKey]*candb.Signal{}, nodes: map[string]*candb.Node{}, senders: map[msgKey]map[string]bool{}}
+	p.advance() // the first token
+	p.pos = 0
 	p.run()
 	p.finish()
 	sortDiagnostics(p.diags)
@@ -115,10 +149,12 @@ type muxVal struct {
 }
 
 type parser struct {
-	toks  []token
-	pos   int
-	db    *candb.Database
-	diags []candb.Diagnostic
+	lx      *lexer
+	tok     token // the token the parser looks at
+	pos     int   // tokens consumed so far
+	signals int   // signals added to messages so far
+	db      *candb.Database
+	diags   []candb.Diagnostic
 
 	msgs     map[msgKey]*candb.Message
 	skipMsg  map[msgKey]bool
@@ -163,7 +199,26 @@ func (p *parser) diag(sev candb.Severity, line int, obj, format string, args ...
 	p.diags = append(p.diags, candb.Diagnostic{Severity: sev, Line: line, Object: obj, Message: fmt.Sprintf(format, args...)})
 }
 
-func (p *parser) peek() token { return p.toks[p.pos] }
+func (p *parser) peek() token { return p.tok }
+
+// advance moves to the next token; at the end of the source it stays
+// there. The source passed check, so the lexer does not fail.
+func (p *parser) advance() {
+	if p.lx == nil {
+		return
+	}
+	p.pos++
+	p.tok, _ = p.lx.next(true)
+	if p.tok.kind == tEOF {
+		p.lx = nil
+	}
+}
+
+// stop ends the parse at the token the parser looks at: the rest of the
+// source is not read.
+func (p *parser) stop() {
+	p.tok, p.lx = token{kind: tEOF, line: p.tok.line}, nil
+}
 
 // atStatement reports a keyword at the start of a line: where a
 // statement starts.
@@ -173,9 +228,9 @@ func (p *parser) atStatement() bool {
 }
 
 func (p *parser) next() token {
-	t := p.toks[p.pos]
+	t := p.tok
 	if t.kind != tEOF {
-		p.pos++
+		p.advance()
 	}
 	return t
 }
@@ -194,7 +249,7 @@ func (p *parser) expectPunct(s string) token {
 
 func (p *parser) acceptPunct(s string) bool {
 	if t := p.peek(); t.kind == tPunct && t.text == s {
-		p.pos++
+		p.advance()
 		return true
 	}
 	return false
@@ -377,10 +432,10 @@ func (p *parser) run() {
 					p.diag(candb.Error, e.line, "", "%s", e.msg)
 					// Recover at the next keyword that starts a statement.
 					if p.pos == start {
-						p.pos++
+						p.advance()
 					}
 					for p.peek().kind != tEOF && !p.atStatement() {
-						p.pos++
+						p.advance()
 					}
 				}
 			}()
@@ -402,7 +457,7 @@ func (p *parser) statement() {
 		// The new-symbols list: indented names up to the next line that
 		// starts at column 0.
 		for p.peek().kind == tIdent && p.peek().col > 0 {
-			p.pos++
+			p.advance()
 		}
 	case "BS_":
 		p.expectPunct(":")
@@ -604,6 +659,12 @@ func (p *parser) message(t token) {
 				p.diag(candb.Error, st.line, "signal "+name+"."+s.Name, "duplicate signal")
 				continue
 			}
+			if p.signals >= maxSignals {
+				p.diag(candb.Error, st.line, "", "more than %d signals in the database: the rest of the file is not read", maxSignals)
+				p.stop()
+				break
+			}
+			p.signals++
 			local[s.Name] = s
 			m.Signals = append(m.Signals, s)
 		}
@@ -642,7 +703,7 @@ func (p *parser) signalRecover(t token, id msgKey) (s *candb.Signal) {
 			}
 			p.diag(candb.Error, e.line, "", "%s", e.msg)
 			for p.peek().kind != tEOF && !p.atStatement() && (p.peek().kind != tIdent || p.peek().text != "SG_") {
-				p.pos++
+				p.advance()
 			}
 			s = nil
 		}

@@ -3,10 +3,17 @@
 What the CAN ecosystem (go-canbus, [canbusctl](https://github.com/otfabric/canbusctl),
 [canbus-interop](https://github.com/otfabric/canbus-interop)) does not do
 yet, what is not verified, and the follow-ups worth doing, as of go-canbus
-v0.9.1, canbusctl v0.11.1 and canbus-interop v0.7.0 (contract 1.4),
-reviewed 2026-11-13. Since v0.7.0 the work has been hardening (v0.8.0:
-SAST review, Go 1.26), recorded vehicle traffic (v0.9.0) and dependency
-and interop pin updates (v0.9.1); none of the gaps below is in progress.
+v0.10.1, canbusctl v0.12.0 and canbus-interop v0.7.0 (contract 1.4),
+reviewed 2026-11-15. Since v0.7.0 the work has been hardening (v0.8.0:
+SAST review, Go 1.26; v0.10.0: input bounds and output encoding; v0.10.1:
+the policy 1.6 review, with fixed input bounds and the lifecycle contract
+tests), recorded vehicle traffic (v0.9.0) and dependency and interop pin
+updates (v0.9.1). Planned for v0.11.0, as additions to the API: an end of
+reception that stays (`Done`/`Err` on `isotp.Conn`), a counter for
+messages an `isotp.Conn` drops, input bounds a caller can set, and the
+range check of the generated `Set…Phys` methods aligned with
+`candb.Signal.RawFromPhysical` (a new `codegen.Version`). None of the
+other gaps below is in progress.
 
 [LIMITATIONS.md](LIMITATIONS.md) lists every limitation in detail; this
 page groups them into decisions. Effort: **S** about a day, **M** a few
@@ -97,7 +104,7 @@ TRC/slcan ESI readings.
   release run meant for the CAN XL work, which became v0.7.0; its notes say
   so. A v0.6.1 tag on the same commit was removed on 2026-11-13.
 - [docs/WEBSITE-INTEGRATION.md](docs/WEBSITE-INTEGRATION.md), the proposal
-  for otfabric.io, is reviewed as of v0.9.1. The site has had the CAN
+  for otfabric.io, is reviewed as of v0.10.1. The site has had the CAN
   projects since 2026-10-29 (otfabric/website #39); its texts are the
   site's own, not copies of the proposal.
 - canbusctl gaps: [canbusctl ROADMAP.md](https://github.com/otfabric/canbusctl/blob/main/ROADMAP.md).

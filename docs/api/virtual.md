@@ -21,7 +21,11 @@ The bus models frame delivery only. There is no arbitration, bit timing, acknowl
 ```go
 type Bus struct {
 
-	// orders fault decisions with queueing
+	// sendSem is held by the one frame being queued: it orders the fault
+	// decisions with the queueing. A channel rather than a mutex, so that
+	// a Send waiting for it follows its context and Close.
+
+	// guards rng and faults; never held while waiting
 
 }
 ```
@@ -42,7 +46,7 @@ New returns a running bus.
 func (b *Bus) Close() error
 ```
 
-Close closes every port and stops the bus.
+Close closes every port and stops the bus: blocked Send, Receive and Inject calls return [canbus.ErrClosed](https://pkg.go.dev/github.com/otfabric/go-canbus#ErrClosed). Close is safe to call more than once and from multiple goroutines; a call made while another one runs waits for it.
 
 #### func (Bus) FaultStats
 
@@ -191,7 +195,7 @@ Capabilities describes the port.
 func (p *Port) Close() error
 ```
 
-Close detaches the port from the bus; blocked calls return [canbus.ErrClosed](https://pkg.go.dev/github.com/otfabric/go-canbus#ErrClosed).
+Close detaches the port from the bus; its blocked calls return [canbus.ErrClosed](https://pkg.go.dev/github.com/otfabric/go-canbus#ErrClosed), a Send that waits for room on the bus or for another Send included. Close is safe to call more than once and from multiple goroutines.
 
 #### func (Port) Drops
 
@@ -239,7 +243,7 @@ ReceiveXL waits for the next CAN XL frame on a port opened [WithXL](#func-withxl
 func (p *Port) Send(ctx context.Context, f *canbus.Frame) error
 ```
 
-Send queues a frame for delivery. A CAN FD frame on a port opened without [WithFD](#func-withfd) fails with [canbus.ErrUnsupported](https://pkg.go.dev/github.com/otfabric/go-canbus#ErrUnsupported).
+Send queues a frame for delivery. A CAN FD frame on a port opened without [WithFD](#func-withfd) fails with [canbus.ErrUnsupported](https://pkg.go.dev/github.com/otfabric/go-canbus#ErrUnsupported). Frames are queued one at a time: a Send that waits for room on the bus, or for another Send that does, ends with its context, with Close of its port and with Close of the bus.
 
 #### func (Port) SendXL
 

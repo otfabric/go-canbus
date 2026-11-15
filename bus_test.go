@@ -11,6 +11,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/otfabric/go-canbus"
@@ -163,8 +164,14 @@ func TestBusBlockingSubscriberLosesNothing(t *testing.T) {
 	}
 }
 
+// TestBusCloseSemantics runs in a testing/synctest bubble: Close comes
+// when the Receive is known to wait (synctest.Wait), and a goroutine left
+// behind fails the test.
 func TestBusCloseSemantics(t *testing.T) {
-	leakcheck.Check(t)
+	synctest.Test(t, testBusCloseSemantics)
+}
+
+func testBusCloseSemantics(t *testing.T) {
 	ctx := ctxT(t)
 	vb := virtual.New(virtual.Config{})
 	defer vb.Close()
@@ -176,7 +183,7 @@ func TestBusCloseSemantics(t *testing.T) {
 		_, err := s.Receive(ctx)
 		errc <- err
 	}()
-	time.Sleep(10 * time.Millisecond)
+	synctest.Wait() // Receive waits for a frame
 	if err := b.Close(); err != nil {
 		t.Fatal(err)
 	}

@@ -13,6 +13,9 @@
 // timeouts; padding; classical CAN and CAN FD frames (TX_DL 8 to 64,
 // single frame escape) and the first frame escape for messages larger
 // than 4095 bytes. Message sizes are bounded by Config.MaxMessageSize.
+// A single frame in a CAN FD frame of more than 8 bytes is read in the
+// escape form only; the short form there is ignored, as the Linux kernel
+// ignores it.
 //
 // The Linux kernel's ISO-TP sockets offer the same with the same Config:
 // see socketcan.DialISOTP. Both implement [Endpoint].
@@ -27,6 +30,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"runtime/debug"
 	"time"
 
 	"github.com/otfabric/go-canbus"
@@ -155,6 +159,24 @@ type Config struct {
 
 // Metrics observes an ISO-TP connection. Methods must be safe for
 // concurrent use and must not block. Embed [NopMetrics].
+//
+// Where they are called: OnMessageReceived and OnError for "receive" on
+// the goroutine of the connection that receives its frames, so a callback
+// that waits holds up reception and the flow controls of a transfer in
+// progress; OnMessageSent and OnError for "send" on the goroutine that
+// called Send, after the transfer.
+//
+// A callback on the receiving goroutine may send a message that fits a
+// single frame. It must not send a longer one (the flow control it waits
+// for is read by the goroutine the callback runs on), call Receive
+// without a deadline, or call [Conn.Close]: Close waits for that
+// goroutine. A callback that closes the connection starts it with
+// "go conn.Close()"; that Close completes once the callback has returned.
+//
+// A callback that does not return normally is stopped where the
+// connection calls it and logged at error level, with the value it ended
+// with and the stack, to Config.Logger; the connection goes on as if the
+// callback had returned.
 type Metrics interface {
 	OnMessageSent(size int, d time.Duration)
 	OnMessageReceived(size int, d time.Duration)
@@ -172,6 +194,45 @@ func (NopMetrics) OnMessageReceived(int, time.Duration) {}
 
 // OnError does nothing.
 func (NopMetrics) OnError(string, error) {}
+
+// guardMetrics returns m with every callback guarded: one that does not
+// return normally is logged to log at error level with its stack, and the
+// caller goes on as if it had returned. The connection holds no lock where it calls its
+// metrics. [NopMetrics] is returned as it is.
+func guardMetrics(m Metrics, log *slog.Logger) Metrics {
+	if _, nop := m.(NopMetrics); nop {
+		return m
+	}
+	return guardedMetrics{m: m, log: log}
+}
+
+type guardedMetrics struct {
+	m   Metrics
+	log *slog.Logger
+}
+
+// recovered is deferred around a callback: when the callback does not
+// return normally it logs that and lets the caller go on.
+func (g guardedMetrics) recovered(callback string) {
+	if r := recover(); r != nil {
+		g.log.Error("isotp: callback did not return normally", "callback", callback, "value", r, "stack", string(debug.Stack()))
+	}
+}
+
+func (g guardedMetrics) OnMessageSent(size int, d time.Duration) {
+	defer g.recovered("Metrics.OnMessageSent")
+	g.m.OnMessageSent(size, d)
+}
+
+func (g guardedMetrics) OnMessageReceived(size int, d time.Duration) {
+	defer g.recovered("Metrics.OnMessageReceived")
+	g.m.OnMessageReceived(size, d)
+}
+
+func (g guardedMetrics) OnError(op string, err error) {
+	defer g.recovered("Metrics.OnError")
+	g.m.OnError(op, err)
+}
 
 // withDefaults validates the configuration and fills defaults.
 func (c Config) withDefaults() (Config, error) {

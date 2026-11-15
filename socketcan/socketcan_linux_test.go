@@ -436,6 +436,11 @@ func TestOpenErrors(t *testing.T) {
 	}
 }
 
+// BenchmarkSendReceive sends and receives a frame on two raw sockets with
+// a context that cannot be cancelled (context.Background): that path does
+// not allocate. BenchmarkSendReceiveCancellable and BenchmarkBusSendReceive
+// measure the paths with a context that can be cancelled, which register
+// the cancellation for every call.
 func BenchmarkSendReceive(b *testing.B) {
 	ifc := testIface(b)
 	base := uniqueID(b)
@@ -451,6 +456,65 @@ func BenchmarkSendReceive(b *testing.B) {
 			b.Fatal(err)
 		}
 		if err := rx.Receive(ctx, &g); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// BenchmarkSendReceiveCancellable is BenchmarkSendReceive with a context
+// that can be cancelled: each Send and Receive then watches the context
+// (a channel and a context.AfterFunc), which allocates.
+func BenchmarkSendReceiveCancellable(b *testing.B) {
+	ifc := testIface(b)
+	base := uniqueID(b)
+	tx := open(b, ifc)
+	rx := open(b, ifc, onlyID(base, true), WithReceiveBuffer(1<<20))
+	f, _ := canbus.NewExtended(base, []byte{1, 2, 3, 4, 5, 6, 7, 8})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var g canbus.Frame
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if err := tx.Send(ctx, &f); err != nil {
+			b.Fatal(err)
+		}
+		if err := rx.Receive(ctx, &g); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// BenchmarkBusSendReceive sends a frame through a canbus.Bus on a raw
+// socket and receives it from a subscription of a Bus on another: the
+// path of an application that shares a socket. The reader of a Bus
+// receives with a context that can be cancelled.
+func BenchmarkBusSendReceive(b *testing.B) {
+	ifc := testIface(b)
+	base := uniqueID(b)
+	tx, err := canbus.NewBus(open(b, ifc))
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer tx.Close()
+	rx, err := canbus.NewBus(open(b, ifc, onlyID(base, true), WithReceiveBuffer(1<<20)))
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer rx.Close()
+	sub, err := rx.Subscribe()
+	if err != nil {
+		b.Fatal(err)
+	}
+	f, _ := canbus.NewExtended(base, []byte{1, 2, 3, 4, 5, 6, 7, 8})
+	ctx := context.Background()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if err := tx.Send(ctx, &f); err != nil {
+			b.Fatal(err)
+		}
+		if _, err := sub.Receive(ctx); err != nil {
 			b.Fatal(err)
 		}
 	}

@@ -54,10 +54,12 @@ type Conn struct {
 	// status ends the wait or the transfer ends. Flow control frames
 	// that arrive while it is clear are stray and dropped.
 	awaitFC atomic.Bool
-	mu      sync.Mutex // serializes Send
-	done    chan struct{}
-	wg      sync.WaitGroup
-	once    sync.Once
+	// sem is held by the one Send in progress; a channel rather than a
+	// mutex so that a Send waiting for it follows its context and Close.
+	sem  chan struct{}
+	done chan struct{}
+	wg   sync.WaitGroup
+	once sync.Once
 
 	// Reception state, owned by the reader goroutine.
 	rxBuf   []byte
@@ -75,6 +77,7 @@ func Dial(bus *canbus.Bus, cfg Config) (*Conn, error) {
 	if err != nil {
 		return nil, err
 	}
+	cfg.Metrics = guardMetrics(cfg.Metrics, cfg.Logger)
 	f := canbus.ExactStandard(cfg.RxID)
 	if cfg.ExtendedIDs {
 		f = canbus.ExactExtended(cfg.RxID)
@@ -86,7 +89,7 @@ func Dial(bus *canbus.Bus, cfg Config) (*Conn, error) {
 		return nil, err
 	}
 	c := &Conn{cfg: cfg, bus: bus, sub: sub, rx: make(chan result, cfg.QueueSize),
-		fc: make(chan flowControl, 64), done: make(chan struct{})}
+		fc: make(chan flowControl, 64), sem: make(chan struct{}, 1), done: make(chan struct{})}
 	if cfg.Addressing != Normal {
 		c.off = 1
 	}
@@ -95,8 +98,12 @@ func Dial(bus *canbus.Bus, cfg Config) (*Conn, error) {
 	return c, nil
 }
 
-// Close stops the connection. Blocked Send and Receive calls return
-// [canbus.ErrClosed].
+// Close stops the connection and waits for the goroutine that receives
+// its frames. Blocked Send and Receive calls return [canbus.ErrClosed].
+// Close is safe to call more than once and from multiple goroutines; a
+// call made while another one runs waits for it. A [Metrics] callback on
+// the receiving goroutine must not call it (it would wait for itself): it
+// starts it with "go conn.Close()".
 func (c *Conn) Close() error {
 	c.once.Do(func() {
 		close(c.done)
@@ -168,6 +175,8 @@ func (c *Conn) sfMax() int {
 }
 
 // Send transmits one message and returns when its last frame was sent.
+// Calls are serialized: a Send that waits for another one to finish ends
+// with its context or with Close, and then sends nothing.
 func (c *Conn) Send(ctx context.Context, payload []byte) error {
 	start := time.Now()
 	err := c.sendMessage(ctx, payload)
@@ -195,8 +204,24 @@ func (c *Conn) sendMessage(ctx context.Context, p []byte) error {
 		return canbus.ErrClosed
 	default:
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	select {
+	case c.sem <- struct{}{}:
+	case <-c.done:
+		return canbus.ErrClosed
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	defer func() { <-c.sem }()
+	// Close or the end of ctx may have come with the turn (select takes
+	// any ready case): nothing is sent after either.
+	select {
+	case <-c.done:
+		return canbus.ErrClosed
+	default:
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	// Single frame.
 	// n is at most MaxMessageSize (< 2^32): the masks below only drop
 	// bits that are zero.
@@ -417,7 +442,10 @@ func (c *Conn) handle(f *canbus.Frame, timer *time.Timer, crC *<-chan time.Time)
 	case pciSF:
 		var msg []byte
 		if l := int(data[0] & 0x0F); l != 0 {
-			if l > len(data)-1 || l > 7-c.off {
+			// The short form belongs to frames of up to 8 bytes: a CAN FD
+			// frame of more carries a single frame in the escape form
+			// only, as the Linux kernel's receiver reads it.
+			if l > len(data)-1 || l > 7-c.off || len(f.Payload()) > canbus.MaxClassicalLen {
 				return
 			}
 			msg = data[1 : 1+l]

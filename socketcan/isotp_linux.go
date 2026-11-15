@@ -316,7 +316,9 @@ func (c *ISOTPConn) Receive(ctx context.Context) ([]byte, error) {
 	return buf[:n], nil
 }
 
-// Close closes the socket.
+// Close closes the socket. A blocked Receive returns [canbus.ErrClosed];
+// a transfer that Send has started is not ended by it (see Send). Close
+// is safe to call more than once and from multiple goroutines.
 func (c *ISOTPConn) Close() error {
 	if c.closed.Swap(true) {
 		return nil

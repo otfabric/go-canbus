@@ -31,7 +31,12 @@
 // as a diagnostic and skipped: no ARXML compatibility beyond these
 // elements is claimed.
 //
-// Bounds on untrusted input: elements nested deeper than 256 levels end
+// Bounds on untrusted input: a document of more than 1 GiB is not parsed
+// (system descriptions are far larger than DBC or KCD files). Parse builds
+// the element tree of the whole document, which takes many times the
+// document's size: an application that reads documents it did not write
+// bounds the reader to what its host affords. Elements nested deeper than
+// 256 levels end
 // Parse with an error, as does a database of more than 262144 (2^18)
 // signals or 2097152 (2^21) value descriptions (each triggering of a frame
 // counts its signals again). A PDU mapped more than once into one frame is
@@ -43,6 +48,7 @@ package arxml
 
 import (
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -58,6 +64,7 @@ import (
 
 // Bounds on untrusted input (see the package documentation).
 const (
+	maxInputSize   = 1 << 30 // bytes of ARXML document
 	maxDepth       = 256     // XML element nesting
 	maxSignals     = 1 << 18 // signals in the database
 	maxValues      = 1 << 21 // value descriptions in the database
@@ -107,11 +114,37 @@ func (n *node) textOf(names ...string) string {
 	return ""
 }
 
-// parseTree reads the document into a tree. Character data is collected
-// per open element (linear in the input) and nesting is bounded by
-// maxDepth.
-func parseTree(r io.Reader) (*node, string, error) {
-	dec := xml.NewDecoder(r)
+// errTooLarge ends the read of a document longer than the bound.
+var errTooLarge = errors.New("document too large")
+
+// bounded reads at most left bytes from r; a read beyond them fails with
+// errTooLarge when r holds more, and ends as r ends when it does not.
+type bounded struct {
+	r    io.Reader
+	left int64
+}
+
+func (b *bounded) Read(p []byte) (int, error) {
+	if b.left <= 0 {
+		var one [1]byte
+		if n, err := b.r.Read(one[:]); n == 0 {
+			return 0, err
+		}
+		return 0, errTooLarge
+	}
+	if int64(len(p)) > b.left {
+		p = p[:b.left]
+	}
+	n, err := b.r.Read(p)
+	b.left -= int64(n)
+	return n, err
+}
+
+// parseTree reads the document, at most limit bytes of it, into a tree.
+// Character data is collected per open element (linear in the input) and
+// nesting is bounded by maxDepth.
+func parseTree(r io.Reader, limit int64) (*node, string, error) {
+	dec := xml.NewDecoder(&bounded{r: r, left: limit})
 	root := &node{name: "#root"}
 	cur := root
 	ns := ""
@@ -181,10 +214,19 @@ func ParseFile(path string) (*candb.Database, []candb.Diagnostic, error) {
 }
 
 // Parse reads ARXML. It returns the database, every diagnostic and, when
-// any is an error, a *[ParseError].
+// any is an error, a *[ParseError]. A document beyond the bounds of the
+// package documentation is a *[ParseError] too.
 func Parse(r io.Reader) (*candb.Database, []candb.Diagnostic, error) {
-	root, ns, err := parseTree(r)
+	return parse(r, maxInputSize)
+}
+
+func parse(r io.Reader, limit int64) (*candb.Database, []candb.Diagnostic, error) {
+	root, ns, err := parseTree(r, limit)
 	p := &parser{db: &candb.Database{}, scopes: map[scopeKey]*node{}, msgs: map[msgKey]bool{}, compus: map[*node]*compuResult{}}
+	if errors.Is(err, errTooLarge) {
+		p.diag(candb.Error, 0, "", "document larger than %d bytes", limit)
+		return p.db, p.diags, &ParseError{Diagnostics: p.diags}
+	}
 	if err != nil {
 		p.diag(candb.Error, 0, "", "XML: %v", err)
 		return p.db, p.diags, &ParseError{Diagnostics: p.diags}

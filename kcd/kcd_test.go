@@ -101,8 +101,9 @@ func FuzzParse(f *testing.F) {
 		if err != nil {
 			return
 		}
+		// Every message of a database that parsed fits a frame and decodes.
 		for _, m := range db.Messages {
-			if _, err := m.Decode(make([]byte, 64)); err != nil && m.Length <= 64 {
+			if _, err := m.Decode(make([]byte, 64)); err != nil {
 				t.Fatalf("%s: %v", m.Name, err)
 			}
 		}

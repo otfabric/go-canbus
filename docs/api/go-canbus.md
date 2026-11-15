@@ -189,7 +189,7 @@ NewBus starts a bus on t. The reader goroutine starts at once and keeps draining
 func (b *Bus) Close() error
 ```
 
-Close stops the reader, closes every subscription and the transport. It waits for the reader to stop and is safe to call more than once.
+Close stops the reader, closes every subscription and the transport. It waits for the reader to stop. Close is safe to call more than once and from multiple goroutines; a call made while another one runs waits for it. Blocked Send calls and the blocked Receive calls of the subscriptions return ErrClosed. A [Metrics](#type-metrics) callback on the reader goroutine must not call it (it would wait for itself): it starts it with "go bus.Close()".
 
 #### func (Bus) Done
 
@@ -816,6 +816,12 @@ Metrics is an optional callback interface for observing a [Bus](#type-bus). A ni
 
 The methods are called synchronously, possibly from several goroutines at once; implementations must be safe for concurrent use and must not block. Frames passed to them must not be retained or modified. Embed [NopMetrics](#type-nopmetrics) to implement only some callbacks and to stay compatible when methods are added.
 
+Where they are called: OnFrameReceived, OnXLFrameReceived, OnDrop, OnQueue, OnError for "receive" and the OnStateChange that follows a received frame or a receive error on the reader goroutine of the bus, in the order of the frames, so a callback that waits holds up every subscription; OnFrameSent, OnXLFrameSent and OnError for "send" on the goroutine that called Send; the OnStateChange of [NewBus](#func-newbus) and of [Bus.Close](#func-bus-close) on the goroutine of that call.
+
+A callback may call the other methods of the bus and of its subscriptions (Stats, State, Subscribe, Send, a subscription's Close). It must not call [Bus.Close](#func-bus-close): Close waits for the reader goroutine, which waits for the callback. A callback that closes the bus starts it with "go bus.Close()"; that Close completes once the callback has returned.
+
+A callback that does not return normally is stopped where the bus calls it and logged at error level, with the value it ended with and the stack, to the logger of the bus ([WithLogger](#func-withlogger)); the bus goes on as if the callback had returned.
+
 ### type Namer
 
 ```go
@@ -956,7 +962,7 @@ WithLogger logs bus events (state changes, receive errors, drops) to l. A nil lo
 func WithMetrics(m Metrics) Option
 ```
 
-WithMetrics reports frames, drops, errors and state changes to m.
+WithMetrics reports frames, drops, errors and state changes to m. See [Metrics](#type-metrics) for the goroutines the callbacks run on, what they may call and what happens when one does not return normally.
 
 #### func WithStartOnSubscribe
 
@@ -1164,7 +1170,7 @@ Subscription receives the frames of a [Bus](#type-bus) that pass its filters, th
 func (s *Subscription) Close() error
 ```
 
-Close ends the subscription. Frames still queued can be read with Receive until it returns ErrClosed.
+Close ends the subscription. Frames still queued can be read with Receive until it returns ErrClosed; a Receive that waits returns it at once. Close is safe to call more than once and from multiple goroutines.
 
 #### func (Subscription) Done
 

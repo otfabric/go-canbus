@@ -250,10 +250,17 @@ func (r *PCAPReader) ReadAny(f *canbus.Frame, x *canbus.XLFrame) (xl bool, err e
 	if err != nil {
 		return xl, &ParseError{Format: FormatPCAP, Line: r.record, Msg: err.Error()}
 	}
+	// The fraction counts micro- or nanoseconds of the second: a record
+	// whose fraction is a second or more is not a time of the format.
 	sec, frac := int64(r.order.Uint32(r.hdr[0:])), int64(r.order.Uint32(r.hdr[4:]))
+	unit, unitName := int64(1), "ns"
 	if !r.nano {
-		frac *= 1000
+		unit, unitName = 1000, "µs"
 	}
+	if frac >= int64(time.Second)/unit {
+		return xl, &ParseError{Format: FormatPCAP, Line: r.record, Msg: fmt.Sprintf("timestamp fraction of %d %s is not below one second", frac, unitName)}
+	}
+	frac *= unit
 	switch {
 	case !xl:
 		f.Timestamp = time.Unix(sec, frac)
@@ -340,8 +347,13 @@ type PCAPNGReader struct {
 type pcapngIface struct {
 	linkType uint16
 	name     string
-	resol    uint64 // ticks per second
+	resol    uint64 // ticks per second; 0 when tsresol holds one beyond 64 bits
+	tsresol  byte   // the if_tsresol option as read, for the error message
 }
+
+// pcapngMaxIfaces bounds the interface descriptions of one section, which
+// the reader keeps until the section ends.
+const pcapngMaxIfaces = 1 << 16
 
 const (
 	blockSHB = 0x0A0D0D0A
@@ -386,6 +398,9 @@ func (r *PCAPNGReader) ReadAny(f *canbus.Frame, x *canbus.XLFrame) (xl bool, err
 	}
 	var t time.Time
 	if hasTS {
+		if ifc.resol == 0 {
+			return xl, r.fail("timestamp resolution %#02x (if_tsresol) is finer than 64 bits hold", ifc.tsresol)
+		}
 		sec := ts / ifc.resol
 		if sec > maxUnixSec {
 			return xl, r.fail("timestamp of %d ticks of 1/%d s after the year 9999", ts, ifc.resol)
@@ -464,6 +479,9 @@ func (r *PCAPNGReader) next() (data []byte, ifc *pcapngIface, ts uint64, hasTS b
 			if len(body) < 8 {
 				return nil, nil, 0, false, r.fail("short interface description")
 			}
+			if len(r.ifaces) >= pcapngMaxIfaces {
+				return nil, nil, 0, false, r.fail("more than %d interfaces in a section", pcapngMaxIfaces)
+			}
 			ifc := pcapngIface{linkType: r.order.Uint16(body[0:]), resol: 1000000}
 			r.parseIDBOptions(body[8:], &ifc)
 			r.ifaces = append(r.ifaces, ifc)
@@ -514,19 +532,7 @@ func (r *PCAPNGReader) parseIDBOptions(b []byte, ifc *pcapngIface) {
 			ifc.name = cstringOf(v)
 		case 9: // if_tsresol
 			if l >= 1 {
-				e := uint64(v[0] & 0x7F)
-				if e > 18 {
-					break
-				}
-				res := uint64(1)
-				for range e {
-					if v[0]&0x80 != 0 {
-						res *= 2
-					} else {
-						res *= 10
-					}
-				}
-				ifc.resol = res
+				ifc.resol, ifc.tsresol = pcapngResolution(v[0]), v[0]
 			}
 		}
 		adv := 4 + (l+3)&^3
@@ -535,6 +541,25 @@ func (r *PCAPNGReader) parseIDBOptions(b []byte, ifc *pcapngIface) {
 		}
 		b = b[adv:]
 	}
+}
+
+// pcapngResolution returns the ticks per second of an if_tsresol value:
+// 10 to the power of its low seven bits or, with the high bit set, 2 to
+// that power. It returns 0 for a resolution 64 bits do not hold (beyond
+// 10^19 or 2^63).
+func pcapngResolution(tsresol byte) uint64 {
+	e, base, limit := int(tsresol&0x7F), uint64(10), 19
+	if tsresol&0x80 != 0 {
+		base, limit = 2, 63
+	}
+	if e > limit {
+		return 0
+	}
+	res := uint64(1)
+	for range e {
+		res *= base
+	}
+	return res
 }
 
 func cstringOf(b []byte) string {

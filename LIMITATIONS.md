@@ -63,12 +63,23 @@ Grouped into gaps and follow-ups, with what is not verified:
   write remote, CAN FD or error frames.
 - DBC: environment variables, signal types, relation attributes,
   categories and filters are skipped with a warning diagnostic. Value
-  descriptions of environment variables likewise.
+  descriptions of environment variables likewise. A FLOAT
+  `GenSigStartValue` that does not round to an integer of 64 bits (also
+  not a number or infinite) gives no initial value, with a warning; an INT
+  or HEX attribute value that is not an integer of 64 bits does not match
+  its attribute.
+- DBC input bounds: source of at most 64 MiB and at most 2^18 signals per
+  database; beyond either, `Parse` returns a `*ParseError` (at the signal
+  bound with what was read so far).
 - KCD: remote frame definitions are noted, not modelled; LabelGroups
   wider than 256 values are not expanded, and at most 2^20 LabelGroup
   values are expanded per database (further groups are ignored with a
-  warning).
-- ARXML input bounds: elements nested deeper than 256 levels end the
+  warning). Input bounds: a document of at most 64 MiB and at most 2^18
+  signals per database, as for DBC.
+- The input bounds are fixed: a caller cannot raise or lower them (it can
+  bound the reader it passes). SECURITY.md lists them in one table.
+- ARXML input bounds: a document of at most 1 GiB; elements nested deeper
+  than 256 levels end the
   parse with an error; at most 2^18 signals and 2^21 value descriptions
   per database (a frame triggered several times counts its signals each
   time), beyond which the rest of the file is not read and Parse returns a
@@ -78,7 +89,31 @@ Grouped into gaps and follow-ups, with what is not verified:
   diagnostics are returned, followed by one summary diagnostic with the
   number left out (and the worst severity among them).
 - DBC/KCD/ARXML validation reports at most 64 overlapping signal pairs per
-  message, followed by one summary warning with the remaining count.
+  message, followed by one summary warning with the remaining count. The
+  overlap check of a database takes at most 2^24 steps (one per pair of
+  signals whose bit ranges meet, plus the multiplexer conditions built and
+  compared): where they end, the count says "at least", one warning says
+  that the check ended, and the signals and messages after it are not
+  checked for overlaps. Databases of vehicles take a small part of that.
+- A message length no frame carries (more than 64 bytes, more than 8
+  without CAN FD, or negative) is an error diagnostic: KCD and ARXML files
+  with such a message return a `*ParseError`, and `codegen.Generate` an
+  error. A CAN FD length between two frame lengths (13, say) stays a
+  warning.
+- ISO-TP: a single frame in a CAN FD frame of more than 8 bytes is read
+  in the escape form only (first nibble 0, length in the next byte); the
+  short form there is ignored, as by the Linux kernel.
+- ISO-TP: a message that does not fit the receive queue of an
+  `isotp.Conn` (`QueueSize`, default 16) is dropped with a Warn log entry;
+  there is no counter for it, and after the bus under a Conn has ended,
+  `Receive` returns `ErrClosed` once and then waits for its context.
+- Metrics callbacks (`canbus.Metrics`, `isotp.Metrics`) that run on a
+  reader goroutine must not call `Close` of the bus or connection they
+  observe: `Close` waits for that goroutine. They start it with
+  `go x.Close()`. OBSERVABILITY.md has the contract.
+- pcapng: at most 65536 interface descriptions per section. A timestamp
+  resolution (`if_tsresol`) finer than 64 bits hold (beyond 10^-19 s or
+  2^-63 s) is a `*ParseError` for the packets of that interface.
 - ISO-TP: functional addressing helpers, N_As/N_Ar confirmation timing
   (frames are handed to the transport immediately), and half-duplex mode
   of the kernel. Kernel sockets use the kernel's fixed 1 s timeouts and
@@ -92,8 +127,9 @@ Grouped into gaps and follow-ups, with what is not verified:
   for a flow control, not the transfer: a peer that keeps answering with
   WAIT flow controls (the kernel sender applies no WAIT limit) or
   announces a long STmin extends the transfer for as long as it does so.
-  Use the userspace `isotp.Conn` when a transfer must be bounded by a
-  context or by `MaxWait`.
+  A second `Send` on the same socket waits for the first, without
+  following its context either. Use the userspace `isotp.Conn` when a
+  transfer must be bounded by a context or by `MaxWait`.
 - slcan: on a byte stream without write deadlines (`SetWriteDeadline`), a
   write blocked on a peer that stopped reading ends only at `Close`. With
   write deadlines (`net.Conn`, ptys), `Send` ends at its context. `Close`

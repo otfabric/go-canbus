@@ -2,6 +2,17 @@
 
 Release notes with details are in [RELEASE.md](RELEASE.md).
 
+## v0.10.1 (2026-11-15)
+
+Fixed input bounds (DBC, KCD and ARXML size and signals, the overlap check
+of validation, pcapng interfaces); a message length no frame carries is an
+error; capture timestamp fields are checked against their range; a `Send`
+that waits for another `Send` follows its context and `Close` (`isotp`,
+`virtual`, `socketcan`); `slcan` checks its configuration before it opens
+the port; metrics callbacks that do not return normally are logged and the
+bus goes on. Lifecycle contract tests (TESTING.md), a nightly run with
+long fuzzing and `GOARCH=386`. No API change.
+
 ## v0.10.0 (2026-11-14)
 
 Input bounds and output encoding: generated Go, DBC and candump output

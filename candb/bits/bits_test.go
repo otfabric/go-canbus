@@ -100,9 +100,12 @@ func TestSigned(t *testing.T) {
 	}
 }
 
+var benchSink uint64
+
 func BenchmarkExtractBE(b *testing.B) {
-	d := make([]byte, 8)
-	for i := 0; i < b.N; i++ {
-		_ = ExtractBE(d, 3, 37)
+	d := []byte{0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE, 0xF0, 0x0D}
+	b.ReportAllocs()
+	for b.Loop() {
+		benchSink += ExtractBE(d, 3, 37)
 	}
 }

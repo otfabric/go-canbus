@@ -8,7 +8,7 @@ import "github.com/otfabric/go-canbus/isotp"
 
 Package isotp implements ISO 15765-2 (ISO-TP), the transport protocol that carries messages of up to 4095 bytes (or 4 GiB with the escape sequence) over CAN frames, in userspace on top of a canbus.Bus.
 
-It supports normal addressing (also with 29-bit identifiers, as normal fixed addressing uses them), extended addressing (target address in the first payload byte) and mixed addressing (address extension in the first byte); single, first, consecutive and flow control frames; block size and STmin, including the 100–900 µs values; flow control WAIT with a limit and OVERFLOW; sequence number wrap-around; the N\_Bs and N\_Cr timeouts; padding; classical CAN and CAN FD frames (TX\_DL 8 to 64, single frame escape) and the first frame escape for messages larger than 4095 bytes. Message sizes are bounded by Config.MaxMessageSize.
+It supports normal addressing (also with 29-bit identifiers, as normal fixed addressing uses them), extended addressing (target address in the first payload byte) and mixed addressing (address extension in the first byte); single, first, consecutive and flow control frames; block size and STmin, including the 100–900 µs values; flow control WAIT with a limit and OVERFLOW; sequence number wrap-around; the N\_Bs and N\_Cr timeouts; padding; classical CAN and CAN FD frames (TX\_DL 8 to 64, single frame escape) and the first frame escape for messages larger than 4095 bytes. Message sizes are bounded by Config.MaxMessageSize. A single frame in a CAN FD frame of more than 8 bytes is read in the escape form only; the short form there is ignored, as the Linux kernel ignores it.
 
 The Linux kernel's ISO-TP sockets offer the same with the same Config: see socketcan.DialISOTP. Both implement [Endpoint](#type-endpoint).
 
@@ -180,7 +180,8 @@ type Conn struct {
 	// status ends the wait or the transfer ends. Flow control frames
 	// that arrive while it is clear are stray and dropped.
 
-	// serializes Send
+	// sem is held by the one Send in progress; a channel rather than a
+	// mutex so that a Send waiting for it follows its context and Close.
 
 	// Reception state, owned by the reader goroutine.
 
@@ -203,7 +204,7 @@ Dial starts an ISO-TP connection on bus: it subscribes to RxID and starts the go
 func (c *Conn) Close() error
 ```
 
-Close stops the connection. Blocked Send and Receive calls return [canbus.ErrClosed](https://pkg.go.dev/github.com/otfabric/go-canbus#ErrClosed).
+Close stops the connection and waits for the goroutine that receives its frames. Blocked Send and Receive calls return [canbus.ErrClosed](https://pkg.go.dev/github.com/otfabric/go-canbus#ErrClosed). Close is safe to call more than once and from multiple goroutines; a call made while another one runs waits for it. A [Metrics](#type-metrics) callback on the receiving goroutine must not call it (it would wait for itself): it starts it with "go conn.Close()".
 
 #### func (Conn) Receive
 
@@ -219,7 +220,7 @@ Receive returns the next complete message, or a reception error (ErrTimeout for 
 func (c *Conn) Send(ctx context.Context, payload []byte) error
 ```
 
-Send transmits one message and returns when its last frame was sent.
+Send transmits one message and returns when its last frame was sent. Calls are serialized: a Send that waits for another one to finish ends with its context or with Close, and then sends nothing.
 
 ### type Endpoint
 
@@ -244,6 +245,12 @@ type Metrics interface {
 ```
 
 Metrics observes an ISO-TP connection. Methods must be safe for concurrent use and must not block. Embed [NopMetrics](#type-nopmetrics).
+
+Where they are called: OnMessageReceived and OnError for "receive" on the goroutine of the connection that receives its frames, so a callback that waits holds up reception and the flow controls of a transfer in progress; OnMessageSent and OnError for "send" on the goroutine that called Send, after the transfer.
+
+A callback on the receiving goroutine may send a message that fits a single frame. It must not send a longer one (the flow control it waits for is read by the goroutine the callback runs on), call Receive without a deadline, or call [Conn.Close](#func-conn-close): Close waits for that goroutine. A callback that closes the connection starts it with "go conn.Close()"; that Close completes once the callback has returned.
+
+A callback that does not return normally is stopped where the connection calls it and logged at error level, with the value it ended with and the stack, to Config.Logger; the connection goes on as if the callback had returned.
 
 ### type NopMetrics
 

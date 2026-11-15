@@ -7,20 +7,23 @@ without changes to the core.
 
 ```
  ┌──────────────────────────────────────────────────────────────────────────┐
- │ applications: canbusctl, generated DBC code, future go-canopen/go-j1939  │
+ │ applications: canbusctl, generated code, go-canopen, future go-j1939     │
  ├───────────────────────┬──────────────────────┬───────────────────────────┤
  │ candb  (message model,│ isotp (ISO 15765-2,  │ capture (candump, JSONL,  │
- │  signal codec)        │  userspace)          │  pcap; replay)            │
- │ dbc / kcd (parsers)   │ socketcan.ISOTP      │                           │
- │ codegen (Go output)   │  (kernel CAN_ISOTP)  │                           │
+ │  signal codec)        │  userspace)          │  pcap, pcapng, ASC, BLF,  │
+ │ dbc / kcd (read and   │ socketcan.ISOTP      │  TRC; replay)             │
+ │  write), arxml (read) │  (kernel CAN_ISOTP)  │ chaos (fault bridge       │
+ │ codegen (Go output)   │                      │  between two transports)  │
  ├───────────────────────┴──────────────────────┴───────────────────────────┤
- │ canbus: Frame, ID, Flags, DLC, Filter, ErrorInfo, Bus (fan-out),         │
- │         Transport interface, errors, slog logging, Metrics               │
+ │ canbus: Frame, XLFrame (CAN XL), ID, Flags, DLC, Filter, ErrorInfo,      │
+ │         Bus (fan-out), Transport and XLTransport interfaces, errors,     │
+ │         slog logging, Metrics                                            │
  ├──────────────────────────────┬───────────────────────────────────────────┤
  │ socketcan (linux): CAN_RAW,  │ virtual: deterministic in-memory bus with │
- │  CAN FD, kernel filters,     │  fault injection                          │
- │  timestamps, overflow; link  │ slcan: serial-line CAN adapters (any OS,  │
- │  (netlink admin, separate)   │  serial port, pty or TCP)                 │
+ │  CAN FD, CAN XL, kernel      │  fault injection, CAN XL ports            │
+ │  filters, timestamps,        │ slcan: serial-line CAN adapters (any OS,  │
+ │  overflow; link (netlink     │  serial port, pty or TCP)                 │
+ │  admin, separate)            │                                           │
  └──────────────────────────────┴───────────────────────────────────────────┘
 ```
 
@@ -30,8 +33,9 @@ without changes to the core.
 |---------|-------|----------|
 | Physical interface, bit rate, controller state | `socketcan/link` (explicit administrative API) | Opening a bus never reconfigures an interface |
 | Classical CAN / CAN FD data-link frames | `canbus.Frame` | Signals, transport segmentation |
+| CAN XL data-link frames | `canbus.XLFrame`, `XLTransport`, `Bus.SendXL`, subscriptions `WithXL` | slcan, ISO-TP, the message databases, ASC/BLF/TRC (LIMITATIONS.md) |
 | ISO-TP segmentation (ISO 15765-2) | `isotp`, `socketcan.DialISOTP` | UDS services |
-| Message/signal layout | `candb` (IR), `dbc`, `kcd`, `codegen` | DBC is a database format, not a protocol |
+| Message/signal layout | `candb` (IR), `dbc`, `kcd`, `arxml`, `codegen` | DBC is a database format, not a protocol |
 | Application protocols | future modules | CANopen, J1939, UDS, NMEA 2000 are out of scope |
 
 A CAN identifier names a message, not a device. Nothing in this module
@@ -54,9 +58,14 @@ type Frame struct {
 }
 ```
 
-The fixed array keeps a frame a plain value: sending and receiving do not
-allocate (see `BenchmarkFrame*`; a `[]byte` payload variant allocated on
-every receive and was rejected). Methods: `Payload()`, `DLC()`, `Validate()`,
+The fixed array keeps a frame a plain value: copying one, as a transport
+does into its caller's frame and a Bus into each subscription's queue,
+does not allocate (`BenchmarkFrameCopy`, `BenchmarkFramePayload` in the
+root package; a `[]byte` payload variant allocated on every receive and
+was rejected). What a whole send and receive costs depends on the
+transport and on the context: the virtual bus allocates its list of ports
+for every delivered frame (`BenchmarkFrameVirtualPort`, `BenchmarkFrameBus`),
+and for SocketCAN see [below](#package-socketcan-linux). Methods: `Payload()`, `DLC()`, `Validate()`,
 `IsExtended()`, ...; constructors `NewStandard`, `NewExtended`, `NewFD`,
 `NewRemote`. `DLCToLen` / `LenToDLC` implement the CAN FD discrete mapping
 (0–8, 12, 16, 20, 24, 32, 48, 64).
@@ -75,11 +84,13 @@ type Transport interface {
 }
 ```
 
-A Transport is one endpoint: a SocketCAN socket or a virtual port.
-Implementations are safe for one concurrent `Send` caller per goroutine and
-one `Receive` caller at a time; `Close` unblocks both with `ErrClosed`.
-Optional interfaces: `Filterer` (kernel filters), `Statser` (counters),
-`Capabilities()`.
+A Transport is one endpoint: a SocketCAN socket, an slcan adapter or a
+virtual port. Implementations are safe for concurrent `Send` callers (they
+take turns; one that waits for its turn ends with its context or with
+`Close`) and one `Receive` caller at a time; `Close` unblocks both with
+`ErrClosed` and is safe to call more than once and from several
+goroutines. Optional interfaces: `XLTransport` (CAN XL frames),
+`Filterer` (kernel filters), `Statser` (counters), `Capabilities()`.
 
 `Bus` wraps one Transport for many users: a single reader goroutine fans
 received frames out to `Subscription`s, each with its own software filter
@@ -106,7 +117,11 @@ with `errors.Is` / `errors.As`.
 
 Logging uses `*slog.Logger` (nil = silent). `Metrics` is a callback
 interface (frames/bytes sent and received, drops by reason, queue depth,
-errors, state changes, ISO-TP sessions); embed `NopMetrics`.
+errors, state changes; `isotp.Metrics` for ISO-TP messages); embed
+`NopMetrics`. The callbacks of received frames run on the reader goroutine
+of the bus: they may call the bus, they start a `Close` with `go`, and
+one that does not return normally is stopped and logged
+([OBSERVABILITY.md](OBSERVABILITY.md#the-callback-contract)).
 
 ## Package `socketcan` (Linux)
 
@@ -118,7 +133,13 @@ is non-blocking and registered with the Go runtime poller through
 `os.NewFile`/`syscall.RawConn`, so `Receive` and `Send` block in the poller
 and are cancelled by context or `Close` without a reader goroutine. Uses only
 `syscall`; no cgo, no third-party module. On other systems the package
-compiles and `Open` returns `ErrUnsupported`.
+compiles and `Open` returns `ErrUnsupported`. With a context that cannot be
+cancelled (`context.Background`) a send and a receive do not allocate
+(`BenchmarkSendReceive`); with one that can, each call registers the
+cancellation (a channel and a `context.AfterFunc`), and the reader of a
+`canbus.Bus` receives with such a context (`BenchmarkSendReceiveCancellable`,
+`BenchmarkBusSendReceive`). CAN XL sockets (`WithXL`, Linux 6.2 or later)
+carry `canbus.XLFrame`s through the same socket.
 
 `socketcan.DialISOTP` opens a kernel `CAN_ISOTP` socket (Linux ≥ 5.10) with
 the same `isotp.Config` as the userspace implementation.
@@ -154,9 +175,12 @@ wrap-around; N_As/N_Bs/N_Cr timeouts; padding; classical and CAN FD
 
 Streaming readers/writers: candump log (`(ts) iface ID#DATA`, `##F` FD,
 `R` remote, error frames), JSON Lines (lossless, schema
-`schemas/capture-v1.schema.json`) and pcap with
-`LINKTYPE_CAN_SOCKETCAN`. `Replay` sends a capture with original, scaled or
-maximum timing, filters, frame/duration limits and rate limiting.
+`schemas/capture-v1.schema.json`), pcap and pcapng with
+`LINKTYPE_CAN_SOCKETCAN` (CAN XL included), Vector ASC and BLF, and PEAK
+TRC (1.0 to 2.1 read, 2.1 written). `NewReader` detects the format. Every
+reader bounds what one record can make it hold (SECURITY.md has the
+table). `Replay` sends a capture with original, scaled or maximum timing,
+filters, frame/duration limits and rate limiting.
 
 The ASC, BLF and TRC writers turn interface names into the channel numbers
 those formats hold with one rule (`vectorChannel`): a number stays itself, a
@@ -167,14 +191,25 @@ Recorded vehicle traffic in `testdata/captures` is reached through
 `internal/cmd/fetchcaptures` downloads the extended corpus. Neither is part
 of the public API.
 
-## Packages `candb`, `dbc`, `kcd`, `codegen`
+## Package `chaos`
+
+`chaos.Bridge` forwards frames between two transports and injects faults
+on the way (drop, duplicate, delay, corrupt, reorder), from a seed: the
+kernel's ISO-TP on one vcan interface can be tested against go-canbus's on
+another through it. It runs for the life of its context.
+
+## Packages `candb`, `dbc`, `kcd`, `arxml`, `codegen`
 
 `candb` is the format-independent message model (database, nodes,
 messages, signals, value tables, multiplexing incl. extended, attributes,
 comments) plus the signal codec. Raw values are carried as exact 64-bit
 integers; physical values are derived from them. Big-endian (Motorola)
 signals use the DBC start-bit convention. `dbc` parses and writes DBC with
-diagnostics for anything it cannot represent; `kcd` parses KCD. `codegen`
-turns a `candb.Database` into deterministic, gofmt-clean Go with typed
-structs, enums, constants and encode/decode functions, importing only the
-small `candb/bits` runtime.
+diagnostics for anything it cannot represent; `kcd` parses and writes KCD;
+`arxml` reads the CAN part of AUTOSAR 4.x system descriptions (clusters,
+frames, I-PDUs, multiplexed I-PDUs, signals, compu methods). The three
+parsers bound their input (size, signals and what a parser expands) and
+`candb.Database.Validate` bounds its overlap check; SECURITY.md lists the
+bounds. `codegen` turns a `candb.Database` into deterministic, gofmt-clean
+Go with typed structs, enums, constants and encode/decode functions,
+importing only the small `candb/bits` runtime.

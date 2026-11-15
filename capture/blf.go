@@ -58,13 +58,24 @@ const (
 	blfObjectMax = 16 << 20
 )
 
-// blfSystemTime decodes a Windows SYSTEMTIME (8 little-endian uint16).
-func blfSystemTime(b []byte) time.Time {
+// blfSystemTime decodes a Windows SYSTEMTIME (8 little-endian uint16:
+// year, month, day of the week, day, hour, minute, second, millisecond).
+// A year of 0 is no time. ok is false for a field outside its range, a day
+// the month does not have, or a year outside 1601 (the first of a
+// SYSTEMTIME) to 9999 (the last the readers accept).
+func blfSystemTime(b []byte) (t time.Time, ok bool) {
 	u := func(i int) int { return int(binary.LittleEndian.Uint16(b[2*i:])) }
-	if u(0) == 0 {
-		return time.Time{}
+	year, month, weekday, day, hour, minute, sec, ms := u(0), u(1), u(2), u(3), u(4), u(5), u(6), u(7)
+	if year == 0 {
+		return time.Time{}, true
 	}
-	return time.Date(u(0), time.Month(u(1)), u(3), u(4), u(5), u(6), u(7)*int(time.Millisecond), time.Local)
+	if year < 1601 || year > 9999 || month < 1 || month > 12 || weekday > 6 || day < 1 || day > 31 ||
+		hour > 23 || minute > 59 || sec > 59 || ms > 999 {
+		return time.Time{}, false
+	}
+	t = time.Date(year, time.Month(month), day, hour, minute, sec, ms*int(time.Millisecond), time.Local)
+	// time.Date carries a day the month does not have into the next month.
+	return t, t.Day() == day && t.Month() == time.Month(month)
 }
 
 // blfPutSystemTime encodes t as a SYSTEMTIME, or zeros for the zero time.
@@ -116,7 +127,11 @@ func NewBLFReader(r io.Reader) (*BLFReader, error) {
 	// signature, size, application (4 bytes), bin log version (4 bytes),
 	// file size, uncompressed size, object count, objects read, then the
 	// start and stop SYSTEMTIMEs.
-	return &BLFReader{r: br, start: blfSystemTime(rest[40-8 : 56-8])}, nil
+	start, ok := blfSystemTime(rest[40-8 : 56-8])
+	if !ok {
+		return nil, &ParseError{Format: FormatBLF, Msg: fmt.Sprintf("start time % x is not a date and time of the years 1601..9999", rest[40-8:56-8])}
+	}
+	return &BLFReader{r: br, start: start}, nil
 }
 
 func (r *BLFReader) fail(format string, args ...any) error {
@@ -316,6 +331,9 @@ func (r *BLFReader) Read(f *canbus.Frame) error {
 			start = time.Unix(0, 0)
 		}
 		f.Timestamp = start.Add(d)
+		if f.Timestamp.Unix() > maxUnixSec {
+			return r.fail("timestamp %d after the year 9999", ts)
+		}
 		if err := r.decode(typ, body[hlen:], f); err != nil {
 			return r.fail("%v", err)
 		}

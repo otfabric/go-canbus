@@ -26,7 +26,7 @@ Version identifies the generator in the provenance header. It changes when the g
 func Generate(db *candb.Database, opts Options) ([]byte, error)
 ```
 
-Generate returns the Go source for db. The database must validate without errors.
+Generate returns the Go source for db. The database must validate without errors, and every message must have a length a frame carries (0 to 64 bytes): the generated Encode sizes its payload from it.
 
 ### func GenerateJSON
 
