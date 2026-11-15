@@ -43,9 +43,10 @@ canbusctl). Newest first within each section.
   arm64 runners have no /dev/kvm. Found that a userspace ISO-TP receiver at
   STmin 0 can overflow its socket (Ubuntu 6.8 guest): tests use a 1 MiB
   receive buffer; LIMITATIONS.md says so.
-- Kernel ISO-TP: CAN_ISOTP_WAIT_TX_DONE sendmsg is written with all
-  signals blocked on a locked thread (SIGURG preemption + SA_RESTART resent
-  messages); userspace receivers facing a kernel sender on vcan delay their
+- Kernel ISO-TP: no CAN_ISOTP_WAIT_TX_DONE (its wait could be neither
+  interrupted safely nor cancelled); Send waits for POLLOUT, and Close
+  releases the socket from a locked thread that it signals (SIGURG) until
+  the release returns; userspace receivers facing a kernel sender on vcan delay their
   flow control (FlowControlDelay), the kernel drops an FC that beats its echo.
 - Tests sharing vcan run with -p 1.
 - slcan oracles: the kernel's slcan line discipline on a pty (TIOCSETD

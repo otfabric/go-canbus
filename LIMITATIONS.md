@@ -121,15 +121,20 @@ Grouped into gaps and follow-ups, with what is not verified:
   `MaxWait` (0 or 10 only), `TimeoutBs` or `TimeoutCr` (0 or 1 s only)
   values with `ErrUnsupported`, and a `MaxMessageSize` above the kernel's
   1025 KiB with `ErrInvalidOption`.
-- Kernel ISO-TP `Send` (`socketcan.ISOTPConn`) cannot be cancelled once
-  the transfer has started: the context is checked before the write only,
-  and `Close` does not end it. The kernel's N_Bs of 1 s bounds each wait
-  for a flow control, not the transfer: a peer that keeps answering with
-  WAIT flow controls (the kernel sender applies no WAIT limit) or
-  announces a long STmin extends the transfer for as long as it does so.
-  A second `Send` on the same socket waits for the first, without
-  following its context either. Use the userspace `isotp.Conn` when a
-  transfer must be bounded by a context or by `MaxWait`.
+- Kernel ISO-TP `Send` (`socketcan.ISOTPConn`): the kernel's N_Bs of 1 s
+  bounds each wait for a flow control, not the transfer: a peer that keeps
+  answering with WAIT flow controls (the kernel sender applies no WAIT
+  limit) or with slow blocks extends the transfer for as long as it does
+  so. `Send` ends at its context, but the kernel can abort a transfer only
+  by releasing the socket: a `Send` whose context ends during the transfer
+  closes the connection, and the caller dials again. `Close` interrupts
+  the kernel's wait for the transfer with SIGURG to the closing thread
+  (net/can/isotp.c, `isotp_release`); a program that subscribes to SIGURG
+  through os/signal sees these signals. There is no WAIT limit or total
+  transfer bound besides the context: a `Send` with a context that never
+  ends lasts as long as the peer keeps the transfer open. Use the
+  userspace `isotp.Conn` when a transfer must be bounded by `MaxWait` or
+  must end without closing the connection.
 - slcan: on a byte stream without write deadlines (`SetWriteDeadline`), a
   write blocked on a peer that stopped reading ends only at `Close`. With
   write deadlines (`net.Conn`, ptys), `Send` ends at its context. `Close`

@@ -151,7 +151,14 @@ Stats returns the socket's counters.
 
 ```go
 type ISOTPConn struct {
-	// contains filtered or unexported fields
+
+	// wsem is the turn to send: one transfer at a time. A Send waiting
+	// for it ends at its ctx or at Close (done).
+
+	// sock is a second descriptor of the socket. It keeps the socket
+	// open when file is closed, so that Close, not whichever goroutine
+	// drops file's last reference, releases it (see closeSocket).
+
 }
 ```
 
@@ -171,7 +178,9 @@ DialISOTP opens a kernel ISO-TP socket on the interface with the same configurat
 func (c *ISOTPConn) Close() error
 ```
 
-Close closes the socket. A blocked Receive returns [canbus.ErrClosed](https://pkg.go.dev/github.com/otfabric/go-canbus#ErrClosed); a transfer that Send has started is not ended by it (see Send). Close is safe to call more than once and from multiple goroutines.
+Close closes the socket and stops a transfer in progress: a blocked Receive or Send returns [canbus.ErrClosed](https://pkg.go.dev/github.com/otfabric/go-canbus#ErrClosed). Close is safe to call more than once and from multiple goroutines; the first call reports the error, a later one returns nil once the first has finished.
+
+The kernel releases an ISO-TP socket only once its transfer is idle, unless a signal interrupts the wait. Close therefore closes the socket on a locked OS thread and, while that close is pending, sends SIGURG to that thread (the signal Go's runtime uses for preemption and tolerates at any time); a program that subscribes to SIGURG with os/signal sees these signals.
 
 #### func (ISOTPConn) Receive
 
@@ -189,7 +198,9 @@ func (c *ISOTPConn) Send(ctx context.Context, payload []byte) error
 
 Send transmits one message and returns when the kernel has finished the transfer (or failed it: no flow control, overflow).
 
-The kernel waits for the transfer inside sendmsg, interruptibly. Go's runtime signals its threads (SIGURG, for preemption); a signal would abort the transfer, and the syscall, restarted (SA\_RESTART), would send the whole message again. Send therefore runs the write on a locked OS thread with all signals blocked; they are delivered when it returns. The write cannot be cancelled once started: ctx is checked before only. The kernel's N\_Bs (1 s) bounds each wait for a flow control, not the transfer: a peer that keeps sending WAIT flow controls, or announces a long STmin, can extend it, and neither ctx nor Close ends it meanwhile.
+The write does not block: the kernel returns from it once the first (or single) frame is out and carries on with the transfer. Send then waits, under ctx, for the kernel to report the transfer finished, and reads the transfer's error. One transfer runs at a time: a Send waits for the one before it, until its own ctx ends or Close.
+
+The kernel's N\_Bs (1 s) bounds each wait for a flow control, not the transfer: a peer that keeps sending WAIT flow controls, or announces a long STmin, can extend it. The kernel offers no way to abort a transfer except closing the socket, so when ctx ends during the transfer, Send closes the connection, which stops the transfer, and returns ctx's error; the connection is closed afterwards and later calls return [canbus.ErrClosed](https://pkg.go.dev/github.com/otfabric/go-canbus#ErrClosed). When ctx ends before the write, the message is not sent and the connection stays open. Close during a transfer stops it, and Send returns [canbus.ErrClosed](https://pkg.go.dev/github.com/otfabric/go-canbus#ErrClosed).
 
 ### type Option
 

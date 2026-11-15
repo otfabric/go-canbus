@@ -5,6 +5,7 @@
 package socketcan
 
 import (
+	"math"
 	"syscall"
 	"unsafe"
 )
@@ -30,9 +31,30 @@ func recvmsg(fd uintptr, msg *syscall.Msghdr) (uintptr, syscall.Errno) {
 	return r, e
 }
 
-// rtSigprocmask is rt_sigprocmask(2) with a 64-bit kernel sigset_t, for
-// the calling (locked) OS thread; the syscall package has no wrapper.
-func rtSigprocmask(how int, set, old *uint64) syscall.Errno {
-	_, _, e := syscall.RawSyscall6(syscall.SYS_RT_SIGPROCMASK, uintptr(how), uintptr(unsafe.Pointer(set)), uintptr(unsafe.Pointer(old)), 8, 0, 0)
-	return e
+// pollOut reports whether fd polls writable now: ppoll(2) for POLLOUT
+// without waiting (ppoll, unlike poll, exists on every Linux
+// architecture). A kernel ISO-TP socket polls writable only while it has
+// no transfer in progress.
+func pollOut(fd uintptr) bool {
+	const pollOutEvent = 0x4 // POLLOUT
+	pfd := pollFd{fd: fd32(fd), events: pollOutEvent}
+	var ts syscall.Timespec // zero: do not wait (and no EINTR)
+	n, _, e := syscall.Syscall6(syscall.SYS_PPOLL, uintptr(unsafe.Pointer(&pfd)), 1, uintptr(unsafe.Pointer(&ts)), 0, 0, 0)
+	return e == 0 && n == 1 && pfd.revents&pollOutEvent != 0
+}
+
+// pollFd is struct pollfd.
+type pollFd struct {
+	fd      int32
+	events  int16
+	revents int16
+}
+
+// fd32 is a descriptor as a C int. Descriptors are C ints; anything
+// larger names no descriptor, and ppoll ignores the negative one.
+func fd32(fd uintptr) int32 {
+	if fd > math.MaxInt32 {
+		return -1
+	}
+	return int32(fd)
 }

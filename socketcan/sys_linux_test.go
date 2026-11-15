@@ -27,3 +27,17 @@ func TestLayouts(t *testing.T) {
 		t.Fatal("receive buffers")
 	}
 }
+
+// TestPollOut: a descriptor beyond a C int names none, and ppoll reports
+// an unknown descriptor as not writable.
+func TestPollOut(t *testing.T) {
+	if got := fd32(1<<31 - 1); got != 1<<31-1 {
+		t.Fatalf("fd32(MaxInt32) = %d", got)
+	}
+	if got := fd32(1 << 31); got != -1 {
+		t.Fatalf("fd32(2^31) = %d, want -1", got)
+	}
+	if pollOut(1 << 31) {
+		t.Fatal("pollOut of no descriptor")
+	}
+}
