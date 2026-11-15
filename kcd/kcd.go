@@ -20,10 +20,16 @@
 // more than 256 values are not expanded, and at most 1048576 (2^20) values
 // are expanded from LabelGroups per database; groups beyond either bound
 // are ignored with a warning.
+//
+// Bounds on untrusted input: a document of more than 64 MiB is not parsed
+// and a database holds at most 262144 (2^18) signals; beyond either,
+// [Parse] returns a *[ParseError] (at the signal bound with the messages
+// read so far).
 package kcd
 
 import (
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -155,12 +161,47 @@ func ParseFile(path string) (*candb.Database, []candb.Diagnostic, error) {
 }
 
 // Parse parses KCD XML. Like dbc.Parse it returns the database, every
-// diagnostic and, when any is an error, a *[ParseError].
+// diagnostic and, when any is an error, a *[ParseError]. A document beyond
+// the bounds of the package documentation is a *[ParseError] too.
 func Parse(r io.Reader) (*candb.Database, []candb.Diagnostic, error) {
+	return parse(r, maxInputSize)
+}
+
+// errTooLarge ends the read of a document longer than the bound.
+var errTooLarge = errors.New("document too large")
+
+// bounded reads at most left bytes from r; a read beyond them fails with
+// errTooLarge when r holds more, and ends as r ends when it does not.
+type bounded struct {
+	r    io.Reader
+	left int64
+}
+
+func (b *bounded) Read(p []byte) (int, error) {
+	if b.left <= 0 {
+		var one [1]byte
+		if n, err := b.r.Read(one[:]); n == 0 {
+			return 0, err
+		}
+		return 0, errTooLarge
+	}
+	if int64(len(p)) > b.left {
+		p = p[:b.left]
+	}
+	n, err := b.r.Read(p)
+	b.left -= int64(n)
+	return n, err
+}
+
+func parse(r io.Reader, limit int64) (*candb.Database, []candb.Diagnostic, error) {
 	var x xNetwork
-	dec := xml.NewDecoder(r)
+	dec := xml.NewDecoder(&bounded{r: r, left: limit})
 	if err := dec.Decode(&x); err != nil {
-		d := []candb.Diagnostic{{Severity: candb.Error, Message: "XML: " + err.Error()}}
+		msg := "XML: " + err.Error()
+		if errors.Is(err, errTooLarge) {
+			msg = fmt.Sprintf("document larger than %d bytes", limit)
+		}
+		d := []candb.Diagnostic{{Severity: candb.Error, Message: msg}}
 		return &candb.Database{}, d, &ParseError{Diagnostics: d}
 	}
 	p := &parser{db: &candb.Database{}, nodes: map[string]string{}}
@@ -171,6 +212,12 @@ func Parse(r io.Reader) (*candb.Database, []candb.Diagnostic, error) {
 	}
 	return p.db, p.diags, nil
 }
+
+// Bounds on untrusted input (see the package documentation).
+const (
+	maxInputSize = 64 << 20 // bytes of KCD document
+	maxSignals   = 1 << 18  // signals in the database
+)
 
 // maxLabelGroupValues is the widest LabelGroup that is expanded into value
 // descriptions; a wider group is ignored with a warning.
@@ -185,6 +232,8 @@ type parser struct {
 	diags    []candb.Diagnostic
 	nodes    map[string]string // id → name
 	expanded uint64            // values expanded from LabelGroups so far
+	signals  int               // signals built so far
+	over     bool              // the signal bound was reached: stop reading
 }
 
 func (p *parser) diag(sev candb.Severity, obj, format string, args ...any) {
@@ -213,6 +262,9 @@ func (p *parser) network(x *xNetwork) {
 	for _, b := range x.Buses {
 		p.unknown("bus "+b.Name, b.Any)
 		for i := range b.Messages {
+			if p.over {
+				return
+			}
 			p.message(&b.Messages[i])
 		}
 	}
@@ -303,6 +355,9 @@ func (p *parser) message(x *xMessage) {
 	if m.Length > 8 {
 		m.FD = true
 	}
+	if p.over {
+		return // the message that reached the bound is incomplete
+	}
 	p.db.Messages = append(p.db.Messages, m)
 }
 
@@ -323,6 +378,15 @@ func atof(s string, def float64) (float64, error) {
 }
 
 func (p *parser) signal(m *candb.Message, x *xSignal) *candb.Signal {
+	if p.over {
+		return nil
+	}
+	if p.signals >= maxSignals {
+		p.over = true
+		p.diag(candb.Error, "", "more than %d signals in the database: the rest of the file is not read", maxSignals)
+		return nil
+	}
+	p.signals++
 	obj := "signal " + m.Name + "." + x.Name
 	p.unknown(obj, x.Any)
 	s := &candb.Signal{Name: x.Name, Factor: 1, Comment: strings.TrimSpace(x.Notes)}

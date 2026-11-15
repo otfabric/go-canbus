@@ -203,3 +203,38 @@ func TestIdentifiers(t *testing.T) {
 		t.Fatal(string(js), err)
 	}
 }
+
+// TestGenerateMessageLength: Generate refuses a message whose length no
+// frame carries, CAN FD or classical, and generates for every length from
+// 0 to 64 bytes of a CAN FD message. The generated Encode sizes its
+// payload from the length, so the check is Generate's own as well as
+// Validate's.
+func TestGenerateMessageLength(t *testing.T) {
+	db := func(length int, fd bool) *candb.Database {
+		m := &candb.Message{Name: "M", ID: 1, Length: length, FD: fd}
+		if length > 0 {
+			// A signal in the last byte of the message.
+			m.Signals = []*candb.Signal{{Name: "S", StartBit: 8 * (length - 1), Length: 8, Factor: 1}}
+		}
+		return &candb.Database{Messages: []*candb.Message{m}}
+	}
+	for _, c := range []struct {
+		length int
+		fd     bool
+		ok     bool
+	}{
+		{0, false, true}, {8, false, true}, {9, false, false}, {-1, false, false},
+		{0, true, true}, {1, true, true}, {63, true, true}, {64, true, true},
+		{65, true, false}, {70, true, false}, {math.MaxInt32, true, false}, {math.MaxInt, true, false},
+		{-1, true, false}, {math.MinInt, true, false},
+	} {
+		src, err := Generate(db(c.length, c.fd), Options{Package: "p"})
+		if c.ok != (err == nil) || c.ok != (len(src) > 0) {
+			t.Errorf("length %d, FD %v: %d bytes generated, %v", c.length, c.fd, len(src), err)
+		}
+		// Generate's own check, whatever the diagnostics of Validate.
+		if err := checkLengths(db(c.length, true)); (err == nil) != (c.length >= 0 && c.length <= 64) {
+			t.Errorf("length %d: %v", c.length, err)
+		}
+	}
+}

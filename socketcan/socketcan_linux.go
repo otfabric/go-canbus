@@ -79,7 +79,10 @@ type Conn struct {
 	rerr   error
 	readFn func(fd uintptr) bool
 
-	wmu     sync.Mutex
+	// wsem is held by the one send in progress; a channel rather than a
+	// mutex so that a send waiting for it follows its context and Close.
+	wsem    chan struct{}
+	done    chan struct{} // closed by Close
 	wbuf    [canFDMTU]byte
 	xbuf    []byte // CAN XL send buffer, allocated by Open with WithXL
 	wsrc    []byte // what doWrite writes
@@ -109,7 +112,7 @@ func Open(ifname string, opts ...Option) (*Conn, error) {
 	}
 	cfg.fd = cfg.fd || cfg.xl // the kernel enables CAN FD with CAN XL
 	opErr := func(err error) error { return &canbus.OpError{Op: "open", Interface: ifname, Err: err} }
-	c := &Conn{name: ifname, cfg: cfg}
+	c := &Conn{name: ifname, cfg: cfg, wsem: make(chan struct{}, 1), done: make(chan struct{})}
 	c.readFn = c.doRead
 	c.writeFn = c.doWrite
 	if ifname != "" && ifname != "any" {
@@ -333,7 +336,8 @@ func (c *Conn) finish(ctx context.Context, op string, err error) error {
 
 // Send transmits a frame. A CAN FD frame needs a socket opened with
 // [WithFD]. When the interface's transmit queue is full (ENOBUFS), Send
-// retries until ctx ends.
+// retries until ctx ends. Sends are serialized: one that waits for another
+// to finish ends with its context or with Close.
 func (c *Conn) Send(ctx context.Context, f *canbus.Frame) error {
 	if c.closed.Load() {
 		return canbus.ErrClosed
@@ -350,8 +354,10 @@ func (c *Conn) Send(ctx context.Context, f *canbus.Frame) error {
 	if c.ifindex == 0 {
 		return &canbus.OpError{Op: "send", Interface: c.name, Err: fmt.Errorf("%w: a socket bound to all interfaces cannot send", canbus.ErrUnsupported)}
 	}
-	c.wmu.Lock()
-	defer c.wmu.Unlock()
+	if err := c.lockSend(ctx); err != nil {
+		return err
+	}
+	defer func() { <-c.wsem }()
 	n := marshal(f, &c.wbuf)
 	if err := c.write(ctx, c.wbuf[:n]); err != nil {
 		return err
@@ -377,8 +383,10 @@ func (c *Conn) SendXL(ctx context.Context, f *canbus.XLFrame) error {
 	if c.ifindex == 0 {
 		return &canbus.OpError{Op: "send", Interface: c.name, Err: fmt.Errorf("%w: a socket bound to all interfaces cannot send", canbus.ErrUnsupported)}
 	}
-	c.wmu.Lock()
-	defer c.wmu.Unlock()
+	if err := c.lockSend(ctx); err != nil {
+		return err
+	}
+	defer func() { <-c.wsem }()
 	n := marshalXL(f, c.xbuf)
 	if err := c.write(ctx, c.xbuf[:n]); err != nil {
 		return err
@@ -388,8 +396,27 @@ func (c *Conn) SendXL(ctx context.Context, f *canbus.XLFrame) error {
 	return nil
 }
 
+// lockSend takes the turn to send (wsem), which the caller gives back. It
+// returns the context's error or [canbus.ErrClosed] when ctx ends or the
+// socket is closed first.
+func (c *Conn) lockSend(ctx context.Context) error {
+	select {
+	case c.wsem <- struct{}{}:
+	case <-c.done:
+		return canbus.ErrClosed
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	// Close may have come with the turn (select takes any ready case).
+	if c.closed.Load() {
+		<-c.wsem
+		return canbus.ErrClosed
+	}
+	return nil
+}
+
 // write writes one kernel frame, retrying while the device queue is full.
-// The caller holds wmu.
+// The caller holds wsem.
 func (c *Conn) write(ctx context.Context, b []byte) error {
 	stop := watch(ctx, c.file, false)
 	defer stop()
@@ -405,6 +432,9 @@ func (c *Conn) write(ctx context.Context, b []byte) error {
 			case <-ctx.Done():
 				t.Stop()
 				return ctx.Err()
+			case <-c.done:
+				t.Stop()
+				return canbus.ErrClosed
 			case <-t.C:
 			}
 			backoff = min(2*backoff, 10*time.Millisecond)
@@ -600,10 +630,12 @@ func (c *Conn) Stats() canbus.Stats {
 }
 
 // Close closes the socket. Blocked Send and Receive calls return
-// [canbus.ErrClosed].
+// [canbus.ErrClosed], a Send that waits for another Send included. Close
+// is safe to call more than once and from multiple goroutines.
 func (c *Conn) Close() error {
 	if c.closed.Swap(true) {
 		return nil
 	}
+	close(c.done)
 	return c.file.Close()
 }

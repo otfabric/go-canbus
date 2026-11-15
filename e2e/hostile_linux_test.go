@@ -206,3 +206,33 @@ func TestHostilePeerKernelISOTPReceiver(t *testing.T) {
 		return
 	}
 }
+
+// TestSingleFrameFormsKernelISOTP: the kernel's ISO-TP receiver reads a
+// single frame in a CAN FD frame of more than 8 bytes in the escape form
+// only (net/can/isotp.c, isotp_rcv, N_PCI_SF), as the userspace receiver
+// does (isotp.TestSingleFrameForms). The short form in a 12-byte frame is
+// ignored: the single frame after it is the first message received.
+func TestSingleFrameFormsKernelISOTP(t *testing.T) {
+	ifc := vcan(t)
+	leakcheck.Check(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	p, err := socketcan.Open(ifc, socketcan.WithFD())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+	k := kernelISOTP(t, ifc)
+
+	short, err := canbus.NewFD(hostileRx, false, false, []byte{0x03, 0xAA, 0xBB, 0xCC, 0, 0, 0, 0, 0, 0, 0, 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Send(ctx, &short); err != nil {
+		t.Fatal(err)
+	}
+	peerFrame(t, p, 0x01, 0x5A)
+	if got, err := k.Receive(ctx); err != nil || len(got) != 1 || got[0] != 0x5A {
+		t.Fatalf("% X, %v; want 5A", got, err)
+	}
+}

@@ -77,7 +77,9 @@ func WithLogger(l *slog.Logger) Option {
 	return func(b *Bus) error { b.log = l; return nil }
 }
 
-// WithMetrics reports frames, drops, errors and state changes to m.
+// WithMetrics reports frames, drops, errors and state changes to m. See
+// [Metrics] for the goroutines the callbacks run on, what they may call
+// and what happens when one does not return normally.
 func WithMetrics(m Metrics) Option {
 	return func(b *Bus) error { b.metrics = m; return nil }
 }
@@ -120,6 +122,7 @@ func NewBus(t Transport, opts ...Option) (*Bus, error) {
 	if b.metrics == nil {
 		b.metrics = NopMetrics{}
 	}
+	b.metrics = guardMetrics(b.metrics, b.log)
 	b.xlMetrics, _ = b.metrics.(XLMetrics)
 	b.xt, _ = t.(XLTransport)
 	empty := []*Subscription{}
@@ -229,7 +232,12 @@ func (b *Bus) Err() error {
 func (b *Bus) Done() <-chan struct{} { return b.done }
 
 // Close stops the reader, closes every subscription and the transport.
-// It waits for the reader to stop and is safe to call more than once.
+// It waits for the reader to stop. Close is safe to call more than once
+// and from multiple goroutines; a call made while another one runs waits
+// for it. Blocked Send calls and the blocked Receive calls of the
+// subscriptions return [ErrClosed]. A [Metrics] callback on the reader
+// goroutine must not call it (it would wait for itself): it starts it with
+// "go bus.Close()".
 func (b *Bus) Close() error {
 	var err error
 	b.closeOnce.Do(func() {
@@ -645,7 +653,8 @@ func (s *Subscription) Received() uint64 { return s.received.Load() }
 func (s *Subscription) Dropped() uint64 { return s.dropped.Load() }
 
 // Close ends the subscription. Frames still queued can be read with
-// Receive until it returns [ErrClosed].
+// Receive until it returns [ErrClosed]; a Receive that waits returns it at
+// once. Close is safe to call more than once and from multiple goroutines.
 func (s *Subscription) Close() error {
 	s.bus.unsubscribe(s)
 	s.end(ErrClosed)

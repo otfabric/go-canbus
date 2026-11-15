@@ -6,8 +6,8 @@ A proposal for adding the CAN projects to otfabric.io
 protocol pages and an introduction post), written in the site's own words
 rather than copied from here: for example go-canbus is in the `transport`
 category with the standard `can-bus`. This file stays as the proposal and
-its facts are kept current. Reviewed as of go-canbus v0.9.1, canbusctl
-v0.11.1 and canbus-interop v0.7.0 (contract 1.4), 2026-11-13.
+its facts are kept current. Reviewed as of go-canbus v0.10.1, canbusctl
+v0.12.0 and canbus-interop v0.7.0 (contract 1.4), 2026-11-15.
 
 ## Positioning
 
@@ -38,7 +38,7 @@ v0.11.1 and canbus-interop v0.7.0 (contract 1.4), 2026-11-13.
   "protocols": ["can", "isotp", "dbc"],
   "status": "available",
   "install": "go get github.com/otfabric/go-canbus",
-  "description": "Classical CAN, CAN FD and CAN XL frames; Linux SocketCAN with kernel filters and zero-allocation I/O; serial-line (slcan) adapters on every OS; a deterministic virtual bus with fault injection; ISO-TP in userspace and through the kernel; capture and replay in candump, JSON Lines, pcap/pcapng, Vector ASC/BLF and PEAK TRC; DBC/KCD/ARXML databases with an exact signal codec and a Go code generator.",
+  "description": "Classical CAN, CAN FD and CAN XL frames; Linux SocketCAN with kernel filters and send and receive that do not allocate (for a context that cannot be cancelled); serial-line (slcan) adapters on every OS; a deterministic virtual bus with fault injection; ISO-TP in userspace and through the kernel; capture and replay in candump, JSON Lines, pcap/pcapng, Vector ASC/BLF and PEAK TRC; DBC/KCD/ARXML databases with an exact signal codec and a Go code generator.",
   "icon": "go-canbus"
 }
 ```

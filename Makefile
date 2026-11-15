@@ -125,8 +125,9 @@ coverage-pkg-check: coverage ## Fail when a package is below COVER_PKG_MIN (read
 cover: coverage ## Open the coverage report in a browser
 	@go tool cover -html=coverage.out
 
+# The packages that have benchmarks (./socketcan needs Linux with vcan0).
 bench: ## Run the benchmarks
-	@go test -count=1 -run='^$$' -bench=. -benchmem ./ ./candb/bits ./socketcan ./capture
+	@go test -count=1 -run='^$$' -bench=. -benchmem ./ ./candb ./candb/bits ./socketcan
 
 test-captures: ## Run the recorded-traffic tests on the whole committed logs (no -race; tshark checks with CANBUS_REQUIRE_TSHARK=1)
 	@go test -count=1 -timeout 20m -run 'Vehicle|PCAPFDFlag' ./capture
@@ -137,28 +138,10 @@ captures-extended: ## Fetch the whole vehicle recordings (about 1.1 GB download)
 	@CANBUS_REQUIRE_CAPTURES=1 go test -count=1 -timeout 30m -run '^TestExtendedVehicleCorpus$$' -v ./capture
 
 FUZZTIME ?= 30s
-fuzz: ## Run every fuzz target for FUZZTIME (default 30s)
-	@go test -run='^$$' -fuzz='^FuzzFilter$$' -fuzztime=$(FUZZTIME) .
-	@go test -run='^$$' -fuzz='^FuzzParseXLFrame$$' -fuzztime=$(FUZZTIME) .
-	@go test -run='^$$' -fuzz='^FuzzUnmarshal$$' -fuzztime=$(FUZZTIME) ./socketcan
-	@go test -run='^$$' -fuzz='^FuzzParseLink$$' -fuzztime=$(FUZZTIME) ./socketcan/link
-	@go test -run='^$$' -fuzz='^FuzzParseFrame$$' -fuzztime=$(FUZZTIME) ./capture
-	@go test -run='^$$' -fuzz='^FuzzReaders$$' -fuzztime=$(FUZZTIME) ./capture
-	@go test -run='^$$' -fuzz='^FuzzRoundTrip$$' -fuzztime=$(FUZZTIME) ./capture
-	@go test -run='^$$' -fuzz='^FuzzParseFrame$$' -fuzztime=$(FUZZTIME) ./slcan
-	@go test -run='^$$' -fuzz='^FuzzParseStatus$$' -fuzztime=$(FUZZTIME) ./slcan
-	@go test -run='^$$' -fuzz='^FuzzParse$$' -fuzztime=$(FUZZTIME) ./dbc
-	@go test -run='^$$' -fuzz='^FuzzParse$$' -fuzztime=$(FUZZTIME) ./kcd
-	@go test -run='^$$' -fuzz='^FuzzParse$$' -fuzztime=$(FUZZTIME) ./arxml
-	@go test -run='^$$' -fuzz='^FuzzReceiver$$' -fuzztime=$(FUZZTIME) ./isotp
-	@go test -run='^$$' -fuzz='^FuzzCodec$$' -fuzztime=$(FUZZTIME) ./candb
-	@go test -run='^$$' -fuzz='^FuzzMessageRoundTrip$$' -fuzztime=$(FUZZTIME) ./candb
-	@go test -run='^$$' -fuzz='^FuzzInsertExtract$$' -fuzztime=$(FUZZTIME) ./candb/bits
-	@go test -run='^$$' -fuzz='^FuzzRoundTrip$$' -fuzztime=$(FUZZTIME) ./kcd
-	@go test -run='^$$' -fuzz='^FuzzSenderFlowControl$$' -fuzztime=$(FUZZTIME) ./isotp
-	@go test -run='^$$' -fuzz='^FuzzConnStream$$' -fuzztime=$(FUZZTIME) ./slcan
-	@go test -run='^$$' -fuzz='^FuzzNetlinkStream$$' -fuzztime=$(FUZZTIME) ./socketcan/link
-	@go test -run='^$$' -fuzz='^FuzzParseCmsgs$$' -fuzztime=$(FUZZTIME) ./socketcan
+# The targets are discovered (go test -list '^Fuzz' per package), never
+# listed here: a new fuzz target is run without a change to this file.
+fuzz: ## Run every fuzz target of every package for FUZZTIME (default 30s)
+	@FUZZTIME='$(FUZZTIME)' scripts/fuzz.sh $(TEST_PKGS)
 
 generate: ## Regenerate the code generator's golden output
 	@go generate ./codegen

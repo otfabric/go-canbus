@@ -68,9 +68,13 @@ type Bus struct {
 	name  string
 	clock func() time.Time
 
-	sendMu sync.Mutex // orders fault decisions with queueing
-	rng    *rand.Rand
-	faults Faults
+	// sendSem is held by the one frame being queued: it orders the fault
+	// decisions with the queueing. A channel rather than a mutex, so that
+	// a Send waiting for it follows its context and Close.
+	sendSem chan struct{}
+	fmu     sync.Mutex // guards rng and faults; never held while waiting
+	rng     *rand.Rand
+	faults  Faults
 
 	queue chan item
 	stop  chan struct{}
@@ -115,13 +119,14 @@ func New(cfg Config) *Bus {
 		cfg.Clock = time.Now
 	}
 	b := &Bus{
-		name:  cfg.Name,
-		clock: cfg.Clock,
-		rng:   rand.New(rand.NewSource(cfg.Seed)),
-		queue: make(chan item, cfg.QueueSize),
-		stop:  make(chan struct{}),
-		done:  make(chan struct{}),
-		up:    true,
+		name:    cfg.Name,
+		clock:   cfg.Clock,
+		rng:     rand.New(rand.NewSource(cfg.Seed)),
+		queue:   make(chan item, cfg.QueueSize),
+		sendSem: make(chan struct{}, 1),
+		stop:    make(chan struct{}),
+		done:    make(chan struct{}),
+		up:      true,
 	}
 	go b.dispatch()
 	return b
@@ -132,9 +137,9 @@ func (b *Bus) Name() string { return b.name }
 
 // SetFaults replaces the fault configuration.
 func (b *Bus) SetFaults(f Faults) {
-	b.sendMu.Lock()
+	b.fmu.Lock()
 	b.faults = f
-	b.sendMu.Unlock()
+	b.fmu.Unlock()
 }
 
 // FaultStats reports how many frames were delivered and affected by
@@ -193,7 +198,7 @@ func (b *Bus) Inject(ctx context.Context, f canbus.Frame) error {
 	if err := f.Validate(); err != nil {
 		return err
 	}
-	return b.enqueue(ctx, item{f: f})
+	return b.enqueue(ctx, item{f: f}, nil)
 }
 
 // InjectXL delivers a CAN XL frame to every port opened [WithXL], as if a
@@ -204,35 +209,79 @@ func (b *Bus) InjectXL(ctx context.Context, x canbus.XLFrame) error {
 		return err
 	}
 	c := x.Clone()
-	return b.enqueue(ctx, item{x: &c})
+	return b.enqueue(ctx, item{x: &c}, nil)
 }
 
 // InjectRaw delivers a frame without validating it, to test how receivers
 // handle frames a conforming transport never produces (a classical frame
 // with 9 bytes, an unknown flag, garbage beyond Len).
 func (b *Bus) InjectRaw(ctx context.Context, f canbus.Frame) error {
-	return b.enqueue(ctx, item{f: f})
+	return b.enqueue(ctx, item{f: f}, nil)
 }
 
 // InjectError delivers an error frame to every port whose error mask
 // selects it.
 func (b *Bus) InjectError(ctx context.Context, info canbus.ErrorInfo) error {
-	return b.enqueue(ctx, item{f: canbus.NewErrorFrame(info)})
+	return b.enqueue(ctx, item{f: canbus.NewErrorFrame(info)}, nil)
 }
 
 // enqueue applies the faults to it and queues it. A CAN XL frame (it.x)
-// must be the bus's own copy: corruption modifies it.
-func (b *Bus) enqueue(ctx context.Context, it item) error {
+// must be the bus's own copy: corruption modifies it. closed is the
+// sending port's (nil for an injected frame): waiting for a turn or for
+// room in the queue ends with ctx, with the bus and with that port.
+func (b *Bus) enqueue(ctx context.Context, it item, closed <-chan struct{}) error {
 	if err := b.usable(); err != nil {
 		return err
 	}
-	b.sendMu.Lock()
-	defer b.sendMu.Unlock()
+	select {
+	case b.sendSem <- struct{}{}:
+	case <-b.stop:
+		return canbus.ErrClosed
+	case <-closed:
+		return canbus.ErrClosed
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	defer func() { <-b.sendSem }()
+	// The bus or the port may have been closed with the turn (select takes
+	// any ready case): nothing is queued after either.
+	select {
+	case <-b.stop:
+		return canbus.ErrClosed
+	case <-closed:
+		return canbus.ErrClosed
+	default:
+	}
+	n, ok := b.applyFaults(&it)
+	if !ok {
+		return nil
+	}
+	for i := 0; i < n; i++ {
+		select {
+		case b.queue <- it:
+		case <-b.stop:
+			return canbus.ErrClosed
+		case <-closed:
+			return canbus.ErrClosed
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+		it.delay = 0
+	}
+	return nil
+}
+
+// applyFaults decides the faults of it and returns how many times it is
+// queued; ok is false when it is dropped. The caller holds sendSem, which
+// keeps the decisions in the order of the queue.
+func (b *Bus) applyFaults(it *item) (n int, ok bool) {
+	b.fmu.Lock()
+	defer b.fmu.Unlock()
 	fl := &b.faults
 	if fl.DropNext > 0 {
 		fl.DropNext--
 		b.dropped.Add(1)
-		return nil
+		return 0, false
 	}
 	// Draw all four values every time so the sequence does not depend on
 	// which faults are enabled.
@@ -240,7 +289,7 @@ func (b *Bus) enqueue(ctx context.Context, it item) error {
 	bit := b.rng.Intn(512)
 	if pDrop < fl.Drop {
 		b.dropped.Add(1)
-		return nil
+		return 0, false
 	}
 	if pDelay < fl.Delay {
 		it.delay = fl.DelayBy
@@ -256,22 +305,12 @@ func (b *Bus) enqueue(ctx context.Context, it item) error {
 		it.f.Data[bit/8] ^= 1 << (bit % 8)
 		b.corrupted.Add(1)
 	}
-	n := 1
+	n = 1
 	if pDup < fl.Duplicate {
 		n = 2
 		b.duplicated.Add(1)
 	}
-	for i := 0; i < n; i++ {
-		select {
-		case b.queue <- it:
-		case <-b.stop:
-			return canbus.ErrClosed
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-		it.delay = 0
-	}
-	return nil
+	return n, true
 }
 
 func (b *Bus) dispatch() {
@@ -328,7 +367,10 @@ func (b *Bus) deliver(it *item) {
 	}
 }
 
-// Close closes every port and stops the bus.
+// Close closes every port and stops the bus: blocked Send, Receive and
+// Inject calls return [canbus.ErrClosed]. Close is safe to call more than
+// once and from multiple goroutines; a call made while another one runs
+// waits for it.
 func (b *Bus) Close() error {
 	b.once.Do(func() {
 		b.mu.Lock()
@@ -489,7 +531,10 @@ func (p *Port) Capabilities() canbus.Capabilities {
 }
 
 // Send queues a frame for delivery. A CAN FD frame on a port opened
-// without [WithFD] fails with [canbus.ErrUnsupported].
+// without [WithFD] fails with [canbus.ErrUnsupported]. Frames are queued
+// one at a time: a Send that waits for room on the bus, or for another
+// Send that does, ends with its context, with Close of its port and with
+// Close of the bus.
 func (p *Port) Send(ctx context.Context, f *canbus.Frame) error {
 	select {
 	case <-p.closed:
@@ -505,7 +550,7 @@ func (p *Port) Send(ctx context.Context, f *canbus.Frame) error {
 	if f.Flags&canbus.FlagFD != 0 && !p.fd {
 		return fmt.Errorf("%w: CAN FD frame on a classical port", canbus.ErrUnsupported)
 	}
-	if err := p.bus.enqueue(ctx, item{f: *f, from: p}); err != nil {
+	if err := p.bus.enqueue(ctx, item{f: *f, from: p}, p.closed); err != nil {
 		return err
 	}
 	p.txFrames.Add(1)
@@ -530,7 +575,7 @@ func (p *Port) SendXL(ctx context.Context, x *canbus.XLFrame) error {
 	}
 	c := x.Clone()
 	c.Echo = false
-	if err := p.bus.enqueue(ctx, item{x: &c, from: p}); err != nil {
+	if err := p.bus.enqueue(ctx, item{x: &c, from: p}, p.closed); err != nil {
 		return err
 	}
 	p.txFrames.Add(1)
@@ -595,8 +640,10 @@ func (p *Port) ReceiveAny(ctx context.Context, f *canbus.Frame, x *canbus.XLFram
 	return false, nil
 }
 
-// Close detaches the port from the bus; blocked calls return
-// [canbus.ErrClosed].
+// Close detaches the port from the bus; its blocked calls return
+// [canbus.ErrClosed], a Send that waits for room on the bus or for
+// another Send included. Close is safe to call more than once and from
+// multiple goroutines.
 func (p *Port) Close() error {
 	p.closeErr.Do(func() {
 		close(p.closed)

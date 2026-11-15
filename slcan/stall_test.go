@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/otfabric/go-canbus"
@@ -37,8 +38,15 @@ type noDeadlines struct{ io.ReadWriteCloser }
 // its context nor Close.
 func TestStalledPeer(t *testing.T) {
 	leakcheck.Check(t)
+	// Each case runs in a testing/synctest bubble (a Conn on a net.Pipe
+	// blocks on channels and timers only): the test goes on when the
+	// blocked call is known to wait (synctest.Wait) and the deadlines,
+	// within included, take fake time.
+	bubble := func(t *testing.T, name string, f func(t *testing.T)) {
+		t.Run(name, func(t *testing.T) { synctest.Test(t, f) })
+	}
 	f, _ := canbus.NewStandard(0x123, []byte{1})
-	t.Run("Send ends at its deadline", func(t *testing.T) {
+	bubble(t, "Send ends at its deadline", func(t *testing.T) {
 		c, _ := newPeer(t, Config{})
 		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 		defer cancel()
@@ -53,7 +61,7 @@ func TestStalledPeer(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
-	t.Run("Send ends at cancellation", func(t *testing.T) {
+	bubble(t, "Send ends at cancellation", func(t *testing.T) {
 		c, _ := newPeer(t, Config{})
 		ctx, cancel := context.WithCancel(context.Background())
 		time.AfterFunc(30*time.Millisecond, cancel)
@@ -62,11 +70,11 @@ func TestStalledPeer(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
-	t.Run("Send waiting behind a blocked Send", func(t *testing.T) {
+	bubble(t, "Send waiting behind a blocked Send", func(t *testing.T) {
 		c, _ := newPeer(t, Config{})
 		blocked := make(chan error, 1)
 		go func() { blocked <- c.Send(context.Background(), &f) }()
-		time.Sleep(20 * time.Millisecond)
+		synctest.Wait() // the Send waits in its write
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
 		defer cancel()
 		if err := within(t, time.Second, "Send", func() error { return c.Send(ctx, &f) }); !errors.Is(err, context.DeadlineExceeded) {
@@ -79,11 +87,11 @@ func TestStalledPeer(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
-	t.Run("Close with a Send blocked without deadline", func(t *testing.T) {
+	bubble(t, "Close with a Send blocked without deadline", func(t *testing.T) {
 		c, _ := newPeer(t, Config{})
 		blocked := make(chan error, 1)
 		go func() { blocked <- c.Send(context.Background(), &f) }()
-		time.Sleep(20 * time.Millisecond)
+		synctest.Wait() // the Send waits in its write
 		if err := within(t, 500*time.Millisecond, "Close", c.Close); err != nil {
 			t.Fatal(err)
 		}
@@ -91,7 +99,7 @@ func TestStalledPeer(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
-	t.Run("stream without write deadlines", func(t *testing.T) {
+	bubble(t, "stream without write deadlines", func(t *testing.T) {
 		a, b := net.Pipe()
 		defer b.Close()
 		c, err := New(noDeadlines{a}, Config{NoCommands: true})
@@ -100,7 +108,7 @@ func TestStalledPeer(t *testing.T) {
 		}
 		blocked := make(chan error, 1)
 		go func() { blocked <- c.Send(context.Background(), &f) }()
-		time.Sleep(20 * time.Millisecond)
+		synctest.Wait() // the Send waits in its write
 		if err := within(t, 500*time.Millisecond, "Close", c.Close); err != nil {
 			t.Fatal(err)
 		}
@@ -108,7 +116,7 @@ func TestStalledPeer(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
-	t.Run("closing C to a stream without write deadlines", func(t *testing.T) {
+	bubble(t, "closing C to a stream without write deadlines", func(t *testing.T) {
 		a, b := net.Pipe()
 		defer b.Close()
 		c, err := New(noDeadlines{a}, Config{NoCommands: true})
@@ -124,7 +132,7 @@ func TestStalledPeer(t *testing.T) {
 			t.Fatalf("Close returned after %v, before the closing C had its %v", d, closeWriteTimeout)
 		}
 	})
-	t.Run("Bus and isotp on a stalled stream", func(t *testing.T) {
+	bubble(t, "Bus and isotp on a stalled stream", func(t *testing.T) {
 		c, p := newPeer(t, Config{})
 		bus, err := canbus.NewBus(c)
 		if err != nil {
@@ -135,7 +143,7 @@ func TestStalledPeer(t *testing.T) {
 			t.Fatal(err)
 		}
 		p.write(t, "t7E881014010203040506\r") // first frame: the flow control write stalls
-		time.Sleep(50 * time.Millisecond)
+		synctest.Wait()                       // the flow control waits in its write
 		if err := within(t, 500*time.Millisecond, "isotp Close", ic.Close); err != nil {
 			t.Fatal(err)
 		}

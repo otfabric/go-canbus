@@ -22,6 +22,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/otfabric/go-canbus"
 	"github.com/otfabric/go-canbus/candb"
 	"github.com/otfabric/go-canbus/candb/bits"
 )
@@ -41,7 +42,8 @@ type Options struct {
 }
 
 // Generate returns the Go source for db. The database must validate
-// without errors.
+// without errors, and every message must have a length a frame carries
+// (0 to 64 bytes): the generated Encode sizes its payload from it.
 func Generate(db *candb.Database, opts Options) ([]byte, error) {
 	if !token(opts.Package) {
 		return nil, fmt.Errorf("codegen: invalid package name %q", opts.Package)
@@ -51,6 +53,9 @@ func Generate(db *candb.Database, opts Options) ([]byte, error) {
 			return nil, fmt.Errorf("codegen: database has errors: %s", d)
 		}
 	}
+	if err := checkLengths(db); err != nil {
+		return nil, err
+	}
 	g := &gen{db: db, opts: opts, used: map[string]bool{}, next: map[string]int{}}
 	g.file()
 	out, err := format.Source(g.buf.Bytes())
@@ -58,6 +63,18 @@ func Generate(db *candb.Database, opts Options) ([]byte, error) {
 		return nil, fmt.Errorf("codegen: generated code does not compile (generator bug): %v\n%s", err, g.buf.String())
 	}
 	return out, nil
+}
+
+// checkLengths returns an error for a message whose length no frame
+// carries. Generate checks it itself, whatever Validate reports: the
+// payload size and every signal position of the generated code rest on it.
+func checkLengths(db *candb.Database) error {
+	for _, m := range db.Messages {
+		if m.Length < 0 || m.Length > canbus.MaxFDLen {
+			return fmt.Errorf("codegen: message %s has length %d (0 to %d bytes)", strconv.Quote(m.Name), m.Length, canbus.MaxFDLen)
+		}
+	}
+	return nil
 }
 
 // GenerateJSON returns the database as an indented JSON descriptor for

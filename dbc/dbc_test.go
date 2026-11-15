@@ -444,7 +444,13 @@ func TestCRLF(t *testing.T) {
 }
 
 func TestLexerDetails(t *testing.T) {
-	toks, err := lex("A 0x1F \"s\" ; 1e-3 2abc")
+	var toks []token
+	var err error
+	for lx := newLexer("A 0x1F \"s\" ; 1e-3 2abc"); err == nil && (len(toks) == 0 || toks[len(toks)-1].kind != tEOF); {
+		var tok token
+		tok, err = lx.next(true)
+		toks = append(toks, tok)
+	}
 	if err != nil || len(toks) != 7 {
 		t.Fatal(toks, err)
 	}

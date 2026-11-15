@@ -36,6 +36,11 @@ type Conn struct {
 
 	// struct sockaddr_can of the sender
 
+	// wsem is held by the one send in progress; a channel rather than a
+	// mutex so that a send waiting for it follows its context and Close.
+
+	// closed by Close
+
 	// CAN XL send buffer, allocated by Open with WithXL
 	// what doWrite writes
 
@@ -68,7 +73,7 @@ Capabilities describes the socket.
 func (c *Conn) Close() error
 ```
 
-Close closes the socket. Blocked Send and Receive calls return [canbus.ErrClosed](https://pkg.go.dev/github.com/otfabric/go-canbus#ErrClosed).
+Close closes the socket. Blocked Send and Receive calls return [canbus.ErrClosed](https://pkg.go.dev/github.com/otfabric/go-canbus#ErrClosed), a Send that waits for another Send included. Close is safe to call more than once and from multiple goroutines.
 
 #### func (Conn) Drops
 
@@ -116,7 +121,7 @@ ReceiveXL waits for the next CAN XL frame on a socket opened with [WithXL](#func
 func (c *Conn) Send(ctx context.Context, f *canbus.Frame) error
 ```
 
-Send transmits a frame. A CAN FD frame needs a socket opened with [WithFD](#func-withfd). When the interface's transmit queue is full (ENOBUFS), Send retries until ctx ends.
+Send transmits a frame. A CAN FD frame needs a socket opened with [WithFD](#func-withfd). When the interface's transmit queue is full (ENOBUFS), Send retries until ctx ends. Sends are serialized: one that waits for another to finish ends with its context or with Close.
 
 #### func (Conn) SendXL
 
@@ -166,7 +171,7 @@ DialISOTP opens a kernel ISO-TP socket on the interface with the same configurat
 func (c *ISOTPConn) Close() error
 ```
 
-Close closes the socket.
+Close closes the socket. A blocked Receive returns [canbus.ErrClosed](https://pkg.go.dev/github.com/otfabric/go-canbus#ErrClosed); a transfer that Send has started is not ended by it (see Send). Close is safe to call more than once and from multiple goroutines.
 
 #### func (ISOTPConn) Receive
 

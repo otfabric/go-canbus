@@ -24,7 +24,12 @@ has every symbol; this is the map.
 Concurrency: `Bus.Send` from any goroutine; one `Subscription.Receive`
 caller per subscription; `Subscribe`/`Close` any time. A `Transport`
 allows concurrent `Send` and one `Receive` at a time. `Close` unblocks
-everything with `ErrClosed`.
+everything with `ErrClosed`, is safe to call more than once and from
+multiple goroutines, and a `Send` that waits for another `Send` to finish
+(`isotp.Conn`, `virtual`, `socketcan`, `slcan`) ends with its context or
+with `Close`. What a `Metrics` callback may call, and that it starts a
+`Close` with `go`, is in [OBSERVABILITY.md](OBSERVABILITY.md); the
+contract tests are listed in [TESTING.md](TESTING.md).
 
 ## socketcan (Linux)
 
@@ -52,7 +57,7 @@ DataBitrate, DataSamplePoint, Set, Clear, RestartMs})`, `Restart`,
 | Identifier | Purpose |
 |------------|---------|
 | `Open(device, baud, Config)` | A serial adapter through go-serial (115200 baud by default; USB adapters ignore it) |
-| `New(io.ReadWriteCloser, Config)` | slcan over any byte stream: a pseudo-terminal, a TCP connection to a serial server |
+| `New(io.ReadWriteCloser, Config)` | slcan over any byte stream: a pseudo-terminal, a TCP connection to a serial server. `New` and `Open` check the configuration before they write or open anything; when `New` returns an error it has closed the stream, and a failed `Open` leaves no port open |
 | `Config` (`Bitrate`, `DataBitrate`, `ListenOnly`, `NoCommands`, `Name`, `QueueSize`), `Bitrates`, `DataBitrates` | Setup: "C", "S0".."S9", "Y2"/"Y5", then "O" or "L"; `NoCommands` for peers that are not adapters |
 | `Conn` | `canbus.Transport` with `Name`, `Capabilities`, `Stats`, `Drops`, `SetFilters` (software; error frames only with an `ErrorMask`, as in SocketCAN) and `State` (controller state and error counters of the last "s" record); a lost device is `canbus.ErrInterfaceDown` |
 | `AppendFrame`, `ParseFrame` | The record codec ("t", "T", "r", "R", "d", "D", "b", "B") |

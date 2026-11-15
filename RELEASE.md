@@ -5,6 +5,64 @@ it computes the version, tags it and publishes this file's section of
 that version as the release notes. Add the section, headed exactly
 `## vX.Y.Z` and closed by a line `---`, before running it.
 
+## v0.10.1
+
+**Date:** 2026-11-15
+**Previous release:** v0.10.0
+
+### Summary
+
+Fixed bounds for message databases and capture files, the lifecycle
+contracts of `Send`, `Close` and the metrics callbacks, and the tests and
+documents that go with them. No exported identifier is added, removed or
+changed; the behaviour changes below can turn inputs that were accepted
+into errors.
+
+### Behaviour changes
+
+- `candb`, `kcd`, `arxml`, `codegen`: a message length no frame carries is an error diagnostic: more than 64 bytes, more than 8 without CAN FD, or negative. `kcd.Parse` and `arxml.Parse` return a `*ParseError` for a file with such a message, and `codegen.Generate` an error; it checks the lengths itself as well as through `Validate`. A CAN FD length between two frame lengths (13, say) stays a warning.
+- `dbc`, `kcd`, `arxml`: input bounds. DBC source and KCD documents of at most 64 MiB, ARXML documents of at most 1 GiB, and at most 2^18 signals per database in DBC and KCD, as in ARXML. Beyond a bound, `Parse` returns a `*ParseError`: for the size with an empty database, for the signals with what was read so far. `dbc.ParseFile` reads through the same bound. The bounds are fixed.
+- `dbc`: tokens are produced one at a time, so the memory of a parse follows the source and the database, not the number of tokens.
+- `candb`: `Database.Validate` bounds its overlap check per database at 2^24 steps (one per pair of signals whose bit ranges meet, plus the multiplexer conditions built and compared). Where they end, the count of the pairs not listed says "at least", one warning says that the check ended, and the signals and messages after it are not checked for overlaps. Databases below the bound get the diagnostics they got.
+- `dbc`: an INT or HEX attribute value that is not an integer of 64 bits (beyond the range, infinite) does not match its attribute: an error diagnostic for a value, a warning for a default. A FLOAT `GenSigStartValue` that does not round to an integer of 64 bits gives the signal no initial value, with a warning. The result is the same on every platform.
+- `capture`, pcapng: timestamp resolutions (`if_tsresol`) down to 10^-19 s and 2^-63 s are read exactly; a finer one is a `*ParseError` for the packets of that interface. A section holds at most 65536 interface descriptions.
+- `capture`, pcap: a record whose fraction is a second or more is a `*ParseError`.
+- `capture`, BLF: a start time with a field outside its range, a day the month does not have or a year outside 1601..9999 is a `*ParseError`, as is a frame whose time lies after the year 9999.
+- `capture`: `Replay` takes a gap between two records, or an interval of `Rate`, that no `time.Duration` holds as the longest wait there is, on every platform.
+- `isotp`: a single frame in a CAN FD frame of more than 8 bytes is read in the escape form only, as the Linux kernel reads it; the short form there is ignored.
+- `isotp`, `virtual`, `socketcan`: a `Send` that waits for another `Send` to finish ends with its context or with `Close`, and then sends nothing. `virtual.Port.Close` ends the port's `Send` that waits for room on the bus, and `virtual.Bus.SetFaults` does not wait for a `Send` in progress.
+- `slcan`: `New` and `Open` check the configuration before they write or open anything. `Open` with a bit rate that has no command opens no port; when `New` returns an error it has closed the stream it owns.
+- `canbus`, `isotp`: a `Metrics` callback that does not return normally is stopped where the library calls it and logged at error level with the value it ended with and the stack (`WithLogger`, `Config.Logger`); the bus or connection goes on as if the callback had returned.
+- **slcan** is built on go-serial v0.4.1 (was v0.4.0): on Windows a serial write that times out returns an error together with the bytes written, on Linux, macOS and the BSDs a port path that is not a character device is refused when it is opened, and reads wait correctly on OpenBSD (go-serial RELEASE.md, v0.4.1).
+
+### Documentation
+
+- The callback contract of `canbus.Metrics` and `isotp.Metrics`: which goroutine calls which callback, what a callback may call, and that it closes the bus or connection with `go x.Close()` (the doc comments and OBSERVABILITY.md).
+- "Close is safe to call more than once and from multiple goroutines" on every `Close`, and what a blocked call returns.
+- SECURITY.md: every input bound in one table, with the test of each. LIMITATIONS.md, ERRORS.md, API.md and the API reference (`docs/api`) follow the changes above.
+- ARCHITECTURE.md: `arxml`, `chaos`, CAN XL, pcapng, ASC, BLF and TRC; `kcd` also writes; the allocation statements name their benchmarks and the context they hold for (also in README.md, REQUIREMENTS.md and TESTING.md).
+- TESTING.md: the lifecycle contract matrix (rows L1 to L16 for `Bus`, `Subscription`, `virtual`, `slcan`, `isotp.Conn`, `socketcan.Conn` and `ISOTPConn`). docs/FEATURE-STATUS.md, ROADMAP.md and PROGRESS.md name this release.
+
+### Tests
+
+- A table test at the boundaries for every bound and range above, and an allocation budget for the size bounds; `FuzzParse` of `arxml` and `kcd` now asserts that every message of a database that parsed decodes.
+- Lifecycle contract tests in `testing/synctest` bubbles for `canbus.Bus`, `Subscription`, `virtual`, `isotp.Conn` and `slcan.Conn`: Close twice and from several goroutines, Close during a blocked read and during a write, a cancelled call, a callback that calls the bus and one that closes it, a failed constructor. The Close tests that waited a fixed time before `Close` wait for the blocked call instead.
+- `socketcan`: `TestSendTurn` (no interface needed), `TestCloseConcurrently`, and the kernel's reading of single frame forms next to the userspace one (`e2e`).
+- `FuzzParseLink` asserts what it parses. Benchmarks: `BenchmarkFrame*` in the root package, `BenchmarkMessageCodec`, SocketCAN with a context that can be cancelled and through a `Bus`; `BenchmarkExtractBE` keeps its result.
+
+### CI
+
+- `make fuzz` discovers the fuzz targets (`scripts/fuzz.sh`, `go test -list '^Fuzz'`); `make bench` runs the packages that have benchmarks.
+- The Nightly workflow also runs every fuzz target for 5 minutes and the tests with `GOARCH=386`. The Interop workflow and the nightly chaos job require kernel ISO-TP unconditionally (`CANBUS_REQUIRE_ISOTP: "1"`), as the vcan job does.
+- The Release workflow builds, vets and tests go-canopen and canbusctl against the release candidate (`consumers`).
+
+### Planned for v0.11.0
+
+Additions to the API, which a patch release does not make: an end of reception that stays on `isotp.Conn` (`Done`, `Err`) and a counter for the messages it drops; input bounds a caller can set; the range check of the generated `Set…Phys` methods aligned with `candb.Signal.RawFromPhysical` (a new `codegen.Version`).
+
+---
+
+
 ## v0.10.0
 
 **Date:** 2026-11-14

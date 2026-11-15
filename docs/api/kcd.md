@@ -14,6 +14,8 @@ The offset of a big-endian signal is taken as the index of its most significant 
 
 A LabelGroup expands to one value description per value. Groups of more than 256 values are not expanded, and at most 1048576 (2^20) values are expanded from LabelGroups per database; groups beyond either bound are ignored with a warning.
 
+Bounds on untrusted input: a document of more than 64 MiB is not parsed and a database holds at most 262144 (2^18) signals; beyond either, [Parse](#func-parse) returns a \*[ParseError](#type-parseerror) (at the signal bound with the messages read so far).
+
 ## Functions
 
 ### func Parse
@@ -22,7 +24,7 @@ A LabelGroup expands to one value description per value. Groups of more than 256
 func Parse(r io.Reader) (*candb.Database, []candb.Diagnostic, error)
 ```
 
-Parse parses KCD XML. Like dbc.Parse it returns the database, every diagnostic and, when any is an error, a \*[ParseError](#type-parseerror).
+Parse parses KCD XML. Like dbc.Parse it returns the database, every diagnostic and, when any is an error, a \*[ParseError](#type-parseerror). A document beyond the bounds of the package documentation is a \*[ParseError](#type-parseerror) too.
 
 ### func ParseFile
 

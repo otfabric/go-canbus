@@ -61,7 +61,7 @@ Status column: **done** = implemented and tested (test named), **partial**,
 | N-2 | ≥ 90 % statement coverage of production packages (generated test fixtures and examples excluded, documented in TESTING.md) |
 | N-3 | Race detector clean; concurrency stress tests; goroutine leak checks |
 | N-4 | Fuzz targets for every parser/decoder of untrusted input |
-| N-5 | Zero allocations on the SocketCAN and virtual send/receive hot paths (benchmarked) |
+| N-5 | No allocation on the SocketCAN send/receive path for a context that cannot be cancelled (`BenchmarkSendReceive`); a frame is a plain value whose copy does not allocate (`BenchmarkFrameCopy`). A context that can be cancelled registers the cancellation for every SocketCAN call, and the virtual bus allocates its list of ports for every delivered frame (`BenchmarkFrameVirtualPort`: 16 bytes) |
 | N-6 | Every interoperability claim backed by an automated test against an independent implementation |
 | N-7 | Compiles on linux/{amd64,arm64,arm}, darwin/{amd64,arm64}, windows/{amd64,arm64} |
 

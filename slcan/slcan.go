@@ -107,9 +107,38 @@ type Conn struct {
 	txFrames, txBytes, rxFrames, rxBytes, rxErrors, dropped, txErrors, rxFailures atomic.Uint64
 }
 
-// New starts a Conn on rw, which it owns: Close closes it. Unless
-// cfg.NoCommands, it first sends the setup commands.
+// New starts a Conn on rw, which it owns: Close closes it, and when New
+// returns an error it has closed rw. Unless cfg.NoCommands, it first sends
+// the setup commands; the configuration is checked before anything is
+// written.
 func New(rw io.ReadWriteCloser, cfg Config) (*Conn, error) { return newConn(rw, cfg, false) }
+
+// setupCommands returns the commands that open the channel as cfg asks,
+// or an error for a bit rate without a command.
+func setupCommands(cfg Config) ([]string, error) {
+	if cfg.NoCommands {
+		return nil, nil
+	}
+	setup := []string{"C"}
+	if cfg.Bitrate != 0 {
+		s, ok := Bitrates[cfg.Bitrate]
+		if !ok {
+			return nil, fmt.Errorf("%w: slcan: bit rate %d", canbus.ErrInvalidOption, cfg.Bitrate)
+		}
+		setup = append(setup, s)
+	}
+	if cfg.DataBitrate != 0 {
+		s, ok := DataBitrates[cfg.DataBitrate]
+		if !ok {
+			return nil, fmt.Errorf("%w: slcan: data bit rate %d", canbus.ErrInvalidOption, cfg.DataBitrate)
+		}
+		setup = append(setup, s)
+	}
+	if cfg.ListenOnly {
+		return append(setup, "L"), nil
+	}
+	return append(setup, "O"), nil
+}
 
 func newConn(rw io.ReadWriteCloser, cfg Config, polled bool) (*Conn, error) {
 	if cfg.Name == "" {
@@ -118,28 +147,10 @@ func newConn(rw io.ReadWriteCloser, cfg Config, polled bool) (*Conn, error) {
 	if cfg.QueueSize <= 0 {
 		cfg.QueueSize = 1024
 	}
-	var setup []string
-	if !cfg.NoCommands {
-		setup = append(setup, "C")
-		if cfg.Bitrate != 0 {
-			s, ok := Bitrates[cfg.Bitrate]
-			if !ok {
-				return nil, fmt.Errorf("%w: slcan: bit rate %d", canbus.ErrInvalidOption, cfg.Bitrate)
-			}
-			setup = append(setup, s)
-		}
-		if cfg.DataBitrate != 0 {
-			s, ok := DataBitrates[cfg.DataBitrate]
-			if !ok {
-				return nil, fmt.Errorf("%w: slcan: data bit rate %d", canbus.ErrInvalidOption, cfg.DataBitrate)
-			}
-			setup = append(setup, s)
-		}
-		if cfg.ListenOnly {
-			setup = append(setup, "L")
-		} else {
-			setup = append(setup, "O")
-		}
+	setup, err := setupCommands(cfg)
+	if err != nil {
+		_ = rw.Close()
+		return nil, err
 	}
 	c := &Conn{rw: rw, cfg: cfg, polled: polled, ch: make(chan canbus.Frame, cfg.QueueSize), done: make(chan struct{}), ended: make(chan struct{}),
 		wsem: make(chan struct{}, 1), state: canbus.StateActive}
@@ -156,8 +167,12 @@ func newConn(rw io.ReadWriteCloser, cfg Config, polled bool) (*Conn, error) {
 
 // Open opens a serial adapter at device (for example /dev/ttyACM0 or
 // COM3) with the given serial baud rate (0: 115200; USB adapters ignore
-// it) and starts a Conn on it.
+// it) and starts a Conn on it. The configuration is checked before the
+// port is opened; when Open returns an error no port is left open.
 func Open(device string, baud int, cfg Config) (*Conn, error) {
+	if _, err := setupCommands(cfg); err != nil {
+		return nil, err
+	}
 	if baud == 0 {
 		baud = 115200
 	}
@@ -453,7 +468,9 @@ func (c *Conn) Receive(ctx context.Context, f *canbus.Frame) error {
 // wait on the peer: the "C" is skipped while a Send is writing and given
 // at most 100 ms otherwise; the device is closed regardless, which ends
 // a write still blocked. Once the device is gone, errors of closing it
-// are not reported.
+// are not reported. Blocked Send and Receive calls return
+// [canbus.ErrClosed]. Close is safe to call more than once and from
+// multiple goroutines; a call made while another one runs waits for it.
 func (c *Conn) Close() error {
 	err := canbus.ErrClosed
 	c.closeOnce.Do(func() {

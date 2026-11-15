@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"time"
 
 	"github.com/otfabric/go-canbus"
@@ -77,7 +78,7 @@ func Replay(ctx context.Context, r Reader, s Sender, opts ReplayOptions) (st Rep
 	var first time.Time
 	var interval time.Duration
 	if opts.Rate > 0 {
-		interval = time.Duration(float64(time.Second) / opts.Rate)
+		interval = saturate(float64(time.Second) / opts.Rate)
 	}
 	var lastSend time.Time
 	timer := time.NewTimer(time.Hour)
@@ -107,7 +108,7 @@ func Replay(ctx context.Context, r Reader, s Sender, opts ReplayOptions) (st Rep
 			if first.IsZero() {
 				first = ts
 			}
-			offset := time.Duration(float64(ts.Sub(first)) / opts.Speed)
+			offset := saturate(float64(ts.Sub(first)) / opts.Speed)
 			if err := wait(start.Add(offset)); err != nil {
 				return err
 			}
@@ -205,6 +206,22 @@ func Replay(ctx context.Context, r Reader, s Sender, opts ReplayOptions) (st Rep
 			opts.OnFrame(&f)
 		}
 	}
+}
+
+// saturate converts a number of nanoseconds to a Duration: the nearest
+// one, so the longest or the shortest for a number beyond the range (a
+// gap of centuries in the trace, divided by a small Speed or Rate). The
+// plain conversion of such a float64 differs between platforms.
+func saturate(ns float64) time.Duration {
+	switch {
+	case ns >= math.MaxInt64: // 2^63 as a float64: the first value beyond
+		return math.MaxInt64
+	case ns <= math.MinInt64:
+		return math.MinInt64
+	case math.IsNaN(ns):
+		return 0
+	}
+	return time.Duration(ns)
 }
 
 var errLimit = errors.New("replay duration limit")

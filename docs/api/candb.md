@@ -206,6 +206,8 @@ func (db *Database) Validate() []Diagnostic
 
 Validate checks the database for problems the codec or the generator would trip over: identifiers out of range, invalid lengths, duplicate names, signals outside their message or of an impossible width, broken multiplexer references, and signals that overlap while both present.
 
+The overlap check is bounded: at most 64 overlapping pairs are listed per message, followed by a count of the others, and the check of one database takes at most 2^24 steps (one per pair of signals whose bit ranges meet, plus one per multiplexer condition built or compared). Where that ends, one warning says so and the signals and messages after it are not checked for overlaps.
+
 ### type DecodedSignal
 
 ```go

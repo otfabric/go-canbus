@@ -135,7 +135,7 @@ Conn is a CAN transport over slcan. It implements [canbus.Transport](https://pkg
 func New(rw io.ReadWriteCloser, cfg Config) (*Conn, error)
 ```
 
-New starts a Conn on rw, which it owns: Close closes it. Unless cfg.NoCommands, it first sends the setup commands.
+New starts a Conn on rw, which it owns: Close closes it, and when New returns an error it has closed rw. Unless cfg.NoCommands, it first sends the setup commands; the configuration is checked before anything is written.
 
 #### func Open
 
@@ -143,7 +143,7 @@ New starts a Conn on rw, which it owns: Close closes it. Unless cfg.NoCommands, 
 func Open(device string, baud int, cfg Config) (*Conn, error)
 ```
 
-Open opens a serial adapter at device (for example /dev/ttyACM0 or COM3) with the given serial baud rate (0: 115200; USB adapters ignore it) and starts a Conn on it.
+Open opens a serial adapter at device (for example /dev/ttyACM0 or COM3) with the given serial baud rate (0: 115200; USB adapters ignore it) and starts a Conn on it. The configuration is checked before the port is opened; when Open returns an error no port is left open.
 
 #### func (Conn) Capabilities
 
@@ -159,7 +159,7 @@ Capabilities describes slcan: CAN FD (with adapters that support it) and error f
 func (c *Conn) Close() error
 ```
 
-Close sends "C" (unless NoCommands) and closes the device. It does not wait on the peer: the "C" is skipped while a Send is writing and given at most 100 ms otherwise; the device is closed regardless, which ends a write still blocked. Once the device is gone, errors of closing it are not reported.
+Close sends "C" (unless NoCommands) and closes the device. It does not wait on the peer: the "C" is skipped while a Send is writing and given at most 100 ms otherwise; the device is closed regardless, which ends a write still blocked. Once the device is gone, errors of closing it are not reported. Blocked Send and Receive calls return [canbus.ErrClosed](https://pkg.go.dev/github.com/otfabric/go-canbus#ErrClosed). Close is safe to call more than once and from multiple goroutines; a call made while another one runs waits for it.
 
 #### func (Conn) Drops
 

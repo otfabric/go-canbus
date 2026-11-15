@@ -3,6 +3,7 @@
 package dbc
 
 import (
+	"errors"
 	"math"
 	"strconv"
 	"strings"
@@ -163,17 +164,38 @@ func (p *parser) convert(d *candb.AttributeDefinition, v token) (candb.Attribute
 		return a, err == nil && i >= 0 && (len(d.Enum) == 0 || i < int64(len(d.Enum)))
 	default: // int, hex
 		i, err := strconv.ParseInt(v.text, 0, 64)
+		if errors.Is(err, strconv.ErrRange) {
+			return a, false // an integer beyond 64 bits
+		}
 		if err != nil {
+			// Tools write integral values as "5.0" or "1e3".
 			f, ferr := strconv.ParseFloat(v.text, 64)
-			if ferr != nil || f != math.Trunc(f) {
+			if ferr != nil {
 				return a, false
 			}
-			i = int64(f)
+			var ok bool
+			if i, ok = exactInt64(f); !ok {
+				return a, false
+			}
 		}
 		a.Int = i
 		return a, true
 	}
 }
+
+// exactInt64 converts f to the int64 it is. ok is false when f is not one:
+// not a number, infinite, not integral or outside the int64 range. The
+// result is then 0, on every platform.
+func exactInt64(f float64) (v int64, ok bool) {
+	if f != math.Trunc(f) || f < -(1<<63) || f >= 1<<63 {
+		return 0, false
+	}
+	return int64(f), true
+}
+
+// startValue converts a FLOAT GenSigStartValue to an initial raw value,
+// rounded to the nearest integer. ok is false when there is none.
+func startValue(f float64) (v int64, ok bool) { return exactInt64(math.Round(f)) }
 
 func (p *parser) applyAttr(pa pendingAttr) {
 	d := p.attrDefs[attrDefKey{pa.attr.Name, pa.obj}]
@@ -230,9 +252,13 @@ func (p *parser) applyAttr(pa pendingAttr) {
 		}
 		s.Attributes = append(s.Attributes, a)
 		if a.Name == "GenSigStartValue" {
-			v := a.Int
+			v, ok := a.Int, true
 			if d.Type == candb.AttrFloat {
-				v = int64(math.Round(a.Float))
+				v, ok = startValue(a.Float)
+			}
+			if !ok {
+				p.diag(candb.Warning, pa.line, "signal "+m.Name+"."+s.Name, "GenSigStartValue %v is not an integer of 64 bits: no initial value", a.Float)
+				return
 			}
 			s.Initial = &v
 		}
@@ -266,13 +292,18 @@ func (p *parser) applyMappedDefaults() {
 		}
 	}
 	if d := p.attrDefs[attrDefKey{"GenSigStartValue", candb.ObjectSignal}]; d != nil && d.Default != nil {
+		def, ok := d.Default.Int, true
+		if d.Type == candb.AttrFloat {
+			def, ok = startValue(d.Default.Float)
+		}
+		if !ok {
+			p.diag(candb.Warning, 0, "", "default %v of GenSigStartValue is not an integer of 64 bits: no initial value", d.Default.Float)
+			return
+		}
 		for _, m := range p.db.Messages {
 			for _, s := range m.Signals {
 				if s.Initial == nil {
-					v := d.Default.Int
-					if d.Type == candb.AttrFloat {
-						v = int64(math.Round(d.Default.Float))
-					}
+					v := def
 					s.Initial = &v
 				}
 			}

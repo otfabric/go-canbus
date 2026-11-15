@@ -12,6 +12,8 @@ Supported: VERSION, BU\_, VAL\_TABLE\_, BO\_ and SG\_ (Intel and Motorola, signe
 
 Everything else (environment variables, signal types, relation attributes, categories, filters) is skipped with a warning diagnostic; nothing is dropped silently. There is no public specification of the format: behaviour follows the de facto Vector conventions and is cross-checked against cantools and canmatrix (see INTEROPERABILITY.md).
 
+Bounds on untrusted input: source of more than 64 MiB is not parsed and a database holds at most 262144 (2^18) signals; beyond either, [Parse](#func-parse) returns a \*[ParseError](#type-parseerror) (at the signal bound with what was read so far). The source is read whole and tokens are produced one at a time, so memory grows with the source and with the database built from it, not with the number of tokens.
+
 ## Variables
 
 ```go
@@ -28,7 +30,7 @@ ErrName reports a name [Write](#func-write) cannot write: DBC writes the names o
 func Parse(r io.Reader) (*candb.Database, []candb.Diagnostic, error)
 ```
 
-Parse parses DBC source. It returns the database, every diagnostic (info, warnings and errors, sorted by line) and, when any diagnostic is an error, a \*[ParseError](#type-parseerror): the database then describes only what could be parsed and validated.
+Parse parses DBC source. It returns the database, every diagnostic (info, warnings and errors, sorted by line) and, when any diagnostic is an error, a \*[ParseError](#type-parseerror): the database then describes only what could be parsed and validated. Source beyond the bounds of the package documentation is a \*[ParseError](#type-parseerror) too.
 
 ### func ParseBytes
 

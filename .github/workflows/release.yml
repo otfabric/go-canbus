@@ -25,4 +25,9 @@ jobs:
       bump: ${{ inputs.bump }}
       release-name-prefix: go-canbus
       update-major-tag: false
+      # Direct dependants, built, vetted and tested against the candidate
+      # before the tag is created.
+      consumers: |
+        otfabric/go-canopen
+        otfabric/canbusctl
     secrets: inherit

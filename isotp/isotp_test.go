@@ -13,6 +13,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/otfabric/go-canbus"
@@ -271,13 +272,95 @@ func TestReceptionErrors(t *testing.T) {
 	}
 }
 
+// injectFD sends a CAN FD frame of 12 bytes or more, padded with 0xCC to
+// the next CAN FD length.
+func injectFD(t *testing.T, p *virtual.Port, id canbus.ID, data ...byte) {
+	t.Helper()
+	for len(data) != canbus.RoundUpFDLen(len(data)) {
+		data = append(data, 0xCC)
+	}
+	f, err := canbus.NewFD(id, false, false, data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Send(context.Background(), &f); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestSingleFrameForms: a single frame is read in the short form (SF_DL in
+// the low nibble) from frames of up to 8 bytes and in the escape form
+// (nibble 0, SF_DL in the next byte) from CAN FD frames of more. The
+// other form in either frame is ignored, as the Linux kernel's receiver
+// ignores it (net/can/isotp.c, isotp_rcv).
+func TestSingleFrameForms(t *testing.T) {
+	const marker = 0x5A // the single frame that shows the ones before it were ignored
+	for name, mod := range map[string]func(a, b *Config){
+		"normal addressing":   func(a, b *Config) { b.FD, a.FD = true, true },
+		"extended addressing": func(a, b *Config) { b.FD, a.FD, a.Addressing, b.Addressing = true, true, Extended, Extended },
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, b, vb := pair(t, mod)
+			p := raw(t, vb)
+			ctx := ctxT(t)
+			var ae []byte // the address byte of extended addressing
+			if name == "extended addressing" {
+				ae = []byte{0x11}
+			}
+			frame := func(pci ...byte) []byte { return append(append([]byte(nil), ae...), pci...) }
+			want := func(what string, msg ...byte) {
+				t.Helper()
+				got, err := b.Receive(ctx)
+				if err != nil || !bytes.Equal(got, msg) {
+					t.Fatalf("%s: % X, %v; want % X", what, got, err, msg)
+				}
+			}
+			// Short form, SF_DL 1 to 7, in frames of more than 8 bytes:
+			// ignored. The marker is the next message received.
+			for l := byte(1); l <= 7; l++ {
+				injectFD(t, p, 0x7E0, frame(l, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7, 0xA8, 0xA9, 0xAA, 0xAB)...)
+			}
+			injectFD(t, p, 0x7E0, frame(0x03, 0xAA, 0xBB, 0xCC, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)...) // 16 bytes
+			injectFD(t, p, 0x7E0, frame(0x00, 0x01, marker, 0, 0, 0, 0, 0, 0, 0, 0, 0)...)
+			want("short form in a frame of 12 bytes or more", marker)
+			// Escape form in a frame of more than 8 bytes: read.
+			injectFD(t, p, 0x7E0, frame(0x00, 0x03, 0xAA, 0xBB, 0xCC, 0, 0, 0, 0, 0, 0, 0)...)
+			want("escape form in a 12-byte frame", 0xAA, 0xBB, 0xCC)
+			// Short form in a frame of up to 8 bytes: read.
+			var f canbus.Frame
+			f.ID = 0x7E0
+			f.SetPayload(frame(0x03, 0xAA, 0xBB, 0xCC))
+			if err := p.Send(ctx, &f); err != nil {
+				t.Fatal(err)
+			}
+			want("short form in a 4-byte frame", 0xAA, 0xBB, 0xCC)
+			// Escape form in a frame of up to 8 bytes: ignored.
+			f.SetPayload(frame(0x00, 0x03, 0xAA, 0xBB, 0xCC))
+			if err := p.Send(ctx, &f); err != nil {
+				t.Fatal(err)
+			}
+			f.SetPayload(frame(0x01, marker))
+			if err := p.Send(ctx, &f); err != nil {
+				t.Fatal(err)
+			}
+			want("escape form in a 5-byte frame", marker)
+		})
+	}
+}
+
 func TestSequenceWrap(t *testing.T) {
 	a, b, _ := pair(t, nil)
 	exchange(t, a, b, 6+7*40) // 40 CFs: SN wraps twice
 }
 
+// TestFlowControlTimeoutAndClose runs in a testing/synctest bubble: N_Bs
+// and the deadline take fake time, Close comes when the Receive is known
+// to wait (synctest.Wait), and a goroutine left behind fails the test.
 func TestFlowControlTimeoutAndClose(t *testing.T) {
-	leakcheck.Check(t)
+	synctest.Test(t, testFlowControlTimeoutAndClose)
+}
+
+func testFlowControlTimeoutAndClose(t *testing.T) {
 	vb := virtual.New(virtual.Config{})
 	defer vb.Close()
 	port, _ := vb.Open()
@@ -301,7 +384,7 @@ func TestFlowControlTimeoutAndClose(t *testing.T) {
 		_, err := c.Receive(context.Background())
 		errc <- err
 	}()
-	time.Sleep(10 * time.Millisecond)
+	synctest.Wait() // Receive waits for a message
 	c.Close()
 	c.Close()
 	if err := <-errc; !errors.Is(err, canbus.ErrClosed) {
