@@ -5,6 +5,19 @@ it computes the version, tags it and publishes this file's section of
 that version as the release notes. Add the section, headed exactly
 `## vX.Y.Z` and closed by a line `---`, before running it.
 
+## v0.11.1
+
+**Date:** 2026-11-16
+**Previous release:** v0.11.0
+
+No library code changes.
+
+### Changed
+
+- Built on go-serial v0.5.0 (was v0.4.1) (go-serial RELEASE.md, v0.5.0). This reaches the slcan transport. On Windows, `Close` ends a read or write in progress, and the port address must be a device name (`COM3`, `COM10`, `\\.\COM10`, a device interface name): another form is refused when the port is opened, and every port has a `COM` name. slcan already took both `serial.ErrTimeout` and `os.ErrDeadlineExceeded` as a time-out, so nothing else changes.
+
+---
+
 ## v0.11.0
 
 **Date:** 2026-11-15
